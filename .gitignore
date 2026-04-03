@@ -1,0 +1,32 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+btrfs-csi-driver
+
+# Test binary
+*.test
+
+# Coverage
+*.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Go
+vendor/
+
+# State files
+*.json
+
+# Loopback images (for integration tests)
+*.img
