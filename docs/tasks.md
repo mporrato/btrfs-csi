@@ -17,15 +17,15 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: Create `go.mod` with module path and required dependencies
 - **Acceptance Criteria**:
-  - [ ] `go.mod` exists with module `github.com/guru/btrfs-csi`
-  - [ ] Dependencies added: `container-storage-interface/spec`, `grpc`, `mount-utils`, `klog/v2`, `google/uuid`, `csi-test/v5`
-  - [ ] `go mod tidy` succeeds
+  - [x] `go.mod` exists with module `github.com/guru/btrfs-csi`
+  - [x] Dependencies added: `container-storage-interface/spec`, `grpc`, `mount-utils`, `klog/v2`, `google/uuid`, `csi-test/v5`
+  - [x] `go mod tidy` succeeds
 
 ### Task 1.2: Define `btrfs.Manager` interface
 
 - **Requirements**: Define the interface in `pkg/btrfs/btrfs.go` that abstracts all btrfs operations. This is a contract — no implementation yet.
 - **Acceptance Criteria**:
-  - [ ] `pkg/btrfs/btrfs.go` contains `Manager` interface with methods:
+  - [x] `pkg/btrfs/btrfs.go` contains `Manager` interface with methods:
     - `CreateSubvolume(path string) error`
     - `DeleteSubvolume(path string) error`
     - `SubvolumeExists(path string) (bool, error)`
@@ -35,34 +35,34 @@ Run `go test ./...` after every Green and Gray step.
     - `RemoveQgroupLimit(path string) error`
     - `GetQgroupUsage(path string) (*QgroupUsage, error)`
     - `GetFilesystemUsage(path string) (*FsUsage, error)`
-  - [ ] Supporting types defined: `QgroupUsage`, `FsUsage`
-  - [ ] Package compiles: `go build ./pkg/btrfs/`
+  - [x] Supporting types defined: `QgroupUsage`, `FsUsage`
+  - [x] Package compiles: `go build ./pkg/btrfs/`
 
 ### Task 1.3: Define `state.Store` interface and types
 
 - **Requirements**: Define the interface and data types in `pkg/state/state.go` for volume/snapshot metadata persistence.
 - **Acceptance Criteria**:
-  - [ ] `pkg/state/state.go` contains:
+  - [x] `pkg/state/state.go` contains:
     - `Volume` struct: ID, Name, CapacityBytes, SubvolumePath, SourceSnapID, SourceVolID, NodeID
     - `Snapshot` struct: ID, Name, SourceVolID, SnapshotPath, CreatedAt, SizeBytes, ReadyToUse
     - `Store` interface with: `GetVolume`, `GetVolumeByName`, `ListVolumes`, `SaveVolume`, `DeleteVolume`, `GetSnapshot`, `GetSnapshotByName`, `ListSnapshots`, `SaveSnapshot`, `DeleteSnapshot`
-  - [ ] Package compiles: `go build ./pkg/state/`
+  - [x] Package compiles: `go build ./pkg/state/`
 
 ### Task 1.4: Create mock `btrfs.Manager`
 
 - **Requirements**: Create `pkg/btrfs/mock.go` with a mock implementation for use in driver unit tests. The mock should record calls and return configurable results.
 - **Acceptance Criteria**:
-  - [ ] `MockManager` struct implements `Manager` interface
-  - [ ] Each method records its arguments and returns pre-configured error/results
-  - [ ] Package compiles: `go build ./pkg/btrfs/`
+  - [x] `MockManager` struct implements `Manager` interface
+  - [x] Each method records its arguments and returns pre-configured error/results
+  - [x] Package compiles: `go build ./pkg/btrfs/`
 
 ### Task 1.5: Create minimal `main.go`
 
 - **Requirements**: Entry point that parses CLI flags and exits. No gRPC server yet.
 - **Acceptance Criteria**:
-  - [ ] `cmd/btrfs-csi-driver/main.go` parses flags: `--endpoint`, `--nodeid`, `--root-path`, `--version`
-  - [ ] `go build ./cmd/btrfs-csi-driver/` produces a binary
-  - [ ] `./btrfs-csi-driver --help` shows flag descriptions
+  - [x] `cmd/btrfs-csi-driver/main.go` parses flags: `--endpoint`, `--nodeid`, `--root-path`, `--version`
+  - [x] `go build ./cmd/btrfs-csi-driver/` produces a binary
+  - [x] `./btrfs-csi-driver --help` shows flag descriptions
 
 ---
 
