@@ -84,5 +84,10 @@ func (s *memStore) DeleteSnapshot(id string) error {
 
 // newTestDriver creates a Driver wired with a MockManager and in-memory store for testing.
 func newTestDriver() *Driver {
-	return NewDriver(&btrfs.MockManager{}, newMemStore())
+	return NewDriver(&btrfs.MockManager{}, newMemStore(), "test-node", "/tmp/btrfs-csi-test")
+}
+
+// newTestDriverWithPath creates a Driver with a specific root path for testing.
+func newTestDriverWithPath(rootPath string) *Driver {
+	return NewDriver(&btrfs.MockManager{}, newMemStore(), "test-node", rootPath)
 }
