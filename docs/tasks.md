@@ -107,35 +107,35 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: Write failing tests in `pkg/state/state_test.go`.
 - **Acceptance Criteria**:
-  - [ ] `TestSaveAndGetVolume` — save a volume, retrieve by ID, fields match
-  - [ ] `TestGetVolumeByName` — save volume, retrieve by name
-  - [ ] `TestGetVolume_NotFound` — returns nil/false for unknown ID
-  - [ ] `TestDeleteVolume` — save, delete, confirm gone
-  - [ ] `TestListVolumes` — save 3 volumes, list returns all 3
-  - [ ] `TestVolumeOverwrite` — save same ID twice, second write wins
-  - [ ] `TestSaveAndGetSnapshot` — save a snapshot, retrieve by ID
-  - [ ] `TestGetSnapshotByName` — save snapshot, retrieve by name
-  - [ ] `TestDeleteSnapshot` — save, delete, confirm gone
-  - [ ] `TestListSnapshots` — save 3 snapshots, list returns all 3
-  - [ ] `TestPersistence` — save data, create new `FileStore` from same path, data survives
-  - [ ] All tests fail (RED)
+  - [x] `TestSaveAndGetVolume` — save a volume, retrieve by ID, fields match
+  - [x] `TestGetVolumeByName` — save volume, retrieve by name
+  - [x] `TestGetVolume_NotFound` — returns nil/false for unknown ID
+  - [x] `TestDeleteVolume` — save, delete, confirm gone
+  - [x] `TestListVolumes` — save 3 volumes, list returns all 3
+  - [x] `TestVolumeOverwrite` — save same ID twice, second write wins
+  - [x] `TestSaveAndGetSnapshot` — save a snapshot, retrieve by ID
+  - [x] `TestGetSnapshotByName` — save snapshot, retrieve by name
+  - [x] `TestDeleteSnapshot` — save, delete, confirm gone
+  - [x] `TestListSnapshots` — save 3 snapshots, list returns all 3
+  - [x] `TestPersistence` — save data, create new `FileStore` from same path, data survives
+  - [x] All tests fail (RED)
 
 ### Task 3.2: Green — Implement `FileStore`
 
 - **Requirements**: Implement `FileStore` in `pkg/state/state.go` backed by a JSON file. Mutex-protected, persists on every mutation.
 - **Acceptance Criteria**:
-  - [ ] `NewFileStore(path string)` constructor that loads existing state or starts empty
-  - [ ] All CRUD methods implemented for volumes and snapshots
-  - [ ] State persisted to `<path>/state.json` on every write
-  - [ ] `go test ./pkg/state/` passes — all tests GREEN
+  - [x] `NewFileStore(path string)` constructor that loads existing state or starts empty
+  - [x] All CRUD methods implemented for volumes and snapshots
+  - [x] State persisted to `<path>/state.json` on every write
+  - [x] `go test ./pkg/state/` passes — all tests GREEN
 
 ### Task 3.3: Gray — Refactor State layer
 
 - **Requirements**: Clean up serialization and error handling.
 - **Acceptance Criteria**:
-  - [ ] Persistence logic extracted into a single `save()` helper
-  - [ ] Consistent error wrapping
-  - [ ] `go test ./pkg/state/` still passes
+  - [x] Persistence logic extracted into a single `save()` helper
+  - [x] Consistent error wrapping
+  - [x] `go test ./pkg/state/` still passes
 
 ---
 

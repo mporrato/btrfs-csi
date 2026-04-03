@@ -1,6 +1,13 @@
 package state
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+)
 
 // Volume represents a btrfs subvolume used as a CSI volume.
 type Volume struct {
@@ -74,4 +81,229 @@ type Store interface {
 	// DeleteSnapshot removes the snapshot with the given ID.
 	// It is not an error to delete a snapshot that does not exist.
 	DeleteSnapshot(id string) error
+}
+
+// stateData is the JSON-serializable representation of the store's contents.
+type stateData struct {
+	Volumes   map[string]*Volume   `json:"volumes"`
+	Snapshots map[string]*Snapshot `json:"snapshots"`
+}
+
+// copyVolume returns a deep copy of a Volume.
+func copyVolume(v *Volume) *Volume {
+	if v == nil {
+		return nil
+	}
+	cp := *v
+	return &cp
+}
+
+// copySnapshot returns a deep copy of a Snapshot.
+func copySnapshot(s *Snapshot) *Snapshot {
+	if s == nil {
+		return nil
+	}
+	cp := *s
+	return &cp
+}
+
+// validateVolume checks that a Volume is valid for persistence.
+func validateVolume(v *Volume) error {
+	if v == nil {
+		return fmt.Errorf("volume is nil")
+	}
+	if v.ID == "" {
+		return fmt.Errorf("volume ID is empty")
+	}
+	return nil
+}
+
+// validateSnapshot checks that a Snapshot is valid for persistence.
+func validateSnapshot(s *Snapshot) error {
+	if s == nil {
+		return fmt.Errorf("snapshot is nil")
+	}
+	if s.ID == "" {
+		return fmt.Errorf("snapshot ID is empty")
+	}
+	return nil
+}
+
+// FileStore implements Store backed by a JSON file on disk.
+type FileStore struct {
+	mu   sync.Mutex
+	path string
+	data stateData
+}
+
+// maxStateFileSize is the maximum allowed size for the state file (10MB).
+const maxStateFileSize = 10 * 1024 * 1024
+
+// NewFileStore creates a FileStore at the given file path.
+// If the file already exists, it loads the existing state.
+// Otherwise, it starts with empty state.
+func NewFileStore(path string) (*FileStore, error) {
+	if path == "" {
+		return nil, fmt.Errorf("state file path is empty")
+	}
+
+	fs := &FileStore{
+		path: path,
+		data: stateData{
+			Volumes:   make(map[string]*Volume),
+			Snapshots: make(map[string]*Snapshot),
+		},
+	}
+
+	// Try to load existing state file.
+	if info, err := os.Stat(path); err == nil {
+		if info.Size() > maxStateFileSize {
+			return nil, fmt.Errorf("state file size %d exceeds limit %d", info.Size(), maxStateFileSize)
+		}
+		if err := fs.load(); err != nil {
+			return nil, err
+		}
+	}
+
+	return fs, nil
+}
+
+// load reads and unmarshals the state file into fs.data.
+// Caller must NOT hold fs.mu.
+func (fs *FileStore) load() error {
+	raw, err := os.ReadFile(fs.path)
+	if err != nil {
+		return fmt.Errorf("read state file: %w", err)
+	}
+	if err := json.Unmarshal(raw, &fs.data); err != nil {
+		return fmt.Errorf("unmarshal state: %w", err)
+	}
+	// Ensure maps are non-nil even if JSON had null/empty entries.
+	if fs.data.Volumes == nil {
+		fs.data.Volumes = make(map[string]*Volume)
+	}
+	if fs.data.Snapshots == nil {
+		fs.data.Snapshots = make(map[string]*Snapshot)
+	}
+	return nil
+}
+
+// save executes fn under the lock, then persists the state to disk.
+// This is the single entry point for all mutations.
+func (fs *FileStore) save(fn func()) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	fn()
+	return fs.persist()
+}
+
+// persist writes the current state to disk using atomic write pattern.
+// Caller must hold fs.mu.
+func (fs *FileStore) persist() error {
+	if err := os.MkdirAll(filepath.Dir(fs.path), 0o700); err != nil {
+		return fmt.Errorf("create state directory: %w", err)
+	}
+	raw, err := json.MarshalIndent(fs.data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal state: %w", err)
+	}
+
+	// Atomic write: write to temp file, then rename
+	tmpPath := fs.path + ".tmp"
+	if err := os.WriteFile(tmpPath, raw, 0o600); err != nil {
+		return fmt.Errorf("write temp state file: %w", err)
+	}
+	if err := os.Rename(tmpPath, fs.path); err != nil {
+		// Clean up temp file on rename failure
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename state file: %w", err)
+	}
+	return nil
+}
+
+func (fs *FileStore) GetVolume(id string) (*Volume, bool) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	v, ok := fs.data.Volumes[id]
+	return copyVolume(v), ok
+}
+
+func (fs *FileStore) GetVolumeByName(name string) (*Volume, bool) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	for _, v := range fs.data.Volumes {
+		if v.Name == name {
+			return copyVolume(v), true
+		}
+	}
+	return nil, false
+}
+
+func (fs *FileStore) ListVolumes() []*Volume {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	result := make([]*Volume, 0, len(fs.data.Volumes))
+	for _, v := range fs.data.Volumes {
+		result = append(result, copyVolume(v))
+	}
+	return result
+}
+
+func (fs *FileStore) SaveVolume(volume *Volume) error {
+	if err := validateVolume(volume); err != nil {
+		return err
+	}
+	return fs.save(func() {
+		fs.data.Volumes[volume.ID] = volume
+	})
+}
+
+func (fs *FileStore) DeleteVolume(id string) error {
+	return fs.save(func() {
+		delete(fs.data.Volumes, id)
+	})
+}
+
+func (fs *FileStore) GetSnapshot(id string) (*Snapshot, bool) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	s, ok := fs.data.Snapshots[id]
+	return copySnapshot(s), ok
+}
+
+func (fs *FileStore) GetSnapshotByName(name string) (*Snapshot, bool) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	for _, s := range fs.data.Snapshots {
+		if s.Name == name {
+			return copySnapshot(s), true
+		}
+	}
+	return nil, false
+}
+
+func (fs *FileStore) ListSnapshots() []*Snapshot {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	result := make([]*Snapshot, 0, len(fs.data.Snapshots))
+	for _, s := range fs.data.Snapshots {
+		result = append(result, copySnapshot(s))
+	}
+	return result
+}
+
+func (fs *FileStore) SaveSnapshot(snapshot *Snapshot) error {
+	if err := validateSnapshot(snapshot); err != nil {
+		return err
+	}
+	return fs.save(func() {
+		fs.data.Snapshots[snapshot.ID] = snapshot
+	})
+}
+
+func (fs *FileStore) DeleteSnapshot(id string) error {
+	return fs.save(func() {
+		delete(fs.data.Snapshots, id)
+	})
 }
