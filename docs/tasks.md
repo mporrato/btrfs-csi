@@ -74,28 +74,28 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: Write failing tests in `pkg/driver/identity_test.go` that define the expected behavior.
 - **Acceptance Criteria**:
-  - [ ] `TestGetPluginInfo` — asserts response contains name `btrfs.csi.local` and a non-empty version
-  - [ ] `TestGetPluginCapabilities` — asserts `CONTROLLER_SERVICE` capability is present
-  - [ ] `TestProbe` — asserts `Ready` is true
-  - [ ] All tests fail (RED) because implementation doesn't exist yet
-  - [ ] Tests use a `newTestDriver()` helper that creates a `Driver` with mock btrfs and in-memory state
+  - [x] `TestGetPluginInfo` — asserts response contains name `btrfs.csi.local` and a non-empty version
+  - [x] `TestGetPluginCapabilities` — asserts `CONTROLLER_SERVICE` capability is present
+  - [x] `TestProbe` — asserts `Ready` is true
+  - [x] All tests fail (RED) because implementation doesn't exist yet
+  - [x] Tests use a `newTestDriver()` helper that creates a `Driver` with mock btrfs and in-memory state
 
 ### Task 2.2: Green — Implement Identity service
 
 - **Requirements**: Write the minimum code in `pkg/driver/identity.go` and `pkg/driver/driver.go` to make all identity tests pass.
 - **Acceptance Criteria**:
-  - [ ] `Driver` struct defined in `driver.go` with `name`, `version`, `nodeID`, `rootPath`, `btrfs.Manager`, `state.Store` fields
-  - [ ] `NewDriver()` constructor exists
-  - [ ] `GetPluginInfo`, `GetPluginCapabilities`, `Probe` implemented
-  - [ ] `go test ./pkg/driver/` passes — all identity tests GREEN
+  - [x] `Driver` struct defined in `driver.go` with `name`, `version`, `nodeID`, `rootPath`, `btrfs.Manager`, `state.Store` fields
+  - [x] `NewDriver()` constructor exists
+  - [x] `GetPluginInfo`, `GetPluginCapabilities`, `Probe` implemented
+  - [x] `go test ./pkg/driver/` passes — all identity tests GREEN
 
 ### Task 2.3: Gray — Refactor Identity service
 
 - **Requirements**: Clean up test helpers and driver setup code.
 - **Acceptance Criteria**:
-  - [ ] Shared `newTestDriver()` helper is clean and reusable for future test files
-  - [ ] No duplication in test setup
-  - [ ] `go test ./pkg/driver/` still passes
+  - [x] Shared `newTestDriver()` helper is clean and reusable for future test files
+  - [x] No duplication in test setup
+  - [x] `go test ./pkg/driver/` still passes
 
 ---
 
