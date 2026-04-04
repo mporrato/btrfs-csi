@@ -35,6 +35,10 @@ type Driver struct {
 	btrfs.Manager
 	Store state.Store
 
+	// controllerMu serializes mutating controller operations (Create/Expand)
+	// to enforce idempotency guarantees under concurrent requests.
+	controllerMu sync.Mutex
+
 	qgroupCleanupMu    sync.Mutex
 	qgroupCleanupTimer *time.Timer
 }
@@ -121,7 +125,12 @@ func (d *Driver) Run(endpoint string) error {
 		return fmt.Errorf("listen on %s: %w", sockPath, err)
 	}
 
-	d.grpcServer = grpc.NewServer()
+	// Cap message sizes to prevent resource exhaustion from oversized requests.
+	const maxMsgSize = 4 * 1024 * 1024 // 4 MiB
+	d.grpcServer = grpc.NewServer(
+		grpc.MaxRecvMsgSize(maxMsgSize),
+		grpc.MaxSendMsgSize(maxMsgSize),
+	)
 	csi.RegisterIdentityServer(d.grpcServer, d)
 	csi.RegisterControllerServer(d.grpcServer, d)
 	csi.RegisterNodeServer(d.grpcServer, d)

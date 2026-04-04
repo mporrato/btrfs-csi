@@ -96,7 +96,7 @@ func (d *Driver) ListSnapshots(_ context.Context, req *csi.ListSnapshotsRequest)
 
 	// Filter by source volume ID if requested.
 	if req.SourceVolumeId != "" {
-		filtered := all[:0]
+		filtered := all[:0:0] // zero-capacity slice; appends allocate a fresh backing array
 		for _, s := range all {
 			if s.SourceVolID == req.SourceVolumeId {
 				filtered = append(filtered, s)
@@ -201,6 +201,9 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 		return nil, status.Error(codes.InvalidArgument, "volume capabilities are required")
 	}
 
+	d.controllerMu.Lock()
+	defer d.controllerMu.Unlock()
+
 	// Idempotency: return existing volume if one with the same name exists.
 	if existing, ok := d.Store.GetVolumeByName(req.Name); ok {
 		if err := validateContentSourceMatch(existing, req.VolumeContentSource); err != nil {
@@ -290,6 +293,9 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context, req *csi.Controller
 		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
 	}
 
+	d.controllerMu.Lock()
+	defer d.controllerMu.Unlock()
+
 	vol, ok := d.Store.GetVolume(req.VolumeId)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.VolumeId)
@@ -319,12 +325,13 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context, req *csi.Controller
 	}
 
 	// Update state.
+	oldCapacity := vol.CapacityBytes
 	vol.CapacityBytes = newCapacity
 	if err := d.Store.SaveVolume(vol); err != nil {
 		return nil, status.Errorf(codes.Internal, "save volume state: %v", err)
 	}
 
-	klog.V(4).InfoS("ControllerExpandVolume", "volumeID", req.VolumeId, "oldCapacity", vol.CapacityBytes, "newCapacity", newCapacity)
+	klog.V(4).InfoS("ControllerExpandVolume", "volumeID", req.VolumeId, "oldCapacity", oldCapacity, "newCapacity", newCapacity)
 	return &csi.ControllerExpandVolumeResponse{
 		CapacityBytes:         newCapacity,
 		NodeExpansionRequired: false,
@@ -381,6 +388,9 @@ func (d *Driver) CreateSnapshot(_ context.Context, req *csi.CreateSnapshotReques
 	if req.SourceVolumeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "source volume ID is required")
 	}
+
+	d.controllerMu.Lock()
+	defer d.controllerMu.Unlock()
 
 	// Idempotency: return existing snapshot if one with the same name exists.
 	if existing, ok := d.Store.GetSnapshotByName(req.Name); ok {

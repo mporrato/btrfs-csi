@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -411,5 +412,104 @@ func TestControllerGetVolume_NormalWhenPathExists(t *testing.T) {
 	}
 	if resp.Status.VolumeCondition.Abnormal {
 		t.Errorf("expected Abnormal=false when subvolume path exists, got message: %s", resp.Status.VolumeCondition.Message)
+	}
+}
+
+func TestCreateVolume_ConcurrentSameNameIdempotent(t *testing.T) {
+	d, mock, _ := newTestDriverWithMock()
+
+	req := &csi.CreateVolumeRequest{
+		Name:               "test-pvc-concurrent",
+		VolumeCapabilities: singleNodeWriterCap(),
+	}
+
+	const n = 20
+	volIDs := make([]string, n)
+	errs := make([]error, n)
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			resp, err := d.CreateVolume(context.Background(), req)
+			errs[i] = err
+			if err == nil {
+				volIDs[i] = resp.Volume.VolumeId
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: unexpected error: %v", i, err)
+		}
+	}
+	first := volIDs[0]
+	for i, id := range volIDs {
+		if id != first {
+			t.Errorf("goroutine %d returned volume ID %q, want %q", i, id, first)
+		}
+	}
+	if got := len(mock.CreateSubvolumeCalls); got != 1 {
+		t.Errorf("CreateSubvolume called %d times under concurrent requests, want exactly 1", got)
+	}
+}
+
+func TestCreateSnapshot_ConcurrentSameNameIdempotent(t *testing.T) {
+	d, mock, store := newTestDriverWithMock()
+
+	vol := &state.Volume{
+		ID:            "vol-src",
+		Name:          "source-pvc",
+		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-src",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	req := &csi.CreateSnapshotRequest{
+		SourceVolumeId: "vol-src",
+		Name:           "snap-concurrent",
+	}
+
+	const n = 20
+	snapIDs := make([]string, n)
+	errs := make([]error, n)
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			resp, err := d.CreateSnapshot(context.Background(), req)
+			errs[i] = err
+			if err == nil {
+				snapIDs[i] = resp.Snapshot.SnapshotId
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: unexpected error: %v", i, err)
+		}
+	}
+	first := snapIDs[0]
+	for i, id := range snapIDs {
+		if id != first {
+			t.Errorf("goroutine %d returned snapshot ID %q, want %q", i, id, first)
+		}
+	}
+	if got := len(mock.CreateSnapshotCalls); got != 1 {
+		t.Errorf("CreateSnapshot called %d times under concurrent requests, want exactly 1", got)
 	}
 }

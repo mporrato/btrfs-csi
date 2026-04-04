@@ -201,7 +201,8 @@ func (fs *FileStore) save(fn func()) error {
 // persist writes the current state to disk using atomic write pattern.
 // Caller must hold fs.mu.
 func (fs *FileStore) persist() error {
-	if err := os.MkdirAll(filepath.Dir(fs.path), 0o700); err != nil {
+	dir := filepath.Dir(fs.path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state directory: %w", err)
 	}
 	raw, err := json.MarshalIndent(fs.data, "", "  ")
@@ -209,13 +210,22 @@ func (fs *FileStore) persist() error {
 		return fmt.Errorf("marshal state: %w", err)
 	}
 
-	// Atomic write: write to temp file, then rename
-	tmpPath := fs.path + ".tmp"
-	if err := os.WriteFile(tmpPath, raw, 0o600); err != nil {
+	// Atomic write: use os.CreateTemp for an unpredictable name, then rename.
+	tmpFile, err := os.CreateTemp(dir, ".state-*.json.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp state file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	if _, err := tmpFile.Write(raw); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write temp state file: %w", err)
 	}
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("close temp state file: %w", err)
+	}
 	if err := os.Rename(tmpPath, fs.path); err != nil {
-		// Clean up temp file on rename failure
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename state file: %w", err)
 	}
@@ -254,8 +264,9 @@ func (fs *FileStore) SaveVolume(volume *Volume) error {
 	if err := validateVolume(volume); err != nil {
 		return err
 	}
+	cp := copyVolume(volume)
 	return fs.save(func() {
-		fs.data.Volumes[volume.ID] = volume
+		fs.data.Volumes[cp.ID] = cp
 	})
 }
 
@@ -297,8 +308,9 @@ func (fs *FileStore) SaveSnapshot(snapshot *Snapshot) error {
 	if err := validateSnapshot(snapshot); err != nil {
 		return err
 	}
+	cp := copySnapshot(snapshot)
 	return fs.save(func() {
-		fs.data.Snapshots[snapshot.ID] = snapshot
+		fs.data.Snapshots[cp.ID] = cp
 	})
 }
 

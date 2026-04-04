@@ -584,3 +584,42 @@ func TestListSnapshots_ReturnsDeepCopies(t *testing.T) {
 		t.Error("ListSnapshots returned references to internal state, want deep copies")
 	}
 }
+
+func TestSaveVolume_CallerMutationIsolated(t *testing.T) {
+	store := newTestStore(t)
+
+	vol := &Volume{ID: "vol-1", Name: "original"}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	// Mutate the original after saving — store should not reflect the change.
+	vol.Name = "mutated"
+
+	got, ok := store.GetVolume("vol-1")
+	if !ok {
+		t.Fatal("GetVolume returned false after SaveVolume")
+	}
+	if got.Name != "original" {
+		t.Errorf("store returned mutated name %q; SaveVolume must copy the input", got.Name)
+	}
+}
+
+func TestSaveSnapshot_CallerMutationIsolated(t *testing.T) {
+	store := newTestStore(t)
+
+	snap := &Snapshot{ID: "snap-1", Name: "original"}
+	if err := store.SaveSnapshot(snap); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+
+	snap.Name = "mutated"
+
+	got, ok := store.GetSnapshot("snap-1")
+	if !ok {
+		t.Fatal("GetSnapshot returned false after SaveSnapshot")
+	}
+	if got.Name != "original" {
+		t.Errorf("store returned mutated name %q; SaveSnapshot must copy the input", got.Name)
+	}
+}
