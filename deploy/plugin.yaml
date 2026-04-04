@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: btrfs-csi-driver
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: btrfs-csi-driver
+  template:
+    metadata:
+      labels:
+        app: btrfs-csi-driver
+    spec:
+      serviceAccountName: btrfs-csi-driver
+      hostNetwork: true
+      priorityClassName: system-node-critical
+      volumes:
+        - name: socket-dir
+          emptyDir: {}
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+            type: DirectoryOrCreate
+        - name: kubelet-pods-dir
+          hostPath:
+            path: /var/lib/kubelet/pods
+            type: DirectoryOrCreate
+        - name: btrfs-data-dir
+          hostPath:
+            path: /var/lib/btrfs-csi
+            type: DirectoryOrCreate
+      containers:
+        - name: btrfs-csi-driver
+          image: btrfs-csi-driver:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          args:
+            - --endpoint=unix:///csi/csi.sock
+            - --root-path=/var/lib/btrfs-csi
+            - --nodeid=$(NODE_NAME)
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: btrfs-data-dir
+              mountPath: /var/lib/btrfs-csi
+            - name: kubelet-pods-dir
+              mountPath: /var/lib/kubelet/pods
+              mountPropagation: Bidirectional
+
+        - name: node-driver-registrar
+          image: registry.k8s.io/sig-storage/node-driver-registrar:v2.10.0
+          args:
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path=/var/lib/kubelet/plugins/btrfs.csi.local/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+
+        - name: external-provisioner
+          image: registry.k8s.io/sig-storage/csi-provisioner:v4.0.0
+          args:
+            - --csi-address=/csi/csi.sock
+            - --feature-gates=Topology=true
+            - --extra-create-metadata
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+
+        - name: external-snapshotter
+          image: registry.k8s.io/sig-storage/csi-snapshotter:v8.0.0
+          args:
+            - --csi-address=/csi/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi

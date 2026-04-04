@@ -394,64 +394,64 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: Multi-stage build: Go builder stage → minimal runtime with btrfs-progs.
 - **Acceptance Criteria**:
-  - [ ] Builder stage compiles the binary with `CGO_ENABLED=0` (or appropriate flags)
-  - [ ] Runtime stage based on Fedora (or similar) with `btrfs-progs` and `util-linux` installed
-  - [ ] `docker build -t btrfs-csi-driver:latest .` succeeds
+  - [x] Builder stage compiles the binary with `CGO_ENABLED=0` (or appropriate flags)
+  - [x] Runtime stage based on Fedora (or similar) with `btrfs-progs` and `util-linux` installed
+  - [x] `docker build -t btrfs-csi-driver:latest .` succeeds
 
 ### Task 11.2: Create Makefile
 
 - **Requirements**: Standard build targets.
 - **Acceptance Criteria**:
-  - [ ] `make build` — compiles binary to `bin/btrfs-csi-driver`
-  - [ ] `make test` — runs `go test ./...`
-  - [ ] `make test-integration` — runs `go test -tags integration ./pkg/btrfs/`
-  - [ ] `make image` — builds Docker image
-  - [ ] `make deploy` — applies all manifests via `kubectl apply -f deploy/`
-  - [ ] `make clean` — removes build artifacts
+  - [x] `make build` — compiles binary to `bin/btrfs-csi-driver`
+  - [x] `make test` — runs `go test ./...`
+  - [x] `make test-integration` — runs `go test -tags integration ./pkg/btrfs/`
+  - [x] `make image` — builds Docker image
+  - [x] `make deploy` — applies all manifests via `kubectl apply -f deploy/`
+  - [x] `make clean` — removes build artifacts
 
 ### Task 11.3: Create CSIDriver manifest
 
 - **Requirements**: `deploy/csi-driver.yaml`
 - **Acceptance Criteria**:
-  - [ ] `CSIDriver` resource with name `btrfs.csi.local`
-  - [ ] `attachRequired: false`
-  - [ ] `volumeLifecycleModes: [Persistent]`
+  - [x] `CSIDriver` resource with name `btrfs.csi.local`
+  - [x] `attachRequired: false`
+  - [x] `volumeLifecycleModes: [Persistent]`
 
 ### Task 11.4: Create RBAC manifests
 
 - **Requirements**: `deploy/rbac.yaml`
 - **Acceptance Criteria**:
-  - [ ] `ServiceAccount` in `kube-system`
-  - [ ] `ClusterRole` with permissions for: persistentvolumes, persistentvolumeclaims, storageclasses, events, volumesnapshots, volumesnapshotcontents, volumesnapshotclasses
-  - [ ] `ClusterRoleBinding` linking them
+  - [x] `ServiceAccount` in `kube-system`
+  - [x] `ClusterRole` with permissions for: persistentvolumes, persistentvolumeclaims, storageclasses, events, volumesnapshots, volumesnapshotcontents, volumesnapshotclasses
+  - [x] `ClusterRoleBinding` linking them
 
 ### Task 11.5: Create DaemonSet manifest
 
 - **Requirements**: `deploy/plugin.yaml`
 - **Acceptance Criteria**:
-  - [ ] DaemonSet in `kube-system` with 4 containers:
+  - [x] DaemonSet in `kube-system` with 4 containers:
     - `btrfs-csi-driver` (privileged, mounts: host btrfs path, `/csi` emptyDir, kubelet pods dir with bidirectional mount propagation)
     - `node-driver-registrar` (mounts: `/csi`, `/registration` hostPath)
     - `external-provisioner` (mounts: `/csi`)
     - `external-snapshotter` (mounts: `/csi`)
-  - [ ] Correct socket paths and args for all containers
-  - [ ] `NODE_NAME` env var from downward API
+  - [x] Correct socket paths and args for all containers
+  - [x] `NODE_NAME` env var from downward API
 
 ### Task 11.6: Create StorageClass manifest
 
 - **Requirements**: `deploy/storageclass.yaml`
 - **Acceptance Criteria**:
-  - [ ] StorageClass `btrfs` with provisioner `btrfs.csi.local`
-  - [ ] `volumeBindingMode: WaitForFirstConsumer`
-  - [ ] `reclaimPolicy: Delete`
-  - [ ] `allowVolumeExpansion: true`
+  - [x] StorageClass `btrfs` with provisioner `btrfs.csi.local`
+  - [x] `volumeBindingMode: WaitForFirstConsumer`
+  - [x] `reclaimPolicy: Delete`
+  - [x] `allowVolumeExpansion: true`
 
 ### Task 11.7: Create VolumeSnapshotClass manifest
 
 - **Requirements**: `deploy/snapshotclass.yaml`
 - **Acceptance Criteria**:
-  - [ ] VolumeSnapshotClass `btrfs-snapshot` with driver `btrfs.csi.local`
-  - [ ] `deletionPolicy: Delete`
+  - [x] VolumeSnapshotClass `btrfs-snapshot` with driver `btrfs.csi.local`
+  - [x] `deletionPolicy: Delete`
 
 ---
 
