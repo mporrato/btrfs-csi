@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,19 +76,64 @@ func (d *Driver) ListVolumes(_ context.Context, req *csi.ListVolumesRequest) (*c
 	return &csi.ListVolumesResponse{Entries: entries}, nil
 }
 
-// ListSnapshots returns all snapshots known to this driver.
-// Pagination is not supported: if a starting_token is provided the request is
-// rejected. TODO: add pagination support if snapshot counts grow large.
+// ListSnapshots returns snapshots known to this driver, with optional filtering
+// by snapshot ID or source volume ID. Supports max_entries and starting_token
+// for pagination; the token is a numeric offset into the sorted snapshot list.
+// TODO: consider cursor-based tokens if snapshot ordering changes under load.
 func (d *Driver) ListSnapshots(_ context.Context, req *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
-	if req.StartingToken != "" {
-		return nil, status.Error(codes.Aborted, "pagination not supported")
+	// Fast path: single snapshot lookup by ID.
+	if req.SnapshotId != "" {
+		snap, ok := d.Store.GetSnapshot(req.SnapshotId)
+		if !ok {
+			return &csi.ListSnapshotsResponse{}, nil
+		}
+		return &csi.ListSnapshotsResponse{
+			Entries: []*csi.ListSnapshotsResponse_Entry{{Snapshot: toCSISnapshot(snap)}},
+		}, nil
 	}
-	snaps := d.Store.ListSnapshots()
-	entries := make([]*csi.ListSnapshotsResponse_Entry, 0, len(snaps))
-	for _, s := range snaps {
+
+	all := d.Store.ListSnapshots()
+
+	// Filter by source volume ID if requested.
+	if req.SourceVolumeId != "" {
+		filtered := all[:0]
+		for _, s := range all {
+			if s.SourceVolID == req.SourceVolumeId {
+				filtered = append(filtered, s)
+			}
+		}
+		all = filtered
+	}
+
+	// Sort by ID for stable pagination.
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	// Apply starting token (numeric offset).
+	start := 0
+	if req.StartingToken != "" {
+		idx, err := strconv.Atoi(req.StartingToken)
+		if err != nil || idx < 0 {
+			return nil, status.Errorf(codes.Aborted, "invalid starting_token: %q", req.StartingToken)
+		}
+		start = idx
+	}
+	if start >= len(all) {
+		return &csi.ListSnapshotsResponse{}, nil
+	}
+	all = all[start:]
+
+	// Apply max_entries limit and set next token if more remain.
+	var nextToken string
+	if req.MaxEntries > 0 && int(req.MaxEntries) < len(all) {
+		all = all[:req.MaxEntries]
+		nextToken = strconv.Itoa(start + int(req.MaxEntries))
+	}
+
+	entries := make([]*csi.ListSnapshotsResponse_Entry, 0, len(all))
+	for _, s := range all {
 		entries = append(entries, &csi.ListSnapshotsResponse_Entry{Snapshot: toCSISnapshot(s)})
 	}
-	return &csi.ListSnapshotsResponse{Entries: entries}, nil
+	return &csi.ListSnapshotsResponse{Entries: entries, NextToken: nextToken}, nil
 }
 
 func (d *Driver) ControllerGetVolume(_ context.Context, req *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {

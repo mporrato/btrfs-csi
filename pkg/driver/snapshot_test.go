@@ -483,11 +483,107 @@ func TestListSnapshots_ReturnsAll(t *testing.T) {
 	}
 }
 
-func TestListSnapshots_PaginationTokenRejected(t *testing.T) {
+func TestListSnapshots_InvalidTokenRejected(t *testing.T) {
 	d := newTestDriver()
 
-	_, err := d.ListSnapshots(context.Background(), &csi.ListSnapshotsRequest{StartingToken: "some-token"})
+	_, err := d.ListSnapshots(context.Background(), &csi.ListSnapshotsRequest{StartingToken: "not-a-number"})
 	if code := status.Code(err); code != codes.Aborted {
-		t.Errorf("expected Aborted for pagination token, got %v", code)
+		t.Errorf("expected Aborted for invalid token, got %v", code)
+	}
+}
+
+func TestListSnapshots_FilterBySnapshotID(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	for _, s := range []*state.Snapshot{
+		{ID: "snap-1", Name: "snap-pvc-1", SourceVolID: "vol-1", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-1", ReadyToUse: true},
+		{ID: "snap-2", Name: "snap-pvc-2", SourceVolID: "vol-2", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-2", ReadyToUse: true},
+		{ID: "snap-3", Name: "snap-pvc-3", SourceVolID: "vol-3", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-3", ReadyToUse: true},
+	} {
+		if err := store.SaveSnapshot(s); err != nil {
+			t.Fatalf("SaveSnapshot: %v", err)
+		}
+	}
+
+	resp, err := d.ListSnapshots(context.Background(), &csi.ListSnapshotsRequest{SnapshotId: "snap-2"})
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(resp.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(resp.Entries))
+	}
+	if resp.Entries[0].Snapshot.SnapshotId != "snap-2" {
+		t.Errorf("got snapshot %q, want snap-2", resp.Entries[0].Snapshot.SnapshotId)
+	}
+}
+
+func TestListSnapshots_FilterBySnapshotID_NotFound(t *testing.T) {
+	d := newTestDriver()
+
+	resp, err := d.ListSnapshots(context.Background(), &csi.ListSnapshotsRequest{SnapshotId: "snap-nonexistent"})
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(resp.Entries) != 0 {
+		t.Errorf("expected 0 entries, got %d", len(resp.Entries))
+	}
+}
+
+func TestListSnapshots_FilterBySourceVolumeID(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	for _, s := range []*state.Snapshot{
+		{ID: "snap-1", Name: "snap-pvc-1", SourceVolID: "vol-1", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-1", ReadyToUse: true},
+		{ID: "snap-2", Name: "snap-pvc-2", SourceVolID: "vol-target", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-2", ReadyToUse: true},
+		{ID: "snap-3", Name: "snap-pvc-3", SourceVolID: "vol-3", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-3", ReadyToUse: true},
+	} {
+		if err := store.SaveSnapshot(s); err != nil {
+			t.Fatalf("SaveSnapshot: %v", err)
+		}
+	}
+
+	resp, err := d.ListSnapshots(context.Background(), &csi.ListSnapshotsRequest{SourceVolumeId: "vol-target"})
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(resp.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(resp.Entries))
+	}
+	if resp.Entries[0].Snapshot.SourceVolumeId != "vol-target" {
+		t.Errorf("got source vol %q, want vol-target", resp.Entries[0].Snapshot.SourceVolumeId)
+	}
+}
+
+func TestListSnapshots_MaxEntries(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	for _, s := range []*state.Snapshot{
+		{ID: "snap-1", Name: "snap-1", SourceVolID: "vol-1", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-1", ReadyToUse: true},
+		{ID: "snap-2", Name: "snap-2", SourceVolID: "vol-2", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-2", ReadyToUse: true},
+		{ID: "snap-3", Name: "snap-3", SourceVolID: "vol-3", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-3", ReadyToUse: true},
+	} {
+		if err := store.SaveSnapshot(s); err != nil {
+			t.Fatalf("SaveSnapshot: %v", err)
+		}
+	}
+
+	resp, err := d.ListSnapshots(context.Background(), &csi.ListSnapshotsRequest{MaxEntries: 2})
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(resp.Entries) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(resp.Entries))
+	}
+	if resp.NextToken == "" {
+		t.Error("expected NextToken to be set when more entries exist")
+	}
+
+	// Fetch the rest using the token.
+	resp2, err := d.ListSnapshots(context.Background(), &csi.ListSnapshotsRequest{StartingToken: resp.NextToken})
+	if err != nil {
+		t.Fatalf("ListSnapshots page 2: %v", err)
+	}
+	if len(resp2.Entries) != 1 {
+		t.Errorf("expected 1 entry on page 2, got %d", len(resp2.Entries))
+	}
+	if resp2.NextToken != "" {
+		t.Errorf("expected no NextToken on last page, got %q", resp2.NextToken)
 	}
 }
