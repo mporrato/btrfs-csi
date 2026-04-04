@@ -18,6 +18,14 @@ repos:
       - id: trailing-whitespace
   - repo: local
     hooks:
+      - id: go-mod-tidy
+        name: go mod tidy
+        entry: go mod tidy
+        language: system
+        types: [go]
+        require_serial: true
+        pass_filenames: false
+
       - id: go-fmt
         name: go fmt
         entry: gofmt -w

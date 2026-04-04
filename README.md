@@ -47,7 +47,7 @@ This is a **single-node** CSI driver designed for local storage. It does not imp
 
 ## Prerequisites
 
-- Go 1.21+
+- Go 1.25+
 - btrfs-progs utilities
 - Kubernetes cluster (single-node like k0s recommended)
 - Root access (required for btrfs operations and mount)
