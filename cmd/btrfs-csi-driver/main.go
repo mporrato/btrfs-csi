@@ -36,6 +36,7 @@ func run(args []string) error {
 // It is the core implementation that can be tested without relying on OS signals.
 func runWithContext(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("btrfs-csi-driver", flag.ContinueOnError)
+	klog.InitFlags(fs)
 
 	var (
 		endpoint = fs.String("endpoint", "unix:///csi/csi.sock", "CSI endpoint")
@@ -57,10 +58,7 @@ func runWithContext(ctx context.Context, args []string) error {
 		*nodeID = uuid.New().String()
 	}
 
-	klog.Infof("Starting btrfs-csi-driver")
-	klog.Infof("Endpoint: %s", *endpoint)
-	klog.Infof("Node ID: %s", *nodeID)
-	klog.Infof("Root path: %s", *rootPath)
+	klog.InfoS("Starting btrfs-csi-driver", "endpoint", *endpoint, "nodeID", *nodeID, "rootPath", *rootPath)
 
 	// Ensure socket directory exists with restrictive permissions
 	socketPath := strings.TrimPrefix(*endpoint, "unix://")
@@ -91,7 +89,7 @@ func runWithContext(ctx context.Context, args []string) error {
 	// Wait for context cancellation or driver error
 	select {
 	case <-ctx.Done():
-		klog.Infof("Context cancelled, shutting down")
+		klog.InfoS("Context cancelled, shutting down")
 		drv.Stop()
 		// Wait for Run() to return after Stop()
 		if err := <-errCh; err != nil {
@@ -103,6 +101,6 @@ func runWithContext(ctx context.Context, args []string) error {
 		}
 	}
 
-	klog.Infof("Driver stopped successfully")
+	klog.InfoS("Driver stopped successfully")
 	return nil
 }
