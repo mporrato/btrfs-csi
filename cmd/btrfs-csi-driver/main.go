@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -23,9 +24,17 @@ func main() {
 	}
 }
 
-// run parses flags, creates the driver, and runs it until SIGTERM.
+// run creates an OS-signal context and delegates to runWithContext.
 // It is separated from main() to make testing easier.
 func run(args []string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	return runWithContext(ctx, args)
+}
+
+// runWithContext parses flags, creates the driver, and runs it until the context is cancelled.
+// It is the core implementation that can be tested without relying on OS signals.
+func runWithContext(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("btrfs-csi-driver", flag.ContinueOnError)
 
 	var (
@@ -73,20 +82,16 @@ func run(args []string) error {
 	// Create driver
 	drv := driver.NewDriver(mgr, store, *nodeID, *rootPath)
 
-	// Handle SIGTERM for graceful shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-
 	// Start driver in a goroutine
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- drv.Run(*endpoint)
 	}()
 
-	// Wait for signal or error
+	// Wait for context cancellation or driver error
 	select {
-	case sig := <-sigCh:
-		klog.Infof("Received signal %v, shutting down", sig)
+	case <-ctx.Done():
+		klog.Infof("Context cancelled, shutting down")
 		drv.Stop()
 		// Wait for Run() to return after Stop()
 		if err := <-errCh; err != nil {

@@ -62,7 +62,9 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID, rootPath string) *D
 }
 
 // parseEndpoint extracts the socket path from a CSI endpoint string.
-// Supported formats: "unix:///path/to/socket" or "unix:/path/to/socket".
+// Supported format: "unix:///path/to/socket" (triple-slash for absolute paths).
+// The "unix://" prefix is stripped, so "unix:///abs/path" becomes "/abs/path".
+// The single-slash form "unix:/path" is not supported.
 func parseEndpoint(endpoint string) (string, error) {
 	if !strings.HasPrefix(endpoint, "unix://") {
 		return "", fmt.Errorf("unsupported endpoint scheme: %q (expected unix://)", endpoint)

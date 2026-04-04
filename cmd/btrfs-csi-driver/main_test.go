@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -31,35 +31,46 @@ func TestRunCreatesSocketDirectory(t *testing.T) {
 	// Create a temporary root path for state
 	rootPath := filepath.Join(tmpDir, "root")
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Run in a goroutine since it blocks
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- run([]string{
+		errCh <- runWithContext(ctx, []string{
 			"--endpoint", endpoint,
 			"--root-path", rootPath,
 			"--nodeid", "test-node",
 		})
 	}()
 
-	// Wait a bit for the socket to be created
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the socket to appear (proper readiness probe, no fixed sleep)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for driver socket to appear")
+		}
+		if _, err := os.Stat(socketPath); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
-	// Check if socket directory was created
+	// Socket directory must have been created as a side-effect
 	if _, err := os.Stat(socketDir); os.IsNotExist(err) {
 		t.Errorf("socket directory should have been created")
 	}
 
-	// Send SIGTERM to stop the driver
-	p, _ := os.FindProcess(os.Getpid())
-	p.Signal(syscall.SIGTERM)
+	// Cancel context to stop the driver — no process-wide signal
+	cancel()
 
-	// Wait for run to return
+	// Wait for runWithContext to return
 	select {
 	case err := <-errCh:
 		if err != nil {
-			t.Errorf("run should not return error after SIGTERM, got: %v", err)
+			t.Errorf("runWithContext should return nil after context cancellation, got: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("run did not return after SIGTERM")
+		t.Fatal("runWithContext did not return after context cancellation")
 	}
 }
