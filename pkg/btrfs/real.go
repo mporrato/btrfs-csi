@@ -39,27 +39,31 @@ func (m *RealManager) CreateSubvolume(path string) error {
 
 func (m *RealManager) DeleteSubvolume(path string) error {
 	// Capture the subvolume ID before deletion so we can destroy its qgroup afterward.
-	// Qgroup destruction must happen after subvolume deletion (the qgroup is "in use"
-	// while the subvolume exists), using the parent directory as the filesystem path.
-	var qgroupID string
+	var subvolID uint64
 	if showOut, err := runCommand("btrfs", "subvolume", "show", path); err == nil {
-		if subvolID, err := parseSubvolumeID(showOut); err == nil {
-			qgroupID = fmt.Sprintf("0/%d", subvolID)
-		}
+		subvolID, _ = parseSubvolumeID(showOut)
 	}
 
 	if _, err := runCommand("btrfs", "subvolume", "delete", path); err != nil {
 		return fmt.Errorf("delete subvolume %s: %w", path, err)
 	}
 
-	// Best-effort: destroy the qgroup using the parent directory (still on the filesystem).
-	// With traditional quotas this removes the stale entry; with simple quotas (squota,
-	// kernel 6.7+) the kernel manages qgroup lifecycle automatically and this call will
-	// return "Device or resource busy" — that's expected and harmless.
-	if qgroupID != "" {
-		parent := filepath.Dir(path)
-		runCommand("btrfs", "qgroup", "destroy", qgroupID, parent) //nolint:errcheck
+	if subvolID == 0 {
+		return nil
 	}
+
+	parent := filepath.Dir(path)
+
+	// btrfs subvolume deletion is asynchronous: the command returns immediately but
+	// the kernel completes the work in the background. The qgroup stays attached to
+	// the subvolume ID until that background work finishes, so qgroup destroy would
+	// return EBUSY if called too soon. Sync first to wait for the deletion to commit.
+	runCommand("btrfs", "subvolume", "sync", parent, strconv.FormatUint(subvolID, 10)) //nolint:errcheck
+
+	// Best-effort qgroup cleanup. Errors are ignored: if quotas are not enabled or
+	// the qgroup was already removed, there is nothing to do.
+	runCommand("btrfs", "qgroup", "destroy", fmt.Sprintf("0/%d", subvolID), parent) //nolint:errcheck
+
 	return nil
 }
 
