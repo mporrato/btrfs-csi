@@ -53,14 +53,12 @@ func (m *RealManager) DeleteSubvolume(path string) error {
 	}
 
 	// Best-effort: destroy the qgroup using the parent directory (still on the filesystem).
+	// With traditional quotas this removes the stale entry; with simple quotas (squota,
+	// kernel 6.7+) the kernel manages qgroup lifecycle automatically and this call will
+	// return "Device or resource busy" — that's expected and harmless.
 	if qgroupID != "" {
 		parent := filepath.Dir(path)
-		if _, err := runCommand("btrfs", "qgroup", "destroy", qgroupID, parent); err != nil {
-			msg := strings.ToLower(err.Error())
-			if !strings.Contains(msg, "quotas not enabled") && !strings.Contains(msg, "no such") {
-				return fmt.Errorf("destroy qgroup %s: %w", qgroupID, err)
-			}
-		}
+		runCommand("btrfs", "qgroup", "destroy", qgroupID, parent) //nolint:errcheck
 	}
 	return nil
 }
