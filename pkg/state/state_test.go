@@ -19,6 +19,22 @@ func newTestStore(t *testing.T) *FileStore {
 	return store
 }
 
+func TestVolumePath(t *testing.T) {
+	vol := &Volume{ID: "abc123", BasePath: "/var/lib/btrfs-csi"}
+	want := "/var/lib/btrfs-csi/volumes/abc123"
+	if got := vol.Path(); got != want {
+		t.Errorf("Path() = %q, want %q", got, want)
+	}
+}
+
+func TestSnapshotPath(t *testing.T) {
+	snap := &Snapshot{ID: "snap-1", BasePath: "/mnt/data"}
+	want := "/mnt/data/snapshots/snap-1"
+	if got := snap.Path(); got != want {
+		t.Errorf("Path() = %q, want %q", got, want)
+	}
+}
+
 func TestSaveAndGetVolume(t *testing.T) {
 	store := newTestStore(t)
 
@@ -26,7 +42,7 @@ func TestSaveAndGetVolume(t *testing.T) {
 		ID:            "vol-1",
 		Name:          "pvc-abc",
 		CapacityBytes: 1024 * 1024 * 100,
-		SubvolumePath: "/var/lib/btrfs-csi/volumes/vol-1",
+		BasePath:      "/var/lib/btrfs-csi",
 		NodeID:        "node-1",
 	}
 
@@ -47,8 +63,11 @@ func TestSaveAndGetVolume(t *testing.T) {
 	if got.CapacityBytes != vol.CapacityBytes {
 		t.Errorf("CapacityBytes = %d, want %d", got.CapacityBytes, vol.CapacityBytes)
 	}
-	if got.SubvolumePath != vol.SubvolumePath {
-		t.Errorf("SubvolumePath = %q, want %q", got.SubvolumePath, vol.SubvolumePath)
+	if got.BasePath != vol.BasePath {
+		t.Errorf("BasePath = %q, want %q", got.BasePath, vol.BasePath)
+	}
+	if got.Path() != vol.Path() {
+		t.Errorf("Path() = %q, want %q", got.Path(), vol.Path())
 	}
 	if got.NodeID != vol.NodeID {
 		t.Errorf("NodeID = %q, want %q", got.NodeID, vol.NodeID)
@@ -181,13 +200,13 @@ func TestSaveAndGetSnapshot(t *testing.T) {
 	store := newTestStore(t)
 
 	snap := &Snapshot{
-		ID:           "snap-1",
-		Name:         "backup-1",
-		SourceVolID:  "vol-1",
-		SnapshotPath: "/var/lib/btrfs-csi/snapshots/snap-1",
-		CreatedAt:    time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC),
-		SizeBytes:    512,
-		ReadyToUse:   true,
+		ID:          "snap-1",
+		Name:        "backup-1",
+		SourceVolID: "vol-1",
+		BasePath:    "/var/lib/btrfs-csi",
+		CreatedAt:   time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC),
+		SizeBytes:   512,
+		ReadyToUse:  true,
 	}
 
 	if err := store.SaveSnapshot(snap); err != nil {
@@ -207,8 +226,11 @@ func TestSaveAndGetSnapshot(t *testing.T) {
 	if got.SourceVolID != snap.SourceVolID {
 		t.Errorf("SourceVolID = %q, want %q", got.SourceVolID, snap.SourceVolID)
 	}
-	if got.SnapshotPath != snap.SnapshotPath {
-		t.Errorf("SnapshotPath = %q, want %q", got.SnapshotPath, snap.SnapshotPath)
+	if got.BasePath != snap.BasePath {
+		t.Errorf("BasePath = %q, want %q", got.BasePath, snap.BasePath)
+	}
+	if got.Path() != snap.Path() {
+		t.Errorf("Path() = %q, want %q", got.Path(), snap.Path())
 	}
 	if !got.CreatedAt.Equal(snap.CreatedAt) {
 		t.Errorf("CreatedAt = %v, want %v", got.CreatedAt, snap.CreatedAt)

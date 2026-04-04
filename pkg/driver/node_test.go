@@ -74,9 +74,9 @@ func TestNodePublishVolume_Success(t *testing.T) {
 
 	// Create a volume in state
 	vol := &state.Volume{
-		ID:            "vol-123",
-		Name:          "test-pvc",
-		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-123",
+		ID:       "vol-123",
+		Name:     "test-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -112,8 +112,8 @@ func TestNodePublishVolume_Success(t *testing.T) {
 		t.Fatalf("expected 1 Mount call, got %d", len(mounter.MountCalls))
 	}
 	call := mounter.MountCalls[0]
-	if call.Source != vol.SubvolumePath {
-		t.Errorf("Mount source = %q, want %q", call.Source, vol.SubvolumePath)
+	if call.Source != vol.Path() {
+		t.Errorf("Mount source = %q, want %q", call.Source, vol.Path())
 	}
 	if call.Target != targetPath {
 		t.Errorf("Mount target = %q, want %q", call.Target, targetPath)
@@ -127,9 +127,9 @@ func TestNodePublishVolume_Readonly(t *testing.T) {
 	d, _, mounter, store := newTestDriverWithMounter()
 
 	vol := &state.Volume{
-		ID:            "vol-readonly",
-		Name:          "test-pvc-ro",
-		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-readonly",
+		ID:       "vol-readonly",
+		Name:     "test-pvc-ro",
+		BasePath: "/tmp/btrfs-csi-test",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -328,9 +328,9 @@ func TestNodeGetVolumeStats(t *testing.T) {
 
 	// Create a volume in state
 	vol := &state.Volume{
-		ID:            "vol-stats",
-		Name:          "test-pvc",
-		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-stats",
+		ID:       "vol-stats",
+		Name:     "test-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -390,8 +390,8 @@ func TestNodeGetVolumeStats(t *testing.T) {
 	if len(mock.GetQgroupUsageCalls) != 1 {
 		t.Fatalf("expected 1 GetQgroupUsage call, got %d", len(mock.GetQgroupUsageCalls))
 	}
-	if mock.GetQgroupUsageCalls[0] != vol.SubvolumePath {
-		t.Errorf("GetQgroupUsage path = %q, want %q", mock.GetQgroupUsageCalls[0], vol.SubvolumePath)
+	if mock.GetQgroupUsageCalls[0] != vol.Path() {
+		t.Errorf("GetQgroupUsage path = %q, want %q", mock.GetQgroupUsageCalls[0], vol.Path())
 	}
 }
 
@@ -441,9 +441,9 @@ func TestNodePublishVolume_AlreadyMounted(t *testing.T) {
 	d, _, mounter, store := newTestDriverWithMounter()
 
 	vol := &state.Volume{
-		ID:            "vol-already",
-		Name:          "test-pvc",
-		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-already",
+		ID:       "vol-already",
+		Name:     "test-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -489,9 +489,9 @@ func TestNodePublishVolume_PathTraversal(t *testing.T) {
 	d, _, _, store := newTestDriverWithMounter()
 
 	vol := &state.Volume{
-		ID:            "vol-traversal",
-		Name:          "test-pvc",
-		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-traversal",
+		ID:       "vol-traversal",
+		Name:     "test-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -589,9 +589,9 @@ func TestNodeGetVolumeStats_GetQgroupUsageError(t *testing.T) {
 	d, mock, mounter, store := newTestDriverWithMounter()
 
 	vol := &state.Volume{
-		ID:            "vol-qgroup-err",
-		Name:          "test-pvc",
-		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-qgroup-err",
+		ID:       "vol-qgroup-err",
+		Name:     "test-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -654,9 +654,9 @@ func TestNodePublishVolume_BindMountOption(t *testing.T) {
 	d, _, mounter, store := newTestDriverWithMounter()
 
 	vol := &state.Volume{
-		ID:            "vol-bind",
-		Name:          "test-pvc",
-		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-bind",
+		ID:       "vol-bind",
+		Name:     "test-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -707,9 +707,9 @@ func TestNodeGetVolumeStats_PathNotMounted(t *testing.T) {
 	d, _, mounter, store := newTestDriverWithMounter()
 
 	vol := &state.Volume{
-		ID:            "vol-notmounted",
-		Name:          "test-pvc",
-		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-notmounted",
+		ID:       "vol-notmounted",
+		Name:     "test-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -739,9 +739,9 @@ func TestNodePublishVolume_MountError(t *testing.T) {
 	mounter.MountErr = fmt.Errorf("mount failed: device busy")
 
 	vol := &state.Volume{
-		ID:            "vol-mounterr",
-		Name:          "test-pvc",
-		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-mounterr",
+		ID:       "vol-mounterr",
+		Name:     "test-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)

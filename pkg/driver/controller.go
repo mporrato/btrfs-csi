@@ -145,7 +145,7 @@ func (d *Driver) ControllerGetVolume(_ context.Context, req *csi.ControllerGetVo
 		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.VolumeId)
 	}
 	condition := &csi.VolumeCondition{Message: "volume is healthy"}
-	if _, err := os.Stat(vol.SubvolumePath); err != nil {
+	if _, err := os.Stat(vol.Path()); err != nil {
 		condition.Abnormal = true
 		condition.Message = "subvolume path does not exist on disk"
 	}
@@ -227,22 +227,20 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 	if err != nil {
 		return nil, err
 	}
-	id := uuid.New().String()
-	subvolPath := filepath.Join(basePath, "volumes", id)
-
-	if err := os.MkdirAll(filepath.Dir(subvolPath), 0o755); err != nil {
-		return nil, status.Errorf(codes.Internal, "create volumes directory: %v", err)
-	}
 
 	vol := &state.Volume{
-		ID:            id,
+		ID:            uuid.New().String(),
 		Name:          req.Name,
 		CapacityBytes: capacityBytes,
-		SubvolumePath: subvolPath,
+		BasePath:      basePath,
 		NodeID:        d.nodeID,
 	}
 
-	if err := d.provisionVolume(subvolPath, req.VolumeContentSource, vol); err != nil {
+	if err := os.MkdirAll(filepath.Dir(vol.Path()), 0o755); err != nil {
+		return nil, status.Errorf(codes.Internal, "create volumes directory: %v", err)
+	}
+
+	if err := d.provisionVolume(vol.Path(), req.VolumeContentSource, vol); err != nil {
 		return nil, err
 	}
 
@@ -251,7 +249,7 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 		if err := d.EnsureQuotaEnabled(basePath); err != nil {
 			return nil, status.Errorf(codes.Internal, "ensure quota enabled: %v", err)
 		}
-		if err := d.SetQgroupLimit(subvolPath, uint64(capacityBytes)); err != nil {
+		if err := d.SetQgroupLimit(vol.Path(), uint64(capacityBytes)); err != nil {
 			return nil, status.Errorf(codes.Internal, "set qgroup limit: %v", err)
 		}
 	}
@@ -260,7 +258,7 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 		return nil, status.Errorf(codes.Internal, "save volume state: %v", err)
 	}
 
-	klog.V(4).InfoS("CreateVolume", "volumeID", id, "name", req.Name, "path", subvolPath)
+	klog.V(4).InfoS("CreateVolume", "volumeID", vol.ID, "name", req.Name, "path", vol.Path())
 	return &csi.CreateVolumeResponse{Volume: toCSIVolume(vol, d.nodeID)}, nil
 }
 
@@ -275,7 +273,7 @@ func (d *Driver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest)
 		return &csi.DeleteVolumeResponse{}, nil
 	}
 
-	if err := d.DeleteSubvolume(vol.SubvolumePath); err != nil {
+	if err := d.DeleteSubvolume(vol.Path()); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete subvolume: %v", err)
 	}
 
@@ -320,7 +318,7 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context, req *csi.Controller
 	}
 
 	// Update qgroup limit.
-	if err := d.SetQgroupLimit(vol.SubvolumePath, uint64(newCapacity)); err != nil {
+	if err := d.SetQgroupLimit(vol.Path(), uint64(newCapacity)); err != nil {
 		return nil, status.Errorf(codes.Internal, "set qgroup limit: %v", err)
 	}
 
@@ -356,7 +354,7 @@ func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource
 		if !ok {
 			return status.Errorf(codes.NotFound, "snapshot %s not found", snapID)
 		}
-		if err := d.Manager.CreateSnapshot(snap.SnapshotPath, subvolPath, false); err != nil {
+		if err := d.Manager.CreateSnapshot(snap.Path(), subvolPath, false); err != nil {
 			return status.Errorf(codes.Internal, "clone from snapshot: %v", err)
 		}
 		vol.SourceSnapID = snapID
@@ -367,7 +365,7 @@ func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource
 		if !ok {
 			return status.Errorf(codes.NotFound, "source volume %s not found", srcVolID)
 		}
-		if err := d.Manager.CreateSnapshot(srcVol.SubvolumePath, subvolPath, false); err != nil {
+		if err := d.Manager.CreateSnapshot(srcVol.Path(), subvolPath, false); err != nil {
 			return status.Errorf(codes.Internal, "clone volume: %v", err)
 		}
 		vol.SourceVolID = srcVolID
@@ -406,27 +404,23 @@ func (d *Driver) CreateSnapshot(_ context.Context, req *csi.CreateSnapshotReques
 		return nil, status.Errorf(codes.NotFound, "source volume %s not found", req.SourceVolumeId)
 	}
 
-	// Derive basePath from the source volume's subvolume path: <basePath>/volumes/<id>
-	basePath := filepath.Dir(filepath.Dir(srcVol.SubvolumePath))
+	basePath := srcVol.BasePath
 	id := uuid.New().String()
-	snapPath := filepath.Join(basePath, "snapshots", id)
+	snap := &state.Snapshot{
+		ID:          id,
+		Name:        req.Name,
+		SourceVolID: req.SourceVolumeId,
+		BasePath:    basePath,
+		CreatedAt:   time.Now(),
+		ReadyToUse:  true,
+	}
 
-	if err := os.MkdirAll(filepath.Dir(snapPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(snap.Path()), 0o755); err != nil {
 		return nil, status.Errorf(codes.Internal, "create snapshots directory: %v", err)
 	}
 
-	if err := d.Manager.CreateSnapshot(srcVol.SubvolumePath, snapPath, true); err != nil {
+	if err := d.Manager.CreateSnapshot(srcVol.Path(), snap.Path(), true); err != nil {
 		return nil, status.Errorf(codes.Internal, "create snapshot: %v", err)
-	}
-
-	now := time.Now()
-	snap := &state.Snapshot{
-		ID:           id,
-		Name:         req.Name,
-		SourceVolID:  req.SourceVolumeId,
-		SnapshotPath: snapPath,
-		CreatedAt:    now,
-		ReadyToUse:   true,
 	}
 	if err := d.Store.SaveSnapshot(snap); err != nil {
 		return nil, status.Errorf(codes.Internal, "save snapshot state: %v", err)
@@ -447,7 +441,7 @@ func (d *Driver) DeleteSnapshot(_ context.Context, req *csi.DeleteSnapshotReques
 		return &csi.DeleteSnapshotResponse{}, nil
 	}
 
-	if err := d.DeleteSubvolume(snap.SnapshotPath); err != nil {
+	if err := d.DeleteSubvolume(snap.Path()); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete snapshot subvolume: %v", err)
 	}
 

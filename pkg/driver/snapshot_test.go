@@ -18,9 +18,9 @@ func TestCreateSnapshot_Success(t *testing.T) {
 	d, mock, store := newTestDriverWithMock()
 
 	vol := &state.Volume{
-		ID:            "vol-src",
-		Name:          "source-pvc",
-		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-src",
+		ID:       "vol-src",
+		Name:     "source-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -38,8 +38,8 @@ func TestCreateSnapshot_Success(t *testing.T) {
 		t.Fatalf("expected 1 CreateSnapshot call, got %d", len(mock.CreateSnapshotCalls))
 	}
 	call := mock.CreateSnapshotCalls[0]
-	if call.Src != vol.SubvolumePath {
-		t.Errorf("CreateSnapshot src = %q, want %q", call.Src, vol.SubvolumePath)
+	if call.Src != vol.Path() {
+		t.Errorf("CreateSnapshot src = %q, want %q", call.Src, vol.Path())
 	}
 	if !call.Readonly {
 		t.Error("expected readonly=true for snapshot creation")
@@ -78,9 +78,9 @@ func TestCreateSnapshot_Idempotent(t *testing.T) {
 	d, mock, store := newTestDriverWithMock()
 
 	vol := &state.Volume{
-		ID:            "vol-src",
-		Name:          "source-pvc",
-		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-src",
+		ID:       "vol-src",
+		Name:     "source-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -112,9 +112,9 @@ func TestCreateSnapshot_Idempotent_MismatchedSource(t *testing.T) {
 	d, _, store := newTestDriverWithMock()
 
 	vol := &state.Volume{
-		ID:            "vol-src",
-		Name:          "source-pvc",
-		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-src",
+		ID:       "vol-src",
+		Name:     "source-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -168,11 +168,11 @@ func TestDeleteSnapshot_Success(t *testing.T) {
 	d, mock, store := newTestDriverWithMock()
 
 	snap := &state.Snapshot{
-		ID:           "snap-abc",
-		Name:         "snap-1",
-		SourceVolID:  "vol-src",
-		SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-abc",
-		ReadyToUse:   true,
+		ID:          "snap-abc",
+		Name:        "snap-1",
+		SourceVolID: "vol-src",
+		BasePath:    "/tmp/btrfs-csi-test",
+		ReadyToUse:  true,
 	}
 	if err := store.SaveSnapshot(snap); err != nil {
 		t.Fatalf("SaveSnapshot: %v", err)
@@ -186,8 +186,8 @@ func TestDeleteSnapshot_Success(t *testing.T) {
 	if len(mock.DeleteSubvolumeCalls) != 1 {
 		t.Fatalf("expected 1 DeleteSubvolume call, got %d", len(mock.DeleteSubvolumeCalls))
 	}
-	if mock.DeleteSubvolumeCalls[0] != snap.SnapshotPath {
-		t.Errorf("DeleteSubvolume path = %q, want %q", mock.DeleteSubvolumeCalls[0], snap.SnapshotPath)
+	if mock.DeleteSubvolumeCalls[0] != snap.Path() {
+		t.Errorf("DeleteSubvolume path = %q, want %q", mock.DeleteSubvolumeCalls[0], snap.Path())
 	}
 
 	if _, ok := store.GetSnapshot("snap-abc"); ok {
@@ -214,11 +214,11 @@ func TestCreateVolume_FromSnapshot(t *testing.T) {
 	d, mock, store := newTestDriverWithMock()
 
 	snap := &state.Snapshot{
-		ID:           "snap-src",
-		Name:         "snap-1",
-		SourceVolID:  "vol-orig",
-		SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-src",
-		ReadyToUse:   true,
+		ID:          "snap-src",
+		Name:        "snap-1",
+		SourceVolID: "vol-orig",
+		BasePath:    "/tmp/btrfs-csi-test",
+		ReadyToUse:  true,
 	}
 	if err := store.SaveSnapshot(snap); err != nil {
 		t.Fatalf("SaveSnapshot: %v", err)
@@ -247,8 +247,8 @@ func TestCreateVolume_FromSnapshot(t *testing.T) {
 		t.Fatalf("expected 1 CreateSnapshot call, got %d", len(mock.CreateSnapshotCalls))
 	}
 	call := mock.CreateSnapshotCalls[0]
-	if call.Src != snap.SnapshotPath {
-		t.Errorf("CreateSnapshot src = %q, want %q", call.Src, snap.SnapshotPath)
+	if call.Src != snap.Path() {
+		t.Errorf("CreateSnapshot src = %q, want %q", call.Src, snap.Path())
 	}
 	if call.Readonly {
 		t.Error("expected readonly=false for volume from snapshot")
@@ -268,11 +268,11 @@ func TestCreateVolume_FromSnapshot_Idempotent_MismatchedSource(t *testing.T) {
 	d, _, store := newTestDriverWithMock()
 
 	snap := &state.Snapshot{
-		ID:           "snap-src",
-		Name:         "snap-1",
-		SourceVolID:  "vol-orig",
-		SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-src",
-		ReadyToUse:   true,
+		ID:          "snap-src",
+		Name:        "snap-1",
+		SourceVolID: "vol-orig",
+		BasePath:    "/tmp/btrfs-csi-test",
+		ReadyToUse:  true,
 	}
 	if err := store.SaveSnapshot(snap); err != nil {
 		t.Fatalf("SaveSnapshot: %v", err)
@@ -359,9 +359,9 @@ func TestCreateVolume_Clone(t *testing.T) {
 	d, mock, store := newTestDriverWithMock()
 
 	srcVol := &state.Volume{
-		ID:            "vol-src",
-		Name:          "source-pvc",
-		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-src",
+		ID:       "vol-src",
+		Name:     "source-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
 	}
 	if err := store.SaveVolume(srcVol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -390,8 +390,8 @@ func TestCreateVolume_Clone(t *testing.T) {
 		t.Fatalf("expected 1 CreateSnapshot call, got %d", len(mock.CreateSnapshotCalls))
 	}
 	call := mock.CreateSnapshotCalls[0]
-	if call.Src != srcVol.SubvolumePath {
-		t.Errorf("CreateSnapshot src = %q, want %q", call.Src, srcVol.SubvolumePath)
+	if call.Src != srcVol.Path() {
+		t.Errorf("CreateSnapshot src = %q, want %q", call.Src, srcVol.Path())
 	}
 	if call.Readonly {
 		t.Error("expected readonly=false for volume clone")
@@ -456,8 +456,8 @@ func TestListSnapshots_Empty(t *testing.T) {
 func TestListSnapshots_ReturnsAll(t *testing.T) {
 	d, _, store := newTestDriverWithMock()
 	snaps := []*state.Snapshot{
-		{ID: "snap-1", Name: "snap-pvc-1", SourceVolID: "vol-1", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-1", ReadyToUse: true},
-		{ID: "snap-2", Name: "snap-pvc-2", SourceVolID: "vol-2", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-2", ReadyToUse: true},
+		{ID: "snap-1", Name: "snap-pvc-1", SourceVolID: "vol-1", BasePath: "/tmp/btrfs-csi-test", ReadyToUse: true},
+		{ID: "snap-2", Name: "snap-pvc-2", SourceVolID: "vol-2", BasePath: "/tmp/btrfs-csi-test", ReadyToUse: true},
 	}
 	for _, s := range snaps {
 		if err := store.SaveSnapshot(s); err != nil {
@@ -495,9 +495,9 @@ func TestListSnapshots_InvalidTokenRejected(t *testing.T) {
 func TestListSnapshots_FilterBySnapshotID(t *testing.T) {
 	d, _, store := newTestDriverWithMock()
 	for _, s := range []*state.Snapshot{
-		{ID: "snap-1", Name: "snap-pvc-1", SourceVolID: "vol-1", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-1", ReadyToUse: true},
-		{ID: "snap-2", Name: "snap-pvc-2", SourceVolID: "vol-2", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-2", ReadyToUse: true},
-		{ID: "snap-3", Name: "snap-pvc-3", SourceVolID: "vol-3", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-3", ReadyToUse: true},
+		{ID: "snap-1", Name: "snap-pvc-1", SourceVolID: "vol-1", BasePath: "/tmp/btrfs-csi-test", ReadyToUse: true},
+		{ID: "snap-2", Name: "snap-pvc-2", SourceVolID: "vol-2", BasePath: "/tmp/btrfs-csi-test", ReadyToUse: true},
+		{ID: "snap-3", Name: "snap-pvc-3", SourceVolID: "vol-3", BasePath: "/tmp/btrfs-csi-test", ReadyToUse: true},
 	} {
 		if err := store.SaveSnapshot(s); err != nil {
 			t.Fatalf("SaveSnapshot: %v", err)
@@ -531,9 +531,9 @@ func TestListSnapshots_FilterBySnapshotID_NotFound(t *testing.T) {
 func TestListSnapshots_FilterBySourceVolumeID(t *testing.T) {
 	d, _, store := newTestDriverWithMock()
 	for _, s := range []*state.Snapshot{
-		{ID: "snap-1", Name: "snap-pvc-1", SourceVolID: "vol-1", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-1", ReadyToUse: true},
-		{ID: "snap-2", Name: "snap-pvc-2", SourceVolID: "vol-target", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-2", ReadyToUse: true},
-		{ID: "snap-3", Name: "snap-pvc-3", SourceVolID: "vol-3", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-3", ReadyToUse: true},
+		{ID: "snap-1", Name: "snap-pvc-1", SourceVolID: "vol-1", BasePath: "/tmp/btrfs-csi-test", ReadyToUse: true},
+		{ID: "snap-2", Name: "snap-pvc-2", SourceVolID: "vol-target", BasePath: "/tmp/btrfs-csi-test", ReadyToUse: true},
+		{ID: "snap-3", Name: "snap-pvc-3", SourceVolID: "vol-3", BasePath: "/tmp/btrfs-csi-test", ReadyToUse: true},
 	} {
 		if err := store.SaveSnapshot(s); err != nil {
 			t.Fatalf("SaveSnapshot: %v", err)
@@ -555,9 +555,9 @@ func TestListSnapshots_FilterBySourceVolumeID(t *testing.T) {
 func TestListSnapshots_MaxEntries(t *testing.T) {
 	d, _, store := newTestDriverWithMock()
 	for _, s := range []*state.Snapshot{
-		{ID: "snap-1", Name: "snap-1", SourceVolID: "vol-1", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-1", ReadyToUse: true},
-		{ID: "snap-2", Name: "snap-2", SourceVolID: "vol-2", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-2", ReadyToUse: true},
-		{ID: "snap-3", Name: "snap-3", SourceVolID: "vol-3", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-3", ReadyToUse: true},
+		{ID: "snap-1", Name: "snap-1", SourceVolID: "vol-1", BasePath: "/tmp/btrfs-csi-test", ReadyToUse: true},
+		{ID: "snap-2", Name: "snap-2", SourceVolID: "vol-2", BasePath: "/tmp/btrfs-csi-test", ReadyToUse: true},
+		{ID: "snap-3", Name: "snap-3", SourceVolID: "vol-3", BasePath: "/tmp/btrfs-csi-test", ReadyToUse: true},
 	} {
 		if err := store.SaveSnapshot(s); err != nil {
 			t.Fatalf("SaveSnapshot: %v", err)

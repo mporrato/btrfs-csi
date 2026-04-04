@@ -109,13 +109,13 @@ func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolume
 		options = append(options, "ro")
 	}
 
-	if err := d.mounter.Mount(vol.SubvolumePath, targetPath, "", options...); err != nil {
-		return nil, status.Errorf(codes.Internal, "mount %s to %s: %v", vol.SubvolumePath, targetPath, err)
+	if err := d.mounter.Mount(vol.Path(), targetPath, "", options...); err != nil {
+		return nil, status.Errorf(codes.Internal, "mount %s to %s: %v", vol.Path(), targetPath, err)
 	}
 
 	klog.V(4).InfoS("NodePublishVolume success",
 		"volumeID", req.GetVolumeId(),
-		"source", vol.SubvolumePath,
+		"source", vol.Path(),
 		"target", targetPath,
 		"readonly", req.GetReadonly(),
 	)
@@ -224,9 +224,9 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeSta
 		return nil, status.Errorf(codes.NotFound, "volume %s is not mounted at %s", req.GetVolumeId(), req.GetVolumePath())
 	}
 
-	usage, err := d.GetQgroupUsage(vol.SubvolumePath)
+	usage, err := d.GetQgroupUsage(vol.Path())
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "get qgroup usage for %s: %v", vol.SubvolumePath, err)
+		return nil, status.Errorf(codes.Internal, "get qgroup usage for %s: %v", vol.Path(), err)
 	}
 
 	var available int64
