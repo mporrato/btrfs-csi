@@ -359,30 +359,30 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: Write failing tests in `pkg/driver/driver_test.go`.
 - **Acceptance Criteria**:
-  - [ ] `TestDriverStartsAndStops` — starts driver on a temp Unix socket, connects a gRPC client, calls `Probe`, asserts `Ready=true`, stops driver, asserts clean shutdown
-  - [ ] Test fails (RED)
+  - [x] `TestDriverStartsAndStops` — starts driver on a temp Unix socket, connects a gRPC client, calls `Probe`, asserts `Ready=true`, stops driver, asserts clean shutdown
+  - [x] Test fails (RED)
 
 ### Task 10.2: Green — Implement `Driver.Run()`
 
 - **Requirements**: Implement gRPC server setup in `pkg/driver/driver.go`.
 - **Acceptance Criteria**:
-  - [ ] `Run()` creates Unix socket listener, registers Identity/Controller/Node servers, starts serving
-  - [ ] `Stop()` performs graceful shutdown
-  - [ ] Socket file is cleaned up on start (remove stale) and stop
-  - [ ] `go test ./pkg/driver/` passes
+  - [x] `Run()` creates Unix socket listener, registers Identity/Controller/Node servers, starts serving
+  - [x] `Stop()` performs graceful shutdown
+  - [x] Socket file is cleaned up on start (remove stale) and stop
+  - [x] `go test ./pkg/driver/` passes
 
 ### Task 10.3: Gray — Refactor server code
 
 - **Requirements**: Clean up socket management and shutdown logic.
 - **Acceptance Criteria**:
-  - [ ] `go test ./pkg/driver/` still passes
+  - [x] `go test ./pkg/driver/` still passes
 
 ### Task 10.4: Wire up `main.go`
 
 - **Requirements**: Update `cmd/btrfs-csi-driver/main.go` to create a real `Driver` with `RealManager` and `FileStore`, and call `Run()`.
 - **Acceptance Criteria**:
-  - [ ] `go build ./cmd/btrfs-csi-driver/` succeeds
-  - [ ] Binary starts, creates socket, responds to gRPC calls, shuts down on SIGTERM
+  - [x] `go build ./cmd/btrfs-csi-driver/` succeeds
+  - [x] Binary starts, creates socket, responds to gRPC calls, shuts down on SIGTERM
 
 ---
 
