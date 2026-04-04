@@ -48,9 +48,9 @@ ${K} apply -f "${SCRIPT_DIR}/../deploy/"
 
 echo "==> Waiting for DaemonSet to be ready..."
 ${K} rollout status daemonset/btrfs-csi-driver \
-    -n kube-system --timeout=120s
+    -n btrfs-csi --timeout=120s
 
 echo ""
 echo "Cluster '${CLUSTER}' is ready."
-echo "  kubectl --context=${CLUSTER} get pods -n kube-system"
+echo "  kubectl --context=${CLUSTER} get pods -n btrfs-csi"
 echo "  minikube ssh --profile=${CLUSTER}"

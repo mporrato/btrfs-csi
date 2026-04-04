@@ -219,7 +219,7 @@ btrfs-csi/
 
 - The driver requires privileged access for mount operations
 - Ensure bidirectional mount propagation is enabled (if using kind)
-- Check kubelet logs: `kubectl logs -n kube-system -l app=btrfs-csi-driver`
+- Check kubelet logs: `kubectl logs -n btrfs-csi -l app=btrfs-csi-driver`
 
 ### Capacity Issues
 

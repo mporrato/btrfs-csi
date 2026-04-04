@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: btrfs-csi-driver
-  namespace: kube-system
+  namespace: btrfs-csi
 spec:
   selector:
     matchLabels:

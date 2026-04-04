@@ -421,7 +421,7 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: `deploy/rbac.yaml`
 - **Acceptance Criteria**:
-  - [x] `ServiceAccount` in `kube-system`
+  - [x] `ServiceAccount` in `btrfs-csi`
   - [x] `ClusterRole` with permissions for: persistentvolumes, persistentvolumeclaims, storageclasses, events, volumesnapshots, volumesnapshotcontents, volumesnapshotclasses
   - [x] `ClusterRoleBinding` linking them
 
@@ -429,7 +429,7 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: `deploy/plugin.yaml`
 - **Acceptance Criteria**:
-  - [x] DaemonSet in `kube-system` with 5 containers:
+  - [x] DaemonSet in `btrfs-csi` with 5 containers:
     - `btrfs-csi-driver` (privileged, mounts: host btrfs path, `/csi` emptyDir, kubelet pods dir with bidirectional mount propagation)
     - `node-driver-registrar` (mounts: `/csi`, `/registration` hostPath)
     - `external-provisioner` (mounts: `/csi`)
