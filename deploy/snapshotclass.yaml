@@ -4,3 +4,5 @@ metadata:
   name: btrfs-snapshot
 driver: btrfs.csi.local
 deletionPolicy: Delete
+parameters:
+  isReadOnly: "true"

@@ -17,13 +17,13 @@ VERBOSE="${VERBOSE:-0}"
 
 echo "==> Ensuring ${BTRFS_MOUNT} is mounted inside the VM..."
 minikube ssh --profile="${CLUSTER}" -- \
-  "mountpoint -q ${BTRFS_MOUNT} || sudo mount ${BTRFS_MOUNT}"
+    "mountpoint -q ${BTRFS_MOUNT} || sudo mount ${BTRFS_MOUNT}"
 
 echo "==> Building sanity test binary (linux/amd64)..."
 GOOS=linux GOARCH=amd64 go test \
-  -c -tags integration \
-  ./pkg/driver/ \
-  -o "${BINARY}"
+    -c -tags integration \
+    ./pkg/driver/ \
+    -o "${BINARY}"
 
 echo "==> Copying binary to minikube VM..."
 minikube cp "${BINARY}" /tmp/btrfs-csi-sanity.test --profile="${CLUSTER}"
@@ -33,4 +33,4 @@ TEST_FLAGS="-test.timeout=10m"
 
 echo "==> Running sanity tests inside the VM..."
 minikube ssh --profile="${CLUSTER}" -- \
-  "sudo /tmp/btrfs-csi-sanity.test ${TEST_FLAGS}"
+    "sudo chmod +x /tmp/btrfs-csi-sanity.test && sudo /tmp/btrfs-csi-sanity.test ${TEST_FLAGS}"

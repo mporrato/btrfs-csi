@@ -8,44 +8,47 @@
 #   IMAGE=btrfs-csi-driver:latest bash test/setup-minikube.sh
 set -euo pipefail
 
-IMAGE="${IMAGE:-btrfs-csi-driver:latest}"
+IMAGE="${IMAGE:-localhost/btrfs-csi-driver:latest}"
 CLUSTER="${CLUSTER:-btrfs-csi}"
-EXTRA_DISK_DEV="${EXTRA_DISK_DEV:-/dev/vda}"  # extra disk added by --extra-disks=1
+EXTRA_DISK_DEV="${EXTRA_DISK_DEV:-/dev/vda}" # extra disk added by --extra-disks=1
 BTRFS_MOUNT="${BTRFS_MOUNT:-/var/lib/btrfs-csi}"
 SNAPSHOTTER_VERSION="${SNAPSHOTTER_VERSION:-v8.0.0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME=$(command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+MK="minikube --profile=${CLUSTER}"
+K="kubectl --context=${CLUSTER}"
+EXEC="${MK} ssh --"
 
 echo "==> Starting minikube cluster '${CLUSTER}' (qemu, extra disk)..."
-minikube start \
-  --driver=qemu \
-  --extra-disks=1 \
-  --profile="${CLUSTER}"
+${MK} start \
+    --driver=qemu \
+    --extra-disks=1
 
 echo "==> Formatting ${EXTRA_DISK_DEV} as btrfs and persisting mount via fstab..."
-minikube ssh --profile="${CLUSTER}" -- bash -s <<EOF
-  set -euo pipefail
-  sudo mkfs.btrfs -f ${EXTRA_DISK_DEV}
-  sudo mkdir -p ${BTRFS_MOUNT}
-  echo '${EXTRA_DISK_DEV} ${BTRFS_MOUNT} btrfs defaults 0 0' | sudo tee -a /etc/fstab
-  sudo mount ${BTRFS_MOUNT}
-EOF
+${EXEC} "sudo mkfs.btrfs -f ${EXTRA_DISK_DEV}"
+${EXEC} "sudo mkdir -p ${BTRFS_MOUNT} && echo '${EXTRA_DISK_DEV} ${BTRFS_MOUNT} btrfs defaults 0 0' | sudo tee -a /etc/fstab && sudo mount ${BTRFS_MOUNT}"
 
 echo "==> Installing VolumeSnapshot CRDs (${SNAPSHOTTER_VERSION})..."
-BASE="https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/client/config/crd"
-kubectl --context="${CLUSTER}" apply -f "${BASE}/snapshot.storage.k8s.io_volumesnapshotclasses.yaml"
-kubectl --context="${CLUSTER}" apply -f "${BASE}/snapshot.storage.k8s.io_volumesnapshotcontents.yaml"
-kubectl --context="${CLUSTER}" apply -f "${BASE}/snapshot.storage.k8s.io_volumesnapshots.yaml"
+BASE="https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}"
+${K} apply -f "${BASE}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml"
+${K} apply -f "${BASE}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml"
+${K} apply -f "${BASE}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml"
+
+echo "==> Deploying snapshot-controller (${SNAPSHOTTER_VERSION})..."
+${K} apply -f "${BASE}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml"
+${K} apply -f "${BASE}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml"
+${K} rollout status deployment/snapshot-controller -n kube-system --timeout=120s
 
 echo "==> Loading driver image into minikube..."
-minikube image load "${IMAGE}" --profile="${CLUSTER}"
+${RUNTIME} save "${IMAGE}" | ${MK} image load -
 
 echo "==> Deploying btrfs-csi-driver..."
-kubectl --context="${CLUSTER}" apply -f "${SCRIPT_DIR}/../deploy/"
+${K} apply -f "${SCRIPT_DIR}/../deploy/"
 
 echo "==> Waiting for DaemonSet to be ready..."
-kubectl --context="${CLUSTER}" rollout status daemonset/btrfs-csi-driver \
-  -n kube-system --timeout=120s
+${K} rollout status daemonset/btrfs-csi-driver \
+    -n kube-system --timeout=120s
 
 echo ""
 echo "Cluster '${CLUSTER}' is ready."

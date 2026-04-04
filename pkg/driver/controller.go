@@ -257,6 +257,8 @@ func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource
 }
 
 func (d *Driver) CreateSnapshot(_ context.Context, req *csi.CreateSnapshotRequest) (*csi.CreateSnapshotResponse, error) {
+	klog.V(2).InfoS("CreateSnapshot called", "name", req.Name, "sourceVolumeId", req.SourceVolumeId)
+
 	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "snapshot name is required")
 	}

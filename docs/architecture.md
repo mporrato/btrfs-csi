@@ -109,7 +109,7 @@ btrfs-csi/
 │   ├── storageclass.yaml               # StorageClass "btrfs" with WaitForFirstConsumer
 │   └── snapshotclass.yaml              # VolumeSnapshotClass
 ├── test/
-│   ├── setup-minikube.sh               # Start minikube (qemu), format extra disk as btrfs, deploy driver
+│   ├── setup-minikube.sh               # Start minikube (qemu), format extra disk as btrfs, deploy snapshot-controller + driver
 │   ├── run-sanity.sh                   # Build sanity test binary and run it inside the minikube VM
 │   └── e2e.sh                          # End-to-end kubectl-based test scenarios
 ├── docs/
@@ -140,18 +140,22 @@ Each `btrfs.Manager` method maps to CLI commands:
 
 ### Pod Structure (DaemonSet)
 
-Single DaemonSet pod with 4 containers:
+Single DaemonSet pod with 5 containers:
 
 1. **btrfs-csi-driver** — The main binary (privileged, for mount operations and btrfs commands)
 2. **node-driver-registrar** — Registers the CSI driver with kubelet
 3. **external-provisioner** — Watches PVCs, calls `CreateVolume`/`DeleteVolume`
-4. **external-snapshotter** — Watches VolumeSnapshots, calls `CreateSnapshot`/`DeleteSnapshot`
+4. **external-snapshotter** (sidecar) — Watches VolumeSnapshotContents, calls `CreateSnapshot`/`DeleteSnapshot`
+5. **external-resizer** — Watches PVC resize requests, calls `ControllerExpandVolume`
+
+In addition, the **snapshot-controller** must be deployed as a separate Deployment in the cluster. It watches VolumeSnapshot objects and creates VolumeSnapshotContent objects, which the csi-snapshotter sidecar then acts on. The setup script deploys it from the `kubernetes-csi/external-snapshotter` project.
 
 ### Kubernetes Objects
 
 - `CSIDriver` — `attachRequired: false` (no ControllerPublish needed)
 - `StorageClass` — `btrfs`, `WaitForFirstConsumer`, `allowVolumeExpansion: true`
 - `VolumeSnapshotClass` — `btrfs-snapshot`, `deletionPolicy: Delete`
+- **Snapshot Controller** — Deployed from `kubernetes-csi/external-snapshotter`; required for VolumeSnapshot lifecycle
 - RBAC — ServiceAccount + ClusterRole for PV/PVC/snapshot permissions
 
 ## Dependencies

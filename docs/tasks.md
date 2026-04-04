@@ -429,11 +429,12 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: `deploy/plugin.yaml`
 - **Acceptance Criteria**:
-  - [x] DaemonSet in `kube-system` with 4 containers:
+  - [x] DaemonSet in `kube-system` with 5 containers:
     - `btrfs-csi-driver` (privileged, mounts: host btrfs path, `/csi` emptyDir, kubelet pods dir with bidirectional mount propagation)
     - `node-driver-registrar` (mounts: `/csi`, `/registration` hostPath)
     - `external-provisioner` (mounts: `/csi`)
     - `external-snapshotter` (mounts: `/csi`)
+    - `external-resizer` (mounts: `/csi`)
   - [x] Correct socket paths and args for all containers
   - [x] `NODE_NAME` env var from downward API
 

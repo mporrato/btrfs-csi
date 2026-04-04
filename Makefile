@@ -18,7 +18,7 @@ test-integration:
 	go test -tags integration ./pkg/btrfs/
 
 image:
-	$(RUNTIME) build -t $(IMAGE):$(TAG) .
+	$(RUNTIME) build -t localhost/$(IMAGE):$(TAG) .
 
 deploy:
 	kubectl apply -f deploy/
@@ -26,7 +26,7 @@ deploy:
 # Start a minikube cluster with QEMU driver, set up btrfs on the extra disk,
 # load the driver image, and deploy all manifests.
 minikube-setup:
-	IMAGE=$(IMAGE):$(TAG) CLUSTER=$(CLUSTER) bash test/setup-minikube.sh
+	IMAGE=localhost/$(IMAGE):$(TAG) CLUSTER=$(CLUSTER) bash test/setup-minikube.sh
 
 # Build the CSI sanity test binary and run it inside the minikube VM.
 minikube-sanity:
