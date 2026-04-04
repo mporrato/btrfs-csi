@@ -172,3 +172,29 @@ Single DaemonSet pod with 4 containers:
    - Create PVC → Pod → write data → VolumeSnapshot → PVC from snapshot → verify data
    - Resize PVC → verify new capacity
    - Delete everything → verify subvolumes cleaned up
+
+### Running Integration Tests
+
+The btrfs integration tests (`//go:build integration`) require either:
+
+**Option A: Privileged environment (root or container)**
+```bash
+# Run in a privileged container (requires root or --privileged flag)
+docker run --privileged -v $(pwd):/src -w /src golang:1.21 sh -c "go test -tags integration ./pkg/btrfs/"
+
+# Or directly on the host if you have btrfs and root
+sudo go test -tags integration ./pkg/btrfs/
+```
+
+**Option B: minikube with extra disk**
+For testing without requiring root on the host, use minikube with an additional block device:
+
+```bash
+# Start minikube with an extra disk
+minikube start --driver=qemu --extra-disks=1
+
+# SSH into the VM and set up btrfs
+minikube ssh "sudo mkfs.btrfs -f /dev/vda && sudo mkdir -p /var/lib/btrfs-csi && sudo mount /dev/vda /var/lib/btrfs-csi"
+```
+
+The integration tests will skip automatically if not running as root. For CI or automated testing, the minikube approach provides a full test environment without needing root on the host machine.
