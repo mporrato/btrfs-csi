@@ -158,7 +158,22 @@ In addition, the **snapshot-controller** must be deployed as a separate Deployme
 - **Snapshot Controller** — Deployed from `kubernetes-csi/external-snapshotter`; required for VolumeSnapshot lifecycle
 - RBAC — ServiceAccount + ClusterRole for PV/PVC/snapshot permissions
 
-## Dependencies
+## Runtime Requirements
+
+| Component | Minimum version | Notes |
+|---|---|---|
+| Linux kernel | 4.18 | Minimum for btrfs subvolumes + qgroups used here |
+| btrfs-progs | 6.3 | `btrfs qgroup clear-stale` (periodic stale qgroup cleanup) |
+| Kubernetes | 1.20 | CSI stable API; `WaitForFirstConsumer` binding mode |
+| external-snapshotter | v6.0 | VolumeSnapshot v1 GA CRDs and snapshot-controller |
+
+**Optional kernel features** (driver detects and degrades gracefully):
+
+| Feature | Kernel version | Behaviour without it |
+|---|---|---|
+| Simple quotas (`squota`) | 6.7 | Falls back to traditional qgroups — functionally identical, slightly higher overhead on large filesystems |
+
+## Go and Build Dependencies
 
 | Package | Purpose |
 |---|---|
@@ -168,6 +183,8 @@ In addition, the **snapshot-controller** must be deployed as a separate Deployme
 | `k8s.io/klog/v2` | Structured logging |
 | `github.com/google/uuid` | Volume/snapshot ID generation |
 | `github.com/kubernetes-csi/csi-test/v5` | CSI sanity/conformance test suite |
+
+Go 1.25 or later is required to build the driver.
 
 ## Verification Plan
 
