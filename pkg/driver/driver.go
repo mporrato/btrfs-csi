@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	driverName          = "btrfs.csi.local"
-	version             = "0.1.0"
-	qgroupCleanupDelay  = 10 * time.Minute
+	driverName         = "btrfs.csi.local"
+	version            = "0.1.0"
+	qgroupCleanupDelay = 10 * time.Minute
 )
 
 // Driver implements the CSI Identity, Controller, and Node services.
@@ -139,7 +139,7 @@ func (d *Driver) scheduleQgroupCleanup() {
 		return
 	}
 	d.qgroupCleanupTimer = time.AfterFunc(qgroupCleanupDelay, func() {
-		if err := d.Manager.ClearStaleQgroups(d.rootPath); err != nil {
+		if err := d.ClearStaleQgroups(d.rootPath); err != nil {
 			klog.V(4).InfoS("periodic qgroup cleanup failed", "err", err)
 		}
 		d.qgroupCleanupMu.Lock()

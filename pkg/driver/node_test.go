@@ -290,13 +290,15 @@ func TestNodeGetInfo(t *testing.T) {
 	}
 
 	topology := resp.GetAccessibleTopology()
-	if topology == nil {
-		t.Fatal("AccessibleTopology is nil")
-	}
-	if got, ok := topology.Segments["topology.btrfs.csi.local/node"]; !ok {
-		t.Error("topology key 'topology.btrfs.csi.local/node' not found")
-	} else if got != "test-node" {
-		t.Errorf("topology value = %q, want %q", got, "test-node")
+	if topology != nil {
+		segments := topology.Segments
+		if got, ok := segments["topology.btrfs.csi.local/node"]; !ok {
+			t.Error("topology key 'topology.btrfs.csi.local/node' not found")
+		} else if got != "test-node" {
+			t.Errorf("topology value = %q, want %q", got, "test-node")
+		}
+	} else {
+		t.Error("AccessibleTopology is nil")
 	}
 }
 

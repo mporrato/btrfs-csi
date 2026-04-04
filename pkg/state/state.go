@@ -216,7 +216,7 @@ func (fs *FileStore) persist() error {
 	}
 	if err := os.Rename(tmpPath, fs.path); err != nil {
 		// Clean up temp file on rename failure
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename state file: %w", err)
 	}
 	return nil

@@ -26,10 +26,10 @@ func TestNewDriver_ClearsStaleQgroupsOnStartup(t *testing.T) {
 
 func TestParseEndpoint(t *testing.T) {
 	tests := []struct {
-		name      string
-		endpoint  string
-		wantPath  string
-		wantErr   bool
+		name     string
+		endpoint string
+		wantPath string
+		wantErr  bool
 	}{
 		{
 			name:     "triple-slash absolute path",
@@ -42,19 +42,19 @@ func TestParseEndpoint(t *testing.T) {
 			wantPath: "relative/path.sock",
 		},
 		{
-			name:    "single-slash is not supported",
+			name:     "single-slash is not supported",
 			endpoint: "unix:/csi/csi.sock",
-			wantErr: true,
+			wantErr:  true,
 		},
 		{
-			name:    "empty path after scheme",
+			name:     "empty path after scheme",
 			endpoint: "unix://",
-			wantErr: true,
+			wantErr:  true,
 		},
 		{
-			name:    "tcp scheme rejected",
+			name:     "tcp scheme rejected",
 			endpoint: "tcp://localhost:9000",
-			wantErr: true,
+			wantErr:  true,
 		},
 	}
 
@@ -98,9 +98,10 @@ func TestDriverStartsAndStops(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatal("timed out waiting for driver to start listening")
 		}
-		// Try to connect
+		// Try to connect with blocking to ensure connection is established
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		var dialErr error
+		//nolint:staticcheck // SA1019: using deprecated API for test compatibility
 		conn, dialErr = grpc.DialContext(ctx, "unix:"+sockPath,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithBlock(),
@@ -111,7 +112,11 @@ func TestDriverStartsAndStops(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	defer conn.Close()
+	defer func() {
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}()
 
 	// Act: call Probe via gRPC
 	client := csi.NewIdentityClient(conn)
@@ -205,7 +210,7 @@ func TestRunRemovesStaleSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create stale socket: %v", err)
 	}
-	stale.Close() // Socket file remains on disk
+	_ = stale.Close() // Socket file remains on disk
 
 	d := newTestDriverWithPath(tmpDir)
 
@@ -223,6 +228,7 @@ func TestRunRemovesStaleSocket(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		var dialErr error
+		//nolint:staticcheck // SA1019: using deprecated API for test compatibility
 		conn, dialErr = grpc.DialContext(ctx, "unix:"+sockPath,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithBlock(),
@@ -233,7 +239,11 @@ func TestRunRemovesStaleSocket(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	defer conn.Close()
+	defer func() {
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}()
 
 	// Stop cleanly
 	d.Stop()

@@ -130,10 +130,10 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 
 	if capacityBytes > 0 {
 		// Quotas must be enabled on the filesystem before setting per-subvolume limits.
-		if err := d.Manager.EnsureQuotaEnabled(basePath); err != nil {
+		if err := d.EnsureQuotaEnabled(basePath); err != nil {
 			return nil, status.Errorf(codes.Internal, "ensure quota enabled: %v", err)
 		}
-		if err := d.Manager.SetQgroupLimit(subvolPath, uint64(capacityBytes)); err != nil {
+		if err := d.SetQgroupLimit(subvolPath, uint64(capacityBytes)); err != nil {
 			return nil, status.Errorf(codes.Internal, "set qgroup limit: %v", err)
 		}
 	}
@@ -157,7 +157,7 @@ func (d *Driver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest)
 		return &csi.DeleteVolumeResponse{}, nil
 	}
 
-	if err := d.Manager.DeleteSubvolume(vol.SubvolumePath); err != nil {
+	if err := d.DeleteSubvolume(vol.SubvolumePath); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete subvolume: %v", err)
 	}
 
@@ -199,7 +199,7 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context, req *csi.Controller
 	}
 
 	// Update qgroup limit.
-	if err := d.Manager.SetQgroupLimit(vol.SubvolumePath, uint64(newCapacity)); err != nil {
+	if err := d.SetQgroupLimit(vol.SubvolumePath, uint64(newCapacity)); err != nil {
 		return nil, status.Errorf(codes.Internal, "set qgroup limit: %v", err)
 	}
 
@@ -221,7 +221,7 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context, req *csi.Controller
 func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource, vol *state.Volume) error {
 	if src == nil {
 		// Fresh empty subvolume.
-		if err := d.Manager.CreateSubvolume(subvolPath); err != nil {
+		if err := d.CreateSubvolume(subvolPath); err != nil {
 			return status.Errorf(codes.Internal, "create subvolume: %v", err)
 		}
 		return nil
@@ -322,7 +322,7 @@ func (d *Driver) DeleteSnapshot(_ context.Context, req *csi.DeleteSnapshotReques
 		return &csi.DeleteSnapshotResponse{}, nil
 	}
 
-	if err := d.Manager.DeleteSubvolume(snap.SnapshotPath); err != nil {
+	if err := d.DeleteSubvolume(snap.SnapshotPath); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete snapshot subvolume: %v", err)
 	}
 

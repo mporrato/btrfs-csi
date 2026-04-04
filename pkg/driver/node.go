@@ -149,7 +149,9 @@ func (d *Driver) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpublishVo
 	}
 	if !isMount {
 		klog.V(4).InfoS("NodeUnpublishVolume: target not mounted, returning success", "targetPath", targetPath)
-		os.Remove(targetPath)
+		if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
+			klog.V(2).InfoS("NodeUnpublishVolume: failed to remove target directory", "targetPath", targetPath, "error", err)
+		}
 		return &csi.NodeUnpublishVolumeResponse{}, nil
 	}
 
@@ -222,7 +224,7 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeSta
 		return nil, status.Errorf(codes.NotFound, "volume %s is not mounted at %s", req.GetVolumeId(), req.GetVolumePath())
 	}
 
-	usage, err := d.Manager.GetQgroupUsage(vol.SubvolumePath)
+	usage, err := d.GetQgroupUsage(vol.SubvolumePath)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get qgroup usage for %s: %v", vol.SubvolumePath, err)
 	}

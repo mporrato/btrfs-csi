@@ -1,10 +1,14 @@
-IMAGE   ?= btrfs-csi-driver
-TAG     ?= latest
-CLUSTER ?= btrfs-csi
-RUNTIME ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+IMAGE     ?= btrfs-csi-driver
+TAG       ?= latest
+CLUSTER   ?= btrfs-csi
+RUNTIME   ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+PRECOMMIT ?= $(shell command -v prek 2>/dev/null || command -v pre-commit 2>/dev/null)
 
-.PHONY: build test test-integration image deploy clean \
+.PHONY: build test test-integration lint image deploy clean \
         minikube-setup minikube-sanity minikube-e2e
+
+lint:
+	$(PRECOMMIT) run --all-files
 
 build:
 	go build -o bin/btrfs-csi-driver ./cmd/btrfs-csi-driver/
