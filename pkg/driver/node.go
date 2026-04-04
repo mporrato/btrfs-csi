@@ -12,10 +12,13 @@ import (
 	mountutils "k8s.io/mount-utils"
 )
 
-// validatePath validates that the given path is safe and does not contain path traversal patterns.
+// validatePath validates that the given path is safe: must be absolute and contain no traversal.
 func validatePath(path string) error {
 	if path == "" {
 		return status.Error(codes.InvalidArgument, "path is required")
+	}
+	if !strings.HasPrefix(path, "/") {
+		return status.Errorf(codes.InvalidArgument, "path %q must be absolute", path)
 	}
 	// Check for path traversal patterns before cleaning
 	for _, part := range strings.Split(path, "/") {
@@ -98,12 +101,12 @@ func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolume
 		return &csi.NodePublishVolumeResponse{}, nil
 	}
 
-	var options []string
+	options := []string{"bind"}
 	if req.GetReadonly() {
 		options = append(options, "ro")
 	}
 
-	if err := d.mounter.Mount(vol.SubvolumePath, targetPath, "none", options...); err != nil {
+	if err := d.mounter.Mount(vol.SubvolumePath, targetPath, "", options...); err != nil {
 		return nil, status.Errorf(codes.Internal, "mount %s to %s: %v", vol.SubvolumePath, targetPath, err)
 	}
 
@@ -200,6 +203,14 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeSta
 	vol, ok := d.Store.GetVolume(req.GetVolumeId())
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.GetVolumeId())
+	}
+
+	isMount, err := d.mounter.IsMountPoint(req.GetVolumePath())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "check mount point %s: %v", req.GetVolumePath(), err)
+	}
+	if !isMount {
+		return nil, status.Errorf(codes.NotFound, "volume %s is not mounted at %s", req.GetVolumeId(), req.GetVolumePath())
 	}
 
 	usage, err := d.Manager.GetQgroupUsage(vol.SubvolumePath)

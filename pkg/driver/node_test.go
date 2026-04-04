@@ -118,8 +118,8 @@ func TestNodePublishVolume_Success(t *testing.T) {
 	if call.Target != targetPath {
 		t.Errorf("Mount target = %q, want %q", call.Target, targetPath)
 	}
-	if call.FsType != "none" {
-		t.Errorf("Mount fsType = %q, want %q", call.FsType, "none")
+	if call.FsType != "" {
+		t.Errorf("Mount fsType = %q, want empty string for bind mount", call.FsType)
 	}
 }
 
@@ -322,7 +322,7 @@ func TestNodeGetCapabilities(t *testing.T) {
 }
 
 func TestNodeGetVolumeStats(t *testing.T) {
-	d, mock, _, store := newTestDriverWithMounter()
+	d, mock, mounter, store := newTestDriverWithMounter()
 
 	// Create a volume in state
 	vol := &state.Volume{
@@ -333,6 +333,9 @@ func TestNodeGetVolumeStats(t *testing.T) {
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}
+
+	// Simulate: volume is mounted at the target path
+	mounter.IsMountPointResult = true
 
 	// Configure mock qgroup usage
 	mock.GetQgroupUsageResult = &btrfs.QgroupUsage{
@@ -581,7 +584,7 @@ func TestNodeUnpublishVolume_IsMountPointError(t *testing.T) {
 }
 
 func TestNodeGetVolumeStats_GetQgroupUsageError(t *testing.T) {
-	d, mock, _, store := newTestDriverWithMounter()
+	d, mock, mounter, store := newTestDriverWithMounter()
 
 	vol := &state.Volume{
 		ID:            "vol-qgroup-err",
@@ -591,6 +594,9 @@ func TestNodeGetVolumeStats_GetQgroupUsageError(t *testing.T) {
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}
+
+	// Simulate: volume is mounted at the target path
+	mounter.IsMountPointResult = true
 
 	// Configure mock to return error
 	mock.GetQgroupUsageErr = fmt.Errorf("qgroup command failed")
@@ -620,6 +626,107 @@ func TestNodeExpandVolume(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("NodeExpandVolume returned nil response")
+	}
+}
+
+func TestValidatePath_RelativePath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"bare relative", "relative/path"},
+		{"dot prefix", "./relative"},
+		{"no slash", "target"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePath(tt.path)
+			if code := status.Code(err); code != codes.InvalidArgument {
+				t.Errorf("validatePath(%q) = %v, want InvalidArgument", tt.path, code)
+			}
+		})
+	}
+}
+
+func TestNodePublishVolume_BindMountOption(t *testing.T) {
+	d, _, mounter, store := newTestDriverWithMounter()
+
+	vol := &state.Volume{
+		ID:            "vol-bind",
+		Name:          "test-pvc",
+		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-bind",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	targetPath := filepath.Join(t.TempDir(), "target")
+	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	_, err := d.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
+		VolumeId:   "vol-bind",
+		TargetPath: targetPath,
+		VolumeCapability: &csi.VolumeCapability{
+			AccessType: &csi.VolumeCapability_Mount{
+				Mount: &csi.VolumeCapability_MountVolume{},
+			},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NodePublishVolume: %v", err)
+	}
+
+	if len(mounter.MountCalls) != 1 {
+		t.Fatalf("expected 1 Mount call, got %d", len(mounter.MountCalls))
+	}
+	call := mounter.MountCalls[0]
+
+	// bind mount must use "bind" in options, not fsType
+	foundBind := false
+	for _, opt := range call.Options {
+		if opt == "bind" {
+			foundBind = true
+		}
+	}
+	if !foundBind {
+		t.Errorf("Mount options = %v, want to contain 'bind'", call.Options)
+	}
+	if call.FsType != "" {
+		t.Errorf("Mount fsType = %q, want empty string for bind mount", call.FsType)
+	}
+}
+
+func TestNodeGetVolumeStats_PathNotMounted(t *testing.T) {
+	d, _, mounter, store := newTestDriverWithMounter()
+
+	vol := &state.Volume{
+		ID:            "vol-notmounted",
+		Name:          "test-pvc",
+		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-notmounted",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	// IsMountPointResult defaults to false — volume path is not mounted
+	mounter.IsMountPointResult = false
+
+	targetPath := filepath.Join(t.TempDir(), "target")
+	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	_, err := d.NodeGetVolumeStats(context.Background(), &csi.NodeGetVolumeStatsRequest{
+		VolumeId:   "vol-notmounted",
+		VolumePath: targetPath,
+	})
+	if code := status.Code(err); code != codes.NotFound {
+		t.Errorf("expected NotFound when volume path not mounted, got %v: %v", code, err)
 	}
 }
 
