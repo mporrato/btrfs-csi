@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -90,6 +91,11 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 		if err := validateContentSourceMatch(existing, req.VolumeContentSource); err != nil {
 			return nil, err
 		}
+		if !isCapacityCompatible(existing.CapacityBytes, req.CapacityRange) {
+			return nil, status.Errorf(codes.AlreadyExists,
+				"volume %q already exists with capacity %d, incompatible with requested range",
+				req.Name, existing.CapacityBytes)
+		}
 		klog.V(4).InfoS("CreateVolume idempotent", "name", req.Name, "volumeID", existing.ID)
 		return &csi.CreateVolumeResponse{Volume: toCSIVolume(existing, d.nodeID)}, nil
 	}
@@ -105,6 +111,10 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 	}
 	id := uuid.New().String()
 	subvolPath := filepath.Join(basePath, "volumes", id)
+
+	if err := os.MkdirAll(filepath.Dir(subvolPath), 0o755); err != nil {
+		return nil, status.Errorf(codes.Internal, "create volumes directory: %v", err)
+	}
 
 	vol := &state.Volume{
 		ID:            id,
@@ -273,6 +283,10 @@ func (d *Driver) CreateSnapshot(_ context.Context, req *csi.CreateSnapshotReques
 	id := uuid.New().String()
 	snapPath := filepath.Join(basePath, "snapshots", id)
 
+	if err := os.MkdirAll(filepath.Dir(snapPath), 0o755); err != nil {
+		return nil, status.Errorf(codes.Internal, "create snapshots directory: %v", err)
+	}
+
 	if err := d.Manager.CreateSnapshot(srcVol.SubvolumePath, snapPath, true); err != nil {
 		return nil, status.Errorf(codes.Internal, "create snapshot: %v", err)
 	}
@@ -328,6 +342,20 @@ func toCSISnapshot(snap *state.Snapshot) *csi.Snapshot {
 	}
 }
 
+// isCapacityCompatible returns true if existingBytes satisfies the requested CapacityRange.
+func isCapacityCompatible(existingBytes int64, cr *csi.CapacityRange) bool {
+	if cr == nil {
+		return true
+	}
+	if cr.RequiredBytes > 0 && existingBytes < cr.RequiredBytes {
+		return false
+	}
+	if cr.LimitBytes > 0 && existingBytes > cr.LimitBytes {
+		return false
+	}
+	return true
+}
+
 // validateContentSourceMatch checks that an existing volume's content source matches the request.
 // Returns AlreadyExists if there is a mismatch.
 func validateContentSourceMatch(vol *state.Volume, src *csi.VolumeContentSource) error {
@@ -373,11 +401,25 @@ func (d *Driver) resolveBasePath(params map[string]string) (string, error) {
 
 // toCSIVolume converts a state.Volume to the CSI Volume proto with topology.
 func toCSIVolume(vol *state.Volume, nodeID string) *csi.Volume {
-	return &csi.Volume{
+	v := &csi.Volume{
 		VolumeId:      vol.ID,
 		CapacityBytes: vol.CapacityBytes,
 		AccessibleTopology: []*csi.Topology{
 			{Segments: map[string]string{topologyKey: nodeID}},
 		},
 	}
+	if vol.SourceSnapID != "" {
+		v.ContentSource = &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Snapshot{
+				Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: vol.SourceSnapID},
+			},
+		}
+	} else if vol.SourceVolID != "" {
+		v.ContentSource = &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Volume{
+				Volume: &csi.VolumeContentSource_VolumeSource{VolumeId: vol.SourceVolID},
+			},
+		}
+	}
+	return v
 }

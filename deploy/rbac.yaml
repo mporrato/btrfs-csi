@@ -28,6 +28,13 @@ rules:
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list", "watch"]
+  # Resizer permissions
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims/status"]
+    verbs: ["update", "patch"]
   # Snapshotter permissions
   - apiGroups: ["snapshot.storage.k8s.io"]
     resources: ["volumesnapshots"]

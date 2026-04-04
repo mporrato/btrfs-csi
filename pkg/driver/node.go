@@ -79,6 +79,9 @@ func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolume
 	if err := validatePath(req.GetTargetPath()); err != nil {
 		return nil, err
 	}
+	if req.GetVolumeCapability() == nil {
+		return nil, status.Error(codes.InvalidArgument, "volume capability is required")
+	}
 
 	vol, ok := d.Store.GetVolume(req.GetVolumeId())
 	if !ok {
@@ -139,6 +142,9 @@ func (d *Driver) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpublishVo
 
 	isMount, err := d.mounter.IsMountPoint(targetPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return &csi.NodeUnpublishVolumeResponse{}, nil
+		}
 		return nil, status.Errorf(codes.Internal, "check mount point %s: %v", targetPath, err)
 	}
 	if !isMount {
@@ -207,6 +213,9 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeSta
 
 	isMount, err := d.mounter.IsMountPoint(req.GetVolumePath())
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, status.Errorf(codes.NotFound, "volume path %s not found", req.GetVolumePath())
+		}
 		return nil, status.Errorf(codes.Internal, "check mount point %s: %v", req.GetVolumePath(), err)
 	}
 	if !isMount {

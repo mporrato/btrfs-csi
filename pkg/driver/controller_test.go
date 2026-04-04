@@ -118,13 +118,14 @@ func TestCreateVolume_MissingCapabilities(t *testing.T) {
 }
 
 func TestCreateVolume_WithBasePath(t *testing.T) {
+	basePath := t.TempDir()
 	d, mock, _ := newTestDriverWithMock()
 
 	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
 		Name:               "test-pvc",
 		CapacityRange:      &csi.CapacityRange{RequiredBytes: 1 << 30},
 		VolumeCapabilities: singleNodeWriterCap(),
-		Parameters:         map[string]string{"basePath": "/custom/basepath"},
+		Parameters:         map[string]string{"basePath": basePath},
 	})
 	if err != nil {
 		t.Fatalf("CreateVolume: %v", err)
@@ -133,7 +134,7 @@ func TestCreateVolume_WithBasePath(t *testing.T) {
 	if len(mock.CreateSubvolumeCalls) != 1 {
 		t.Fatalf("expected 1 CreateSubvolume call, got %d", len(mock.CreateSubvolumeCalls))
 	}
-	wantPrefix := filepath.Join("/custom/basepath", "volumes") + "/"
+	wantPrefix := filepath.Join(basePath, "volumes") + "/"
 	if !strings.HasPrefix(mock.CreateSubvolumeCalls[0], wantPrefix) {
 		t.Errorf("subvolume path %q does not start with %q", mock.CreateSubvolumeCalls[0], wantPrefix)
 	}
@@ -141,8 +142,8 @@ func TestCreateVolume_WithBasePath(t *testing.T) {
 	if len(mock.EnsureQuotaEnabledCalls) != 1 {
 		t.Fatalf("expected 1 EnsureQuotaEnabled call, got %d", len(mock.EnsureQuotaEnabledCalls))
 	}
-	if got := mock.EnsureQuotaEnabledCalls[0]; got != "/custom/basepath" {
-		t.Errorf("EnsureQuotaEnabled mountpoint = %q, want %q", got, "/custom/basepath")
+	if got := mock.EnsureQuotaEnabledCalls[0]; got != basePath {
+		t.Errorf("EnsureQuotaEnabled mountpoint = %q, want %q", got, basePath)
 	}
 }
 

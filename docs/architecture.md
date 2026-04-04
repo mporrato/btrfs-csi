@@ -109,11 +109,13 @@ btrfs-csi/
 │   ├── storageclass.yaml               # StorageClass "btrfs" with WaitForFirstConsumer
 │   └── snapshotclass.yaml              # VolumeSnapshotClass
 ├── test/
-│   └── kind-config.yaml                # Kind cluster config with btrfs loopback extraMounts
+│   ├── setup-minikube.sh               # Start minikube (qemu), format extra disk as btrfs, deploy driver
+│   ├── run-sanity.sh                   # Build sanity test binary and run it inside the minikube VM
+│   └── e2e.sh                          # End-to-end kubectl-based test scenarios
 ├── docs/
 │   ├── architecture.md                 # This file
 │   └── tasks.md                        # Task breakdown and progress tracking
-├── Dockerfile                          # Multi-stage: golang builder → fedora + btrfs-progs
+├── Dockerfile                          # Multi-stage: golang builder → alpine + btrfs-progs
 ├── Makefile                            # build, test, test-integration, image, deploy
 └── go.mod
 ```
@@ -166,35 +168,32 @@ Single DaemonSet pod with 4 containers:
 ## Verification Plan
 
 1. **Unit tests** — Mock-based driver tests, state layer tests (`go test ./...`)
-2. **CSI sanity** — `csi-test` conformance suite against running driver
+2. **CSI sanity** — `csi-test` conformance suite, run inside the minikube VM (`make minikube-sanity`)
 3. **Integration tests** — Btrfs layer tests on loopback btrfs fs (`go test -tags integration ./pkg/btrfs/`)
-4. **E2E on kind** — Full workflow on a kind cluster with btrfs loopback mount:
+4. **E2E on minikube** — Full workflow against a minikube cluster with btrfs on the extra disk (`make minikube-e2e`):
    - Create PVC → Pod → write data → VolumeSnapshot → PVC from snapshot → verify data
    - Resize PVC → verify new capacity
    - Delete everything → verify subvolumes cleaned up
 
 ### Running Integration Tests
 
-The btrfs integration tests (`//go:build integration`) require either:
+The btrfs integration and sanity tests (`//go:build integration`) require root and a btrfs
+filesystem. Use minikube with the QEMU driver to avoid needing root on the host:
 
-**Option A: Privileged environment (root or container)**
 ```bash
-# Run in a privileged container (requires root or --privileged flag)
-docker run --privileged -v $(pwd):/src -w /src golang:1.21 sh -c "go test -tags integration ./pkg/btrfs/"
+# One-time cluster setup (no Docker or host root required)
+make minikube-setup
 
-# Or directly on the host if you have btrfs and root
+# Build the sanity test binary and run it inside the VM
+make minikube-sanity
+
+# Run btrfs package integration tests inside the VM
+GOOS=linux GOARCH=amd64 go test -c -tags integration ./pkg/btrfs/ -o /tmp/btrfs.test
+minikube cp /tmp/btrfs.test /tmp/btrfs.test
+minikube ssh "sudo /tmp/btrfs.test -test.v"
+```
+
+If you do have root on the host and a btrfs filesystem available, you can run directly:
+```bash
 sudo go test -tags integration ./pkg/btrfs/
 ```
-
-**Option B: minikube with extra disk**
-For testing without requiring root on the host, use minikube with an additional block device:
-
-```bash
-# Start minikube with an extra disk
-minikube start --driver=qemu --extra-disks=1
-
-# SSH into the VM and set up btrfs
-minikube ssh "sudo mkfs.btrfs -f /dev/vda && sudo mkdir -p /var/lib/btrfs-csi && sudo mount /dev/vda /var/lib/btrfs-csi"
-```
-
-The integration tests will skip automatically if not running as root. For CI or automated testing, the minikube approach provides a full test environment without needing root on the host machine.

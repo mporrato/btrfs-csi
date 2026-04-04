@@ -463,50 +463,50 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: Run the `kubernetes-csi/csi-test` sanity suite against the driver.
 - **Acceptance Criteria**:
-  - [ ] Sanity test file exists (e.g., `pkg/driver/sanity_test.go` with `//go:build integration`)
-  - [ ] Tests start the driver on a temp socket, run the sanity suite against it
-  - [ ] All applicable sanity checks pass
+  - [x] Sanity test file exists (e.g., `pkg/driver/sanity_test.go` with `//go:build integration`)
+  - [x] Tests start the driver on a temp socket, run the sanity suite against it
+  - [x] All applicable sanity checks pass
 
 ### Task 12.2: Kind cluster setup
 
 - **Requirements**: Create `test/kind-config.yaml` and a setup script for btrfs loopback.
 - **Acceptance Criteria**:
-  - [ ] `test/kind-config.yaml` with `extraMounts` for btrfs loopback image
-  - [ ] Setup script: creates loopback btrfs image (`dd` + `mkfs.btrfs`), creates kind cluster, loads driver image
-  - [ ] Cluster comes up with btrfs mount available inside the node
+  - [x] `test/kind-config.yaml` with `extraMounts` for btrfs loopback image
+  - [x] Setup script: creates loopback btrfs image (`dd` + `mkfs.btrfs`), creates kind cluster, loads driver image
+  - [x] Cluster comes up with btrfs mount available inside the node
 
 ### Task 12.3: E2E — Basic volume lifecycle
 
 - **Requirements**: Test PVC creation, pod mount, data write, pod delete, PVC delete.
 - **Acceptance Criteria**:
-  - [ ] Create PVC with StorageClass `btrfs` → PVC becomes Bound
-  - [ ] Create Pod that mounts the PVC and writes a file → Pod succeeds
-  - [ ] Delete Pod → clean unmount
-  - [ ] Delete PVC → subvolume cleaned up
+  - [x] Create PVC with StorageClass `btrfs` → PVC becomes Bound
+  - [x] Create Pod that mounts the PVC and writes a file → Pod succeeds
+  - [x] Delete Pod → clean unmount
+  - [x] Delete PVC → subvolume cleaned up
 
 ### Task 12.4: E2E — Snapshot and restore
 
 - **Requirements**: Test snapshot creation and PVC creation from snapshot.
 - **Acceptance Criteria**:
-  - [ ] Create PVC, mount in Pod, write known data
-  - [ ] Create VolumeSnapshot from PVC → snapshot becomes `ReadyToUse`
-  - [ ] Create new PVC from VolumeSnapshot → PVC becomes Bound
-  - [ ] Mount new PVC in Pod → data matches original
+  - [x] Create PVC, mount in Pod, write known data
+  - [x] Create VolumeSnapshot from PVC → snapshot becomes `ReadyToUse`
+  - [x] Create new PVC from VolumeSnapshot → PVC becomes Bound
+  - [x] Mount new PVC in Pod → data matches original
 
 ### Task 12.5: E2E — Volume cloning
 
 - **Requirements**: Test PVC creation from existing PVC (clone).
 - **Acceptance Criteria**:
-  - [ ] Create source PVC, mount in Pod, write known data
-  - [ ] Create new PVC with `dataSource` pointing to source PVC → PVC becomes Bound
-  - [ ] Mount new PVC in Pod → data matches original
-  - [ ] Writes to clone do not affect source
+  - [x] Create source PVC, mount in Pod, write known data
+  - [x] Create new PVC with `dataSource` pointing to source PVC → PVC becomes Bound
+  - [x] Mount new PVC in Pod → data matches original
+  - [x] Writes to clone do not affect source
 
 ### Task 12.6: E2E — Volume expansion
 
 - **Requirements**: Test online PVC resize.
 - **Acceptance Criteria**:
-  - [ ] Create PVC with small capacity (e.g., 100Mi)
-  - [ ] Patch PVC to larger capacity (e.g., 500Mi)
-  - [ ] PVC capacity updates → qgroup limit reflects new size
-  - [ ] Pod can write data up to the new capacity
+  - [x] Create PVC with small capacity (e.g., 100Mi)
+  - [x] Patch PVC to larger capacity (e.g., 500Mi)
+  - [x] PVC capacity updates → qgroup limit reflects new size
+  - [x] Pod can write data up to the new capacity

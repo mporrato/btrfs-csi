@@ -3,6 +3,6 @@ kind: StorageClass
 metadata:
   name: btrfs
 provisioner: btrfs.csi.local
-volumeBindingMode: WaitForFirstConsumer
+volumeBindingMode: Immediate
 reclaimPolicy: Delete
 allowVolumeExpansion: true
