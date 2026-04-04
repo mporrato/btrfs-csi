@@ -196,3 +196,83 @@ func TestDeleteVolume_MissingID(t *testing.T) {
 		t.Errorf("expected InvalidArgument, got %v", code)
 	}
 }
+
+func TestControllerExpandVolume_Success(t *testing.T) {
+	d, mock, store := newTestDriverWithMock()
+
+	// First create a volume
+	vol := &state.Volume{
+		ID:            "vol-expand",
+		Name:          "test-pvc",
+		CapacityBytes: 1 << 30, // 1 GiB
+		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-expand",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	// Now expand it to 2 GiB
+	resp, err := d.ControllerExpandVolume(context.Background(), &csi.ControllerExpandVolumeRequest{
+		VolumeId:      "vol-expand",
+		CapacityRange: &csi.CapacityRange{RequiredBytes: 2 << 30},
+	})
+	if err != nil {
+		t.Fatalf("ControllerExpandVolume: %v", err)
+	}
+
+	if len(mock.SetQgroupLimitCalls) != 1 {
+		t.Fatalf("expected 1 SetQgroupLimit call, got %d", len(mock.SetQgroupLimitCalls))
+	}
+	if mock.SetQgroupLimitCalls[0].Bytes != 2<<30 {
+		t.Errorf("SetQgroupLimit bytes = %d, want %d", mock.SetQgroupLimitCalls[0].Bytes, 2<<30)
+	}
+
+	// Verify state was updated
+	updated, ok := store.GetVolume("vol-expand")
+	if !ok {
+		t.Fatal("volume not found in state after expansion")
+	}
+	if updated.CapacityBytes != 2<<30 {
+		t.Errorf("volume capacity = %d, want %d", updated.CapacityBytes, 2<<30)
+	}
+
+	if resp.NodeExpansionRequired {
+		t.Error("expected NodeExpansionRequired = false, got true")
+	}
+}
+
+func TestControllerExpandVolume_VolumeNotFound(t *testing.T) {
+	d, _, _ := newTestDriverWithMock()
+
+	_, err := d.ControllerExpandVolume(context.Background(), &csi.ControllerExpandVolumeRequest{
+		VolumeId:      "vol-nonexistent",
+		CapacityRange: &csi.CapacityRange{RequiredBytes: 2 << 30},
+	})
+	if code := status.Code(err); code != codes.NotFound {
+		t.Errorf("expected NotFound, got %v", code)
+	}
+}
+
+func TestControllerExpandVolume_ShrinkRejected(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+
+	// First create a volume with 2 GiB
+	vol := &state.Volume{
+		ID:            "vol-shrink",
+		Name:          "test-pvc",
+		CapacityBytes: 2 << 30, // 2 GiB
+		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-shrink",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	// Try to shrink to 1 GiB
+	_, err := d.ControllerExpandVolume(context.Background(), &csi.ControllerExpandVolumeRequest{
+		VolumeId:      "vol-shrink",
+		CapacityRange: &csi.CapacityRange{RequiredBytes: 1 << 30},
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument for shrink, got %v", code)
+	}
+}

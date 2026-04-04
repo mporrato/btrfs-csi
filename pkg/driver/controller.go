@@ -151,6 +151,52 @@ func (d *Driver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest)
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
+func (d *Driver) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
+	if req.VolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
+	}
+
+	vol, ok := d.Store.GetVolume(req.VolumeId)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.VolumeId)
+	}
+
+	var newCapacity int64
+	if req.CapacityRange != nil {
+		newCapacity = req.CapacityRange.RequiredBytes
+	}
+
+	// Reject shrink attempts.
+	if newCapacity > 0 && newCapacity < vol.CapacityBytes {
+		return nil, status.Errorf(codes.InvalidArgument, "cannot shrink volume from %d to %d", vol.CapacityBytes, newCapacity)
+	}
+
+	// If no capacity specified or same as current, nothing to do.
+	if newCapacity == 0 || newCapacity == vol.CapacityBytes {
+		return &csi.ControllerExpandVolumeResponse{
+			CapacityBytes:         vol.CapacityBytes,
+			NodeExpansionRequired: false,
+		}, nil
+	}
+
+	// Update qgroup limit.
+	if err := d.Manager.SetQgroupLimit(vol.SubvolumePath, uint64(newCapacity)); err != nil {
+		return nil, status.Errorf(codes.Internal, "set qgroup limit: %v", err)
+	}
+
+	// Update state.
+	vol.CapacityBytes = newCapacity
+	if err := d.Store.SaveVolume(vol); err != nil {
+		return nil, status.Errorf(codes.Internal, "save volume state: %v", err)
+	}
+
+	klog.V(4).InfoS("ControllerExpandVolume", "volumeID", req.VolumeId, "oldCapacity", vol.CapacityBytes, "newCapacity", newCapacity)
+	return &csi.ControllerExpandVolumeResponse{
+		CapacityBytes:         newCapacity,
+		NodeExpansionRequired: false,
+	}, nil
+}
+
 // resolveBasePath returns the basePath from StorageClass parameters, falling back to rootPath.
 func (d *Driver) resolveBasePath(params map[string]string) string {
 	if bp := params["basePath"]; bp != "" {

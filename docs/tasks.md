@@ -249,25 +249,25 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: Write failing tests.
 - **Acceptance Criteria**:
-  - [ ] `TestControllerExpandVolume_Success` — asserts: mock `SetQgroupLimit` called with new capacity, state updated, `NodeExpansionRequired` is false
-  - [ ] `TestControllerExpandVolume_VolumeNotFound` — returns gRPC `NotFound`
-  - [ ] `TestControllerExpandVolume_ShrinkRejected` — new capacity < current returns gRPC `InvalidArgument`
-  - [ ] All tests fail (RED)
+  - [x] `TestControllerExpandVolume_Success` — asserts: mock `SetQgroupLimit` called with new capacity, state updated, `NodeExpansionRequired` is false
+  - [x] `TestControllerExpandVolume_VolumeNotFound` — returns gRPC `NotFound`
+  - [x] `TestControllerExpandVolume_ShrinkRejected` — new capacity < current returns gRPC `InvalidArgument`
+  - [x] All tests fail (RED)
 
 ### Task 7.2: Green — Implement ControllerExpandVolume
 
 - **Requirements**: Implement in `pkg/driver/controller.go`.
 - **Acceptance Criteria**:
-  - [ ] Validates volume exists and new capacity >= current
-  - [ ] Updates qgroup limit and state
-  - [ ] Returns `NodeExpansionRequired: false`
-  - [ ] `go test ./pkg/driver/` passes
+  - [x] Validates volume exists and new capacity >= current
+  - [x] Updates qgroup limit and state
+  - [x] Returns `NodeExpansionRequired: false`
+  - [x] `go test ./pkg/driver/` passes
 
 ### Task 7.3: Gray — Refactor
 
 - **Requirements**: Clean up any duplication with CreateVolume's qgroup logic.
 - **Acceptance Criteria**:
-  - [ ] `go test ./pkg/driver/` still passes
+  - [x] `go test ./pkg/driver/` still passes
 
 ---
 
