@@ -16,10 +16,12 @@ const (
 type Driver struct {
 	csi.UnimplementedIdentityServer
 	csi.UnimplementedControllerServer
+	csi.UnimplementedNodeServer
 	name     string
 	version  string
 	nodeID   string
 	rootPath string
+	mounter  Mounter
 	btrfs.Manager
 	state.Store
 }
@@ -46,6 +48,7 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID, rootPath string) *D
 		version:  version,
 		nodeID:   nodeID,
 		rootPath: rootPath,
+		mounter:  newRealMounter(),
 		Manager:  mgr,
 		Store:    store,
 	}

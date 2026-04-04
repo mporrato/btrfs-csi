@@ -279,36 +279,36 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: Write failing tests in `pkg/driver/node_test.go`. Mount operations use a `Mounter` interface (mock in tests).
 - **Acceptance Criteria**:
-  - [ ] `Mounter` interface defined with `Mount`, `Unmount`, `IsMountPoint` methods
-  - [ ] `MockMounter` records calls and returns configurable results
-  - [ ] `TestNodePublishVolume_Success` — asserts bind mount called with correct source (subvolume path) and target
-  - [ ] `TestNodePublishVolume_Readonly` — asserts mount options include `ro`
-  - [ ] `TestNodePublishVolume_MissingVolumeID` — returns gRPC `InvalidArgument`
-  - [ ] `TestNodePublishVolume_MissingTargetPath` — returns gRPC `InvalidArgument`
-  - [ ] `TestNodeUnpublishVolume_Success` — asserts unmount called, target directory removed
-  - [ ] `TestNodeUnpublishVolume_NotMounted` — returns success (idempotent)
-  - [ ] `TestNodeGetInfo` — asserts node ID and topology key `topology.btrfs.csi.local/node` returned
-  - [ ] `TestNodeGetCapabilities` — asserts `GET_VOLUME_STATS` capability
-  - [ ] `TestNodeGetVolumeStats` — asserts usage stats returned from mock qgroup data
-  - [ ] All tests fail (RED)
+  - [x] `Mounter` interface defined with `Mount`, `Unmount`, `IsMountPoint` methods
+  - [x] `MockMounter` records calls and returns configurable results
+  - [x] `TestNodePublishVolume_Success` — asserts bind mount called with correct source (subvolume path) and target
+  - [x] `TestNodePublishVolume_Readonly` — asserts mount options include `ro`
+  - [x] `TestNodePublishVolume_MissingVolumeID` — returns gRPC `InvalidArgument`
+  - [x] `TestNodePublishVolume_MissingTargetPath` — returns gRPC `InvalidArgument`
+  - [x] `TestNodeUnpublishVolume_Success` — asserts unmount called, target directory removed
+  - [x] `TestNodeUnpublishVolume_NotMounted` — returns success (idempotent)
+  - [x] `TestNodeGetInfo` — asserts node ID and topology key `topology.btrfs.csi.local/node` returned
+  - [x] `TestNodeGetCapabilities` — asserts `GET_VOLUME_STATS` capability
+  - [x] `TestNodeGetVolumeStats` — asserts usage stats returned from mock qgroup data
+  - [x] All tests fail (RED)
 
 ### Task 8.2: Green — Implement Node service
 
 - **Requirements**: Implement in `pkg/driver/node.go`.
 - **Acceptance Criteria**:
-  - [ ] `NodePublishVolume` creates target dir, bind mounts subvolume path, handles readonly
-  - [ ] `NodeUnpublishVolume` unmounts and removes target dir (idempotent)
-  - [ ] `NodeGetInfo` returns node ID and topology
-  - [ ] `NodeGetCapabilities` returns `GET_VOLUME_STATS`
-  - [ ] `NodeGetVolumeStats` returns byte and inode usage
-  - [ ] `go test ./pkg/driver/` passes
+  - [x] `NodePublishVolume` creates target dir, bind mounts subvolume path, handles readonly
+  - [x] `NodeUnpublishVolume` unmounts and removes target dir (idempotent)
+  - [x] `NodeGetInfo` returns node ID and topology
+  - [x] `NodeGetCapabilities` returns `GET_VOLUME_STATS`
+  - [x] `NodeGetVolumeStats` returns byte and inode usage
+  - [x] `go test ./pkg/driver/` passes
 
 ### Task 8.3: Gray — Refactor Node service
 
 - **Requirements**: Clean up mount helpers and error handling.
 - **Acceptance Criteria**:
-  - [ ] Mount logic is clean and well-structured
-  - [ ] `go test ./pkg/driver/` still passes
+  - [x] Mount logic is clean and well-structured
+  - [x] `go test ./pkg/driver/` still passes
 
 ---
 
