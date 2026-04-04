@@ -3,12 +3,14 @@ package driver
 import (
 	"context"
 	"path/filepath"
+	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/google/uuid"
 	"github.com/guru/btrfs-csi/pkg/state"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"k8s.io/klog/v2"
 )
 
@@ -84,6 +86,9 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 
 	// Idempotency: return existing volume if one with the same name exists.
 	if existing, ok := d.GetVolumeByName(req.Name); ok {
+		if err := validateContentSourceMatch(existing, req.VolumeContentSource); err != nil {
+			return nil, err
+		}
 		klog.V(4).InfoS("CreateVolume idempotent", "name", req.Name, "volumeID", existing.ID)
 		return &csi.CreateVolumeResponse{Volume: toCSIVolume(existing, d.nodeID)}, nil
 	}
@@ -97,10 +102,16 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 	id := uuid.New().String()
 	subvolPath := filepath.Join(basePath, "volumes", id)
 
-	// TODO: if CreateSubvolume succeeds but a later step fails, the subvolume is
-	// orphaned on disk until a future CreateVolume with the same name recreates it.
-	if err := d.Manager.CreateSubvolume(subvolPath); err != nil {
-		return nil, status.Errorf(codes.Internal, "create subvolume: %v", err)
+	vol := &state.Volume{
+		ID:            id,
+		Name:          req.Name,
+		CapacityBytes: capacityBytes,
+		SubvolumePath: subvolPath,
+		NodeID:        d.nodeID,
+	}
+
+	if err := d.provisionVolume(subvolPath, req.VolumeContentSource, vol); err != nil {
+		return nil, err
 	}
 
 	if capacityBytes > 0 {
@@ -113,13 +124,6 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 		}
 	}
 
-	vol := &state.Volume{
-		ID:            id,
-		Name:          req.Name,
-		CapacityBytes: capacityBytes,
-		SubvolumePath: subvolPath,
-		NodeID:        d.nodeID,
-	}
 	if err := d.Store.SaveVolume(vol); err != nil {
 		return nil, status.Errorf(codes.Internal, "save volume state: %v", err)
 	}
@@ -195,6 +199,154 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context, req *csi.Controller
 		CapacityBytes:         newCapacity,
 		NodeExpansionRequired: false,
 	}, nil
+}
+
+// provisionVolume creates the subvolume at subvolPath, handling content sources for cloning.
+// It sets SourceSnapID or SourceVolID on vol when cloning. On success the subvolume exists on disk.
+func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource, vol *state.Volume) error {
+	if src == nil {
+		// Fresh empty subvolume.
+		if err := d.Manager.CreateSubvolume(subvolPath); err != nil {
+			return status.Errorf(codes.Internal, "create subvolume: %v", err)
+		}
+		return nil
+	}
+
+	switch t := src.Type.(type) {
+	case *csi.VolumeContentSource_Snapshot:
+		snapID := t.Snapshot.GetSnapshotId()
+		snap, ok := d.Store.GetSnapshot(snapID)
+		if !ok {
+			return status.Errorf(codes.NotFound, "snapshot %s not found", snapID)
+		}
+		if err := d.Manager.CreateSnapshot(snap.SnapshotPath, subvolPath, false); err != nil {
+			return status.Errorf(codes.Internal, "clone from snapshot: %v", err)
+		}
+		vol.SourceSnapID = snapID
+
+	case *csi.VolumeContentSource_Volume:
+		srcVolID := t.Volume.GetVolumeId()
+		srcVol, ok := d.Store.GetVolume(srcVolID)
+		if !ok {
+			return status.Errorf(codes.NotFound, "source volume %s not found", srcVolID)
+		}
+		if err := d.Manager.CreateSnapshot(srcVol.SubvolumePath, subvolPath, false); err != nil {
+			return status.Errorf(codes.Internal, "clone volume: %v", err)
+		}
+		vol.SourceVolID = srcVolID
+
+	default:
+		return status.Errorf(codes.InvalidArgument, "unsupported volume content source type")
+	}
+
+	return nil
+}
+
+func (d *Driver) CreateSnapshot(_ context.Context, req *csi.CreateSnapshotRequest) (*csi.CreateSnapshotResponse, error) {
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "snapshot name is required")
+	}
+	if req.SourceVolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "source volume ID is required")
+	}
+
+	// Idempotency: return existing snapshot if one with the same name exists.
+	if existing, ok := d.Store.GetSnapshotByName(req.Name); ok {
+		if existing.SourceVolID != req.SourceVolumeId {
+			return nil, status.Errorf(codes.AlreadyExists, "snapshot %q already exists with different source volume %s", req.Name, existing.SourceVolID)
+		}
+		klog.V(4).InfoS("CreateSnapshot idempotent", "name", req.Name, "snapshotID", existing.ID)
+		return &csi.CreateSnapshotResponse{Snapshot: toCSISnapshot(existing)}, nil
+	}
+
+	srcVol, ok := d.Store.GetVolume(req.SourceVolumeId)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "source volume %s not found", req.SourceVolumeId)
+	}
+
+	// Derive basePath from the source volume's subvolume path: <basePath>/volumes/<id>
+	basePath := filepath.Dir(filepath.Dir(srcVol.SubvolumePath))
+	id := uuid.New().String()
+	snapPath := filepath.Join(basePath, "snapshots", id)
+
+	if err := d.Manager.CreateSnapshot(srcVol.SubvolumePath, snapPath, true); err != nil {
+		return nil, status.Errorf(codes.Internal, "create snapshot: %v", err)
+	}
+
+	now := time.Now()
+	snap := &state.Snapshot{
+		ID:           id,
+		Name:         req.Name,
+		SourceVolID:  req.SourceVolumeId,
+		SnapshotPath: snapPath,
+		CreatedAt:    now,
+		ReadyToUse:   true,
+	}
+	if err := d.Store.SaveSnapshot(snap); err != nil {
+		return nil, status.Errorf(codes.Internal, "save snapshot state: %v", err)
+	}
+
+	klog.V(4).InfoS("CreateSnapshot", "snapshotID", id, "name", req.Name, "sourceVolID", req.SourceVolumeId)
+	return &csi.CreateSnapshotResponse{Snapshot: toCSISnapshot(snap)}, nil
+}
+
+func (d *Driver) DeleteSnapshot(_ context.Context, req *csi.DeleteSnapshotRequest) (*csi.DeleteSnapshotResponse, error) {
+	if req.SnapshotId == "" {
+		return nil, status.Error(codes.InvalidArgument, "snapshot ID is required")
+	}
+
+	snap, ok := d.Store.GetSnapshot(req.SnapshotId)
+	if !ok {
+		// Already deleted — idempotent.
+		return &csi.DeleteSnapshotResponse{}, nil
+	}
+
+	if err := d.Manager.DeleteSubvolume(snap.SnapshotPath); err != nil {
+		return nil, status.Errorf(codes.Internal, "delete snapshot subvolume: %v", err)
+	}
+
+	if err := d.Store.DeleteSnapshot(req.SnapshotId); err != nil {
+		return nil, status.Errorf(codes.Internal, "delete snapshot state: %v", err)
+	}
+
+	klog.V(4).InfoS("DeleteSnapshot", "snapshotID", req.SnapshotId)
+	return &csi.DeleteSnapshotResponse{}, nil
+}
+
+// toCSISnapshot converts a state.Snapshot to the CSI Snapshot proto.
+func toCSISnapshot(snap *state.Snapshot) *csi.Snapshot {
+	return &csi.Snapshot{
+		SnapshotId:     snap.ID,
+		SourceVolumeId: snap.SourceVolID,
+		SizeBytes:      snap.SizeBytes,
+		CreationTime:   timestamppb.New(snap.CreatedAt),
+		ReadyToUse:     snap.ReadyToUse,
+	}
+}
+
+// validateContentSourceMatch checks that an existing volume's content source matches the request.
+// Returns AlreadyExists if there is a mismatch.
+func validateContentSourceMatch(vol *state.Volume, src *csi.VolumeContentSource) error {
+	reqSnapID, reqVolID := contentSourceIDs(src)
+
+	if vol.SourceSnapID != reqSnapID || vol.SourceVolID != reqVolID {
+		return status.Errorf(codes.AlreadyExists, "volume %q already exists with different content source", vol.Name)
+	}
+	return nil
+}
+
+// contentSourceIDs extracts the snapshot ID and volume ID from a VolumeContentSource.
+func contentSourceIDs(src *csi.VolumeContentSource) (snapID, volID string) {
+	if src == nil {
+		return "", ""
+	}
+	switch t := src.Type.(type) {
+	case *csi.VolumeContentSource_Snapshot:
+		return t.Snapshot.GetSnapshotId(), ""
+	case *csi.VolumeContentSource_Volume:
+		return "", t.Volume.GetVolumeId()
+	}
+	return "", ""
 }
 
 // resolveBasePath returns the basePath from StorageClass parameters, falling back to rootPath.
