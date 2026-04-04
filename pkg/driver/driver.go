@@ -69,6 +69,8 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID, rootPath string) *D
 	// Clean up stale qgroups left by any previous driver run.
 	if err := mgr.ClearStaleQgroups(rootPath); err != nil {
 		klog.V(4).InfoS("startup qgroup cleanup skipped", "err", err)
+	} else {
+		klog.V(4).InfoS("startup qgroup cleanup completed")
 	}
 
 	return d
@@ -141,6 +143,8 @@ func (d *Driver) scheduleQgroupCleanup() {
 	d.qgroupCleanupTimer = time.AfterFunc(qgroupCleanupDelay, func() {
 		if err := d.ClearStaleQgroups(d.rootPath); err != nil {
 			klog.V(4).InfoS("periodic qgroup cleanup failed", "err", err)
+		} else {
+			klog.V(4).InfoS("periodic qgroup cleanup completed")
 		}
 		d.qgroupCleanupMu.Lock()
 		d.qgroupCleanupTimer = nil
