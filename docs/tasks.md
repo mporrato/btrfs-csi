@@ -320,34 +320,34 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: Write failing tests.
 - **Acceptance Criteria**:
-  - [ ] `TestCreateSnapshot_Success` — asserts: mock `CreateSnapshot` called with `readonly=true`, state saved with `ReadyToUse=true` and creation timestamp
-  - [ ] `TestCreateSnapshot_Idempotent` — same name returns existing snapshot, no duplicate btrfs call
-  - [ ] `TestCreateSnapshot_SourceNotFound` — source volume not in state, returns gRPC `NotFound`
-  - [ ] `TestCreateSnapshot_MissingName` — returns gRPC `InvalidArgument`
-  - [ ] `TestDeleteSnapshot_Success` — asserts snapshot subvolume deleted, state removed
-  - [ ] `TestDeleteSnapshot_NotFound` — returns success (idempotent)
-  - [ ] `TestCreateVolume_FromSnapshot` — asserts: writable snapshot created from snapshot path, state records source snap ID
-  - [ ] `TestCreateVolume_FromSnapshot_SourceNotFound` — snapshot not in state, returns gRPC `NotFound`
-  - [ ] `TestCreateVolume_Clone` — asserts: writable snapshot created from source volume path, state records source vol ID
-  - [ ] `TestCreateVolume_Clone_SourceNotFound` — source volume not in state, returns gRPC `NotFound`
-  - [ ] All tests fail (RED)
+  - [x] `TestCreateSnapshot_Success` — asserts: mock `CreateSnapshot` called with `readonly=true`, state saved with `ReadyToUse=true` and creation timestamp
+  - [x] `TestCreateSnapshot_Idempotent` — same name returns existing snapshot, no duplicate btrfs call
+  - [x] `TestCreateSnapshot_SourceNotFound` — source volume not in state, returns gRPC `NotFound`
+  - [x] `TestCreateSnapshot_MissingName` — returns gRPC `InvalidArgument`
+  - [x] `TestDeleteSnapshot_Success` — asserts snapshot subvolume deleted, state removed
+  - [x] `TestDeleteSnapshot_NotFound` — returns success (idempotent)
+  - [x] `TestCreateVolume_FromSnapshot` — asserts: writable snapshot created from snapshot path, state records source snap ID
+  - [x] `TestCreateVolume_FromSnapshot_SourceNotFound` — snapshot not in state, returns gRPC `NotFound`
+  - [x] `TestCreateVolume_Clone` — asserts: writable snapshot created from source volume path, state records source vol ID
+  - [x] `TestCreateVolume_Clone_SourceNotFound` — source volume not in state, returns gRPC `NotFound`
+  - [x] All tests fail (RED)
 
 ### Task 9.2: Green — Implement snapshots and cloning
 
 - **Requirements**: Implement `CreateSnapshot`, `DeleteSnapshot` in `pkg/driver/controller.go`. Add content source handling to `CreateVolume`.
 - **Acceptance Criteria**:
-  - [ ] `CreateSnapshot` creates readonly btrfs snapshot, saves metadata
-  - [ ] `DeleteSnapshot` removes snapshot subvolume and state (idempotent)
-  - [ ] `CreateVolume` with snapshot source creates writable snapshot of readonly snap
-  - [ ] `CreateVolume` with volume source creates writable snapshot of source volume
-  - [ ] `go test ./pkg/driver/` passes
+  - [x] `CreateSnapshot` creates readonly btrfs snapshot, saves metadata
+  - [x] `DeleteSnapshot` removes snapshot subvolume and state (idempotent)
+  - [x] `CreateVolume` with snapshot source creates writable snapshot of readonly snap
+  - [x] `CreateVolume` with volume source creates writable snapshot of source volume
+  - [x] `go test ./pkg/driver/` passes
 
 ### Task 9.3: Gray — Refactor snapshot/clone logic
 
 - **Requirements**: Clean up content source branching in `CreateVolume`.
 - **Acceptance Criteria**:
-  - [ ] Content source handling is clear and well-structured
-  - [ ] `go test ./pkg/driver/` still passes
+  - [x] Content source handling is clear and well-structured
+  - [x] `go test ./pkg/driver/` still passes
 
 ---
 
