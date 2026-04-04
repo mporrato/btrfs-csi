@@ -219,25 +219,25 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: Write failing tests.
 - **Acceptance Criteria**:
-  - [ ] `TestControllerGetCapabilities` — asserts capabilities: `CREATE_DELETE_VOLUME`, `CREATE_DELETE_SNAPSHOT`, `CLONE_VOLUME`, `EXPAND_VOLUME`
-  - [ ] `TestValidateVolumeCapabilities_Supported` — `SINGLE_NODE_WRITER` returns confirmed with matching capabilities
-  - [ ] `TestValidateVolumeCapabilities_Unsupported` — multi-node access modes return empty confirmed
-  - [ ] `TestValidateVolumeCapabilities_VolumeNotFound` — returns gRPC `NotFound`
-  - [ ] All tests fail (RED)
+  - [x] `TestControllerGetCapabilities` — asserts capabilities: `CREATE_DELETE_VOLUME`, `CREATE_DELETE_SNAPSHOT`, `CLONE_VOLUME`, `EXPAND_VOLUME`
+  - [x] `TestValidateVolumeCapabilities_Supported` — `SINGLE_NODE_WRITER` returns confirmed with matching capabilities
+  - [x] `TestValidateVolumeCapabilities_Unsupported` — multi-node access modes return empty confirmed
+  - [x] `TestValidateVolumeCapabilities_VolumeNotFound` — returns gRPC `NotFound`
+  - [x] All tests fail (RED)
 
 ### Task 6.2: Green — Implement capabilities
 
 - **Requirements**: Implement `ControllerGetCapabilities` and `ValidateVolumeCapabilities`.
 - **Acceptance Criteria**:
-  - [ ] All capability tests pass
-  - [ ] `go test ./pkg/driver/` passes
+  - [x] All capability tests pass
+  - [x] `go test ./pkg/driver/` passes
 
 ### Task 6.3: Gray — Refactor
 
 - **Requirements**: Extract capability checking into a reusable helper.
 - **Acceptance Criteria**:
-  - [ ] Supported access modes defined as a package-level set/slice
-  - [ ] `go test ./pkg/driver/` still passes
+  - [x] Supported access modes defined as a package-level set/slice
+  - [x] `go test ./pkg/driver/` still passes
 
 ---
 

@@ -14,6 +14,66 @@ import (
 
 const topologyKey = "topology.btrfs.csi.local/node"
 
+// supportedAccessModes is the set of access modes this single-node driver supports.
+var supportedAccessModes = map[csi.VolumeCapability_AccessMode_Mode]struct{}{
+	csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER:      {},
+	csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY: {},
+}
+
+func (d *Driver) ControllerGetCapabilities(_ context.Context, _ *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
+	caps := []csi.ControllerServiceCapability_RPC_Type{
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+		csi.ControllerServiceCapability_RPC_CLONE_VOLUME,
+		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+	}
+	var out []*csi.ControllerServiceCapability
+	for _, c := range caps {
+		out = append(out, &csi.ControllerServiceCapability{
+			Type: &csi.ControllerServiceCapability_Rpc{
+				Rpc: &csi.ControllerServiceCapability_RPC{Type: c},
+			},
+		})
+	}
+	return &csi.ControllerGetCapabilitiesResponse{Capabilities: out}, nil
+}
+
+func (d *Driver) ValidateVolumeCapabilities(_ context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+	if req.VolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
+	}
+	if len(req.VolumeCapabilities) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "volume capabilities are required")
+	}
+
+	if _, ok := d.Store.GetVolume(req.VolumeId); !ok {
+		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.VolumeId)
+	}
+
+	if !isSupportedCapabilities(req.VolumeCapabilities) {
+		return &csi.ValidateVolumeCapabilitiesResponse{}, nil
+	}
+
+	return &csi.ValidateVolumeCapabilitiesResponse{
+		Confirmed: &csi.ValidateVolumeCapabilitiesResponse_Confirmed{
+			VolumeCapabilities: req.VolumeCapabilities,
+		},
+	}, nil
+}
+
+// isSupportedCapabilities returns true if all access modes in caps are supported.
+func isSupportedCapabilities(caps []*csi.VolumeCapability) bool {
+	for _, cap := range caps {
+		if cap.GetAccessMode() == nil {
+			continue
+		}
+		if _, ok := supportedAccessModes[cap.AccessMode.Mode]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume name is required")
