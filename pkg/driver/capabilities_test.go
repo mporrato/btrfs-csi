@@ -2,9 +2,11 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/guru/btrfs-csi/pkg/btrfs"
 	"github.com/guru/btrfs-csi/pkg/state"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -23,6 +25,11 @@ func TestControllerGetCapabilities(t *testing.T) {
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT: false,
 		csi.ControllerServiceCapability_RPC_CLONE_VOLUME:           false,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME:          false,
+		csi.ControllerServiceCapability_RPC_GET_CAPACITY:           false,
+		csi.ControllerServiceCapability_RPC_LIST_VOLUMES:           false,
+		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS:         false,
+		csi.ControllerServiceCapability_RPC_GET_VOLUME:             false,
+		csi.ControllerServiceCapability_RPC_VOLUME_CONDITION:       false,
 	}
 
 	for _, cap := range resp.Capabilities {
@@ -102,5 +109,35 @@ func TestValidateVolumeCapabilities_VolumeNotFound(t *testing.T) {
 	})
 	if code := status.Code(err); code != codes.NotFound {
 		t.Errorf("expected NotFound, got %v", code)
+	}
+}
+
+func TestGetCapacity_Success(t *testing.T) {
+	d, mock, _ := newTestDriverWithMock()
+	mock.GetFilesystemUsageResult = &btrfs.FsUsage{Total: 10 << 30, Used: 2 << 30, Available: 8 << 30}
+
+	resp, err := d.GetCapacity(context.Background(), &csi.GetCapacityRequest{})
+	if err != nil {
+		t.Fatalf("GetCapacity: %v", err)
+	}
+
+	if resp.AvailableCapacity != int64(8<<30) {
+		t.Errorf("AvailableCapacity = %d, want %d", resp.AvailableCapacity, int64(8<<30))
+	}
+	if len(mock.GetFilesystemUsageCalls) != 1 {
+		t.Fatalf("expected 1 GetFilesystemUsage call, got %d", len(mock.GetFilesystemUsageCalls))
+	}
+	if mock.GetFilesystemUsageCalls[0] != "/tmp/btrfs-csi-test" {
+		t.Errorf("GetFilesystemUsage path = %q, want /tmp/btrfs-csi-test", mock.GetFilesystemUsageCalls[0])
+	}
+}
+
+func TestGetCapacity_Error(t *testing.T) {
+	d, mock, _ := newTestDriverWithMock()
+	mock.GetFilesystemUsageErr = errors.New("statfs failed")
+
+	_, err := d.GetCapacity(context.Background(), &csi.GetCapacityRequest{})
+	if code := status.Code(err); code != codes.Internal {
+		t.Errorf("expected Internal, got %v", code)
 	}
 }

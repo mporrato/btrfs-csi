@@ -277,3 +277,139 @@ func TestControllerExpandVolume_ShrinkRejected(t *testing.T) {
 		t.Errorf("expected InvalidArgument for shrink, got %v", code)
 	}
 }
+
+func TestListVolumes_Empty(t *testing.T) {
+	d := newTestDriver()
+
+	resp, err := d.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("ListVolumes: %v", err)
+	}
+	if len(resp.Entries) != 0 {
+		t.Errorf("expected 0 entries, got %d", len(resp.Entries))
+	}
+}
+
+func TestListVolumes_ReturnsAll(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	vols := []*state.Volume{
+		{ID: "vol-1", Name: "pvc-1", CapacityBytes: 1 << 30, SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-1", NodeID: "test-node"},
+		{ID: "vol-2", Name: "pvc-2", CapacityBytes: 2 << 30, SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-2", NodeID: "test-node"},
+	}
+	for _, v := range vols {
+		if err := store.SaveVolume(v); err != nil {
+			t.Fatalf("SaveVolume: %v", err)
+		}
+	}
+
+	resp, err := d.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("ListVolumes: %v", err)
+	}
+	if len(resp.Entries) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(resp.Entries))
+	}
+	seen := map[string]bool{}
+	for _, e := range resp.Entries {
+		seen[e.Volume.VolumeId] = true
+	}
+	for _, v := range vols {
+		if !seen[v.ID] {
+			t.Errorf("volume %s missing from ListVolumes response", v.ID)
+		}
+	}
+}
+
+func TestListVolumes_PaginationTokenRejected(t *testing.T) {
+	d := newTestDriver()
+
+	_, err := d.ListVolumes(context.Background(), &csi.ListVolumesRequest{StartingToken: "some-token"})
+	if code := status.Code(err); code != codes.Aborted {
+		t.Errorf("expected Aborted for pagination token, got %v", code)
+	}
+}
+
+func TestControllerGetVolume_Success(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	vol := &state.Volume{
+		ID:            "vol-abc",
+		Name:          "test-pvc",
+		CapacityBytes: 1 << 30,
+		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-abc",
+		NodeID:        "test-node",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	resp, err := d.ControllerGetVolume(context.Background(), &csi.ControllerGetVolumeRequest{VolumeId: "vol-abc"})
+	if err != nil {
+		t.Fatalf("ControllerGetVolume: %v", err)
+	}
+	if resp.Volume.VolumeId != "vol-abc" {
+		t.Errorf("VolumeId = %q, want vol-abc", resp.Volume.VolumeId)
+	}
+	if resp.Status == nil {
+		t.Fatal("expected Status to be set")
+	}
+}
+
+func TestControllerGetVolume_NotFound(t *testing.T) {
+	d := newTestDriver()
+
+	_, err := d.ControllerGetVolume(context.Background(), &csi.ControllerGetVolumeRequest{VolumeId: "vol-nonexistent"})
+	if code := status.Code(err); code != codes.NotFound {
+		t.Errorf("expected NotFound, got %v", code)
+	}
+}
+
+func TestControllerGetVolume_MissingID(t *testing.T) {
+	d := newTestDriver()
+
+	_, err := d.ControllerGetVolume(context.Background(), &csi.ControllerGetVolumeRequest{})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v", code)
+	}
+}
+
+func TestControllerGetVolume_AbnormalWhenPathMissing(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	vol := &state.Volume{
+		ID:            "vol-missing",
+		Name:          "test-pvc",
+		SubvolumePath: "/tmp/btrfs-csi-test/volumes/vol-does-not-exist",
+		NodeID:        "test-node",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	resp, err := d.ControllerGetVolume(context.Background(), &csi.ControllerGetVolumeRequest{VolumeId: "vol-missing"})
+	if err != nil {
+		t.Fatalf("ControllerGetVolume: %v", err)
+	}
+	if !resp.Status.VolumeCondition.Abnormal {
+		t.Error("expected Abnormal=true when subvolume path does not exist")
+	}
+}
+
+func TestControllerGetVolume_NormalWhenPathExists(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	vol := &state.Volume{
+		ID:            "vol-exists",
+		Name:          "test-pvc",
+		SubvolumePath: "/tmp",
+		NodeID:        "test-node",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	resp, err := d.ControllerGetVolume(context.Background(), &csi.ControllerGetVolumeRequest{VolumeId: "vol-exists"})
+	if err != nil {
+		t.Fatalf("ControllerGetVolume: %v", err)
+	}
+	if resp.Status.VolumeCondition.Abnormal {
+		t.Errorf("expected Abnormal=false when subvolume path exists, got message: %s", resp.Status.VolumeCondition.Message)
+	}
+}

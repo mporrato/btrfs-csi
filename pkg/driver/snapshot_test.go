@@ -440,3 +440,54 @@ func TestCreateVolume_Clone_SourceNotFound(t *testing.T) {
 		t.Errorf("expected NotFound, got %v", code)
 	}
 }
+
+func TestListSnapshots_Empty(t *testing.T) {
+	d := newTestDriver()
+
+	resp, err := d.ListSnapshots(context.Background(), &csi.ListSnapshotsRequest{})
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(resp.Entries) != 0 {
+		t.Errorf("expected 0 entries, got %d", len(resp.Entries))
+	}
+}
+
+func TestListSnapshots_ReturnsAll(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	snaps := []*state.Snapshot{
+		{ID: "snap-1", Name: "snap-pvc-1", SourceVolID: "vol-1", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-1", ReadyToUse: true},
+		{ID: "snap-2", Name: "snap-pvc-2", SourceVolID: "vol-2", SnapshotPath: "/tmp/btrfs-csi-test/snapshots/snap-2", ReadyToUse: true},
+	}
+	for _, s := range snaps {
+		if err := store.SaveSnapshot(s); err != nil {
+			t.Fatalf("SaveSnapshot: %v", err)
+		}
+	}
+
+	resp, err := d.ListSnapshots(context.Background(), &csi.ListSnapshotsRequest{})
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(resp.Entries) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(resp.Entries))
+	}
+	seen := map[string]bool{}
+	for _, e := range resp.Entries {
+		seen[e.Snapshot.SnapshotId] = true
+	}
+	for _, s := range snaps {
+		if !seen[s.ID] {
+			t.Errorf("snapshot %s missing from ListSnapshots response", s.ID)
+		}
+	}
+}
+
+func TestListSnapshots_PaginationTokenRejected(t *testing.T) {
+	d := newTestDriver()
+
+	_, err := d.ListSnapshots(context.Background(), &csi.ListSnapshotsRequest{StartingToken: "some-token"})
+	if code := status.Code(err); code != codes.Aborted {
+		t.Errorf("expected Aborted for pagination token, got %v", code)
+	}
+}

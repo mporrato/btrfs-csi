@@ -30,6 +30,11 @@ func (d *Driver) ControllerGetCapabilities(_ context.Context, _ *csi.ControllerG
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
 		csi.ControllerServiceCapability_RPC_CLONE_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+		csi.ControllerServiceCapability_RPC_GET_CAPACITY,
+		csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
+		csi.ControllerServiceCapability_RPC_GET_VOLUME,
+		csi.ControllerServiceCapability_RPC_VOLUME_CONDITION,
 	}
 	var out []*csi.ControllerServiceCapability
 	for _, c := range caps {
@@ -40,6 +45,69 @@ func (d *Driver) ControllerGetCapabilities(_ context.Context, _ *csi.ControllerG
 		})
 	}
 	return &csi.ControllerGetCapabilitiesResponse{Capabilities: out}, nil
+}
+
+func (d *Driver) GetCapacity(_ context.Context, req *csi.GetCapacityRequest) (*csi.GetCapacityResponse, error) {
+	basePath, err := d.resolveBasePath(req.Parameters)
+	if err != nil {
+		return nil, err
+	}
+	usage, err := d.GetFilesystemUsage(basePath)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "get filesystem usage: %v", err)
+	}
+	return &csi.GetCapacityResponse{AvailableCapacity: int64(usage.Available)}, nil
+}
+
+// ListVolumes returns all volumes known to this driver.
+// Pagination is not supported: if a starting_token is provided the request is
+// rejected. TODO: add pagination support if volume counts grow large.
+func (d *Driver) ListVolumes(_ context.Context, req *csi.ListVolumesRequest) (*csi.ListVolumesResponse, error) {
+	if req.StartingToken != "" {
+		return nil, status.Error(codes.Aborted, "pagination not supported")
+	}
+	vols := d.Store.ListVolumes()
+	entries := make([]*csi.ListVolumesResponse_Entry, 0, len(vols))
+	for _, v := range vols {
+		entries = append(entries, &csi.ListVolumesResponse_Entry{Volume: toCSIVolume(v, d.nodeID)})
+	}
+	return &csi.ListVolumesResponse{Entries: entries}, nil
+}
+
+// ListSnapshots returns all snapshots known to this driver.
+// Pagination is not supported: if a starting_token is provided the request is
+// rejected. TODO: add pagination support if snapshot counts grow large.
+func (d *Driver) ListSnapshots(_ context.Context, req *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
+	if req.StartingToken != "" {
+		return nil, status.Error(codes.Aborted, "pagination not supported")
+	}
+	snaps := d.Store.ListSnapshots()
+	entries := make([]*csi.ListSnapshotsResponse_Entry, 0, len(snaps))
+	for _, s := range snaps {
+		entries = append(entries, &csi.ListSnapshotsResponse_Entry{Snapshot: toCSISnapshot(s)})
+	}
+	return &csi.ListSnapshotsResponse{Entries: entries}, nil
+}
+
+func (d *Driver) ControllerGetVolume(_ context.Context, req *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
+	if req.VolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
+	}
+	vol, ok := d.Store.GetVolume(req.VolumeId)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.VolumeId)
+	}
+	condition := &csi.VolumeCondition{Message: "volume is healthy"}
+	if _, err := os.Stat(vol.SubvolumePath); err != nil {
+		condition.Abnormal = true
+		condition.Message = "subvolume path does not exist on disk"
+	}
+	return &csi.ControllerGetVolumeResponse{
+		Volume: toCSIVolume(vol, d.nodeID),
+		Status: &csi.ControllerGetVolumeResponse_VolumeStatus{
+			VolumeCondition: condition,
+		},
+	}, nil
 }
 
 func (d *Driver) ValidateVolumeCapabilities(_ context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
