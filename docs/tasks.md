@@ -147,31 +147,31 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: Write failing tests in `pkg/btrfs/btrfs_test.go` gated with `//go:build integration`. Include a `setupLoopbackBtrfs(t)` helper.
 - **Acceptance Criteria**:
-  - [ ] `setupLoopbackBtrfs(t)` creates a temp file, formats as btrfs, mounts it, returns path + cleanup
-  - [ ] `TestCreateAndDeleteSubvolume` — create subvolume, verify exists, delete, verify gone
-  - [ ] `TestSubvolumeExists_NotExists` — returns false for nonexistent path
-  - [ ] `TestCreateSnapshot` — create subvolume, write a file, snapshot, verify snapshot has the file
-  - [ ] `TestReadonlySnapshot` — readonly snapshot rejects writes (write attempt returns error)
-  - [ ] `TestQuotaEnableAndLimit` — enable quotas, set limit, verify via `GetQgroupUsage` that `MaxRfer` matches
-  - [ ] `TestRemoveQgroupLimit` — set limit, remove it, verify `MaxRfer` is 0/none
-  - [ ] All tests fail (RED) when run with `go test -tags integration ./pkg/btrfs/`
+  - [x] `setupLoopbackBtrfs(t)` creates a temp file, formats as btrfs, mounts it, returns path + cleanup
+  - [x] `TestCreateAndDeleteSubvolume` — create subvolume, verify exists, delete, verify gone
+  - [x] `TestSubvolumeExists_NotExists` — returns false for nonexistent path
+  - [x] `TestCreateSnapshot` — create subvolume, write a file, snapshot, verify snapshot has the file
+  - [x] `TestReadonlySnapshot` — readonly snapshot rejects writes (write attempt returns error)
+  - [x] `TestQuotaEnableAndLimit` — enable quotas, set limit, verify via `GetQgroupUsage` that `MaxRfer` matches
+  - [x] `TestRemoveQgroupLimit` — set limit, remove it, verify `MaxRfer` is 0/none
+  - [x] All tests fail (RED) when run with `go test -tags integration ./pkg/btrfs/`
 
 ### Task 4.2: Green — Implement `RealManager`
 
 - **Requirements**: Implement `RealManager` in `pkg/btrfs/btrfs.go` using `os/exec` to call btrfs CLI commands.
 - **Acceptance Criteria**:
-  - [ ] All `Manager` interface methods implemented
-  - [ ] `EnsureQuotaEnabled` tries `--simple` flag first, falls back on failure
-  - [ ] Command stderr included in error messages for debuggability
-  - [ ] `go test -tags integration ./pkg/btrfs/` passes (requires root + btrfs)
+  - [x] All `Manager` interface methods implemented
+  - [x] `EnsureQuotaEnabled` tries `--simple` flag first, falls back on failure
+  - [x] Command stderr included in error messages for debuggability
+  - [x] `go test -tags integration ./pkg/btrfs/` passes (requires root + btrfs)
 
 ### Task 4.3: Gray — Refactor btrfs layer
 
 - **Requirements**: Extract common command execution patterns.
 - **Acceptance Criteria**:
-  - [ ] Shared `runCommand(name string, args ...string) (string, error)` helper that captures stdout+stderr
-  - [ ] Consistent error formatting across all methods
-  - [ ] `go test -tags integration ./pkg/btrfs/` still passes
+  - [x] Shared `runCommand(name string, args ...string) (string, error)` helper that captures stdout+stderr
+  - [x] Consistent error formatting across all methods
+  - [x] `go test -tags integration ./pkg/btrfs/` still passes
 
 ---
 
