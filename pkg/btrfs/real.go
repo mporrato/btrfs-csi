@@ -98,6 +98,29 @@ func (m *RealManager) RemoveQgroupLimit(path string) error {
 	return nil
 }
 
+func (m *RealManager) DestroyQgroup(path string) error {
+	showOut, err := runCommand("btrfs", "subvolume", "show", path)
+	if err != nil {
+		return fmt.Errorf("get subvolume info for %s: %w", path, err)
+	}
+	subvolID, err := parseSubvolumeID(showOut)
+	if err != nil {
+		return fmt.Errorf("parse subvolume ID for %s: %w", path, err)
+	}
+
+	qgroupID := fmt.Sprintf("0/%d", subvolID)
+	if _, err := runCommand("btrfs", "qgroup", "destroy", qgroupID, path); err != nil {
+		// If the qgroup doesn't exist (quotas not enabled, or already destroyed), ignore the error.
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "no such") || strings.Contains(msg, "quotas not enabled") ||
+			strings.Contains(msg, "unable to open") {
+			return nil
+		}
+		return fmt.Errorf("destroy qgroup %s for %s: %w", qgroupID, path, err)
+	}
+	return nil
+}
+
 func (m *RealManager) GetQgroupUsage(path string) (*QgroupUsage, error) {
 	showOut, err := runCommand("btrfs", "subvolume", "show", path)
 	if err != nil {

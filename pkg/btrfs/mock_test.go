@@ -168,6 +168,28 @@ func TestMockManagerRemoveQgroupLimitError(t *testing.T) {
 	}
 }
 
+func TestMockManagerDestroyQgroup(t *testing.T) {
+	m := &MockManager{}
+	if err := m.DestroyQgroup("/volumes/vol1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(m.DestroyQgroupCalls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(m.DestroyQgroupCalls))
+	}
+	if m.DestroyQgroupCalls[0] != "/volumes/vol1" {
+		t.Errorf("expected path /volumes/vol1, got %s", m.DestroyQgroupCalls[0])
+	}
+}
+
+func TestMockManagerDestroyQgroupError(t *testing.T) {
+	m := &MockManager{
+		DestroyQgroupErr: errTest,
+	}
+	if err := m.DestroyQgroup("/volumes/vol1"); err != errTest {
+		t.Fatalf("expected errTest, got %v", err)
+	}
+}
+
 func TestMockManagerGetQgroupUsage(t *testing.T) {
 	want := &QgroupUsage{Referenced: 100, Exclusive: 50, MaxRfer: 200}
 	m := &MockManager{

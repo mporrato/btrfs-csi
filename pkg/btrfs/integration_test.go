@@ -174,6 +174,56 @@ func TestQuotaEnableAndLimit(t *testing.T) {
 	}
 }
 
+func TestDestroyQgroup(t *testing.T) {
+	mnt := setupLoopbackBtrfs(t)
+
+	m := &RealManager{}
+	subvol := filepath.Join(mnt, "destroy-qgroup-test")
+
+	if err := m.CreateSubvolume(subvol); err != nil {
+		t.Fatalf("CreateSubvolume: %v", err)
+	}
+
+	if err := m.EnsureQuotaEnabled(mnt); err != nil {
+		t.Fatalf("EnsureQuotaEnabled: %v", err)
+	}
+
+	if err := m.SetQgroupLimit(subvol, 100*1024*1024); err != nil {
+		t.Fatalf("SetQgroupLimit: %v", err)
+	}
+
+	// Destroy the qgroup while the subvolume still exists.
+	if err := m.DestroyQgroup(subvol); err != nil {
+		t.Fatalf("DestroyQgroup: %v", err)
+	}
+
+	// Verify the qgroup is gone by checking that GetQgroupUsage fails.
+	if _, err := m.GetQgroupUsage(subvol); err == nil {
+		t.Fatal("expected GetQgroupUsage to fail after DestroyQgroup, but it succeeded")
+	}
+
+	// Subvolume should still exist and be deletable.
+	if err := m.DeleteSubvolume(subvol); err != nil {
+		t.Fatalf("DeleteSubvolume after DestroyQgroup: %v", err)
+	}
+}
+
+func TestDestroyQgroup_NoQuotas(t *testing.T) {
+	mnt := setupLoopbackBtrfs(t)
+
+	m := &RealManager{}
+	subvol := filepath.Join(mnt, "no-quota-test")
+
+	if err := m.CreateSubvolume(subvol); err != nil {
+		t.Fatalf("CreateSubvolume: %v", err)
+	}
+
+	// DestroyQgroup should be a no-op when quotas aren't enabled.
+	if err := m.DestroyQgroup(subvol); err != nil {
+		t.Fatalf("DestroyQgroup without quotas should be no-op, got: %v", err)
+	}
+}
+
 func TestRemoveQgroupLimit(t *testing.T) {
 	mnt := setupLoopbackBtrfs(t)
 
