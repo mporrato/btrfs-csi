@@ -411,8 +411,8 @@ func TestCreateVolume_UnknownContentSource(t *testing.T) {
 	d, _, _ := newTestDriverWithMock()
 
 	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
-		Name:               "vol-bad-source",
-		VolumeCapabilities: singleNodeWriterCap(),
+		Name:                "vol-bad-source",
+		VolumeCapabilities:  singleNodeWriterCap(),
 		VolumeContentSource: &csi.VolumeContentSource{
 			// Type is nil — an unrecognized/empty content source.
 		},

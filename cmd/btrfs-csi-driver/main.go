@@ -4,27 +4,44 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
 
-	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/google/uuid"
-	"google.golang.org/grpc"
+	"github.com/guru/btrfs-csi/pkg/btrfs"
+	"github.com/guru/btrfs-csi/pkg/driver"
+	"github.com/guru/btrfs-csi/pkg/state"
 	"k8s.io/klog/v2"
-	"k8s.io/mount-utils"
 )
 
 func main() {
+	if err := run(os.Args[1:]); err != nil {
+		klog.ErrorS(err, "Fatal error")
+		os.Exit(1)
+	}
+}
+
+// run parses flags, creates the driver, and runs it until SIGTERM.
+// It is separated from main() to make testing easier.
+func run(args []string) error {
+	fs := flag.NewFlagSet("btrfs-csi-driver", flag.ContinueOnError)
+
 	var (
-		endpoint = flag.String("endpoint", "unix:///csi/csi.sock", "CSI endpoint")
-		nodeID   = flag.String("nodeid", "", "Node ID")
-		rootPath = flag.String("root-path", "/var/lib/btrfs-csi", "Root path for btrfs-csi")
-		version  = flag.Bool("version", false, "Print version and exit")
+		endpoint = fs.String("endpoint", "unix:///csi/csi.sock", "CSI endpoint")
+		nodeID   = fs.String("nodeid", "", "Node ID")
+		rootPath = fs.String("root-path", "/var/lib/btrfs-csi", "Root path for btrfs-csi")
+		version  = fs.Bool("version", false, "Print version and exit")
 	)
 
-	flag.Parse()
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	if *version {
 		fmt.Println("btrfs-csi-driver version 0.1.0")
-		os.Exit(0)
+		return nil
 	}
 
 	if *nodeID == "" {
@@ -36,8 +53,51 @@ func main() {
 	klog.Infof("Node ID: %s", *nodeID)
 	klog.Infof("Root path: %s", *rootPath)
 
-	// These imports ensure the dependencies are kept in go.mod
-	_ = csi.PluginCapability_Service_UNKNOWN
-	_ = grpc.NewServer()
-	_ = mount.New("")
+	// Ensure socket directory exists with restrictive permissions
+	socketPath := strings.TrimPrefix(*endpoint, "unix://")
+	socketDir := filepath.Dir(socketPath)
+	if err := os.MkdirAll(socketDir, 0o700); err != nil {
+		return fmt.Errorf("create socket directory %s: %w", socketDir, err)
+	}
+
+	// Create btrfs manager
+	mgr := &btrfs.RealManager{}
+
+	// Create state store
+	statePath := filepath.Join(*rootPath, "state.json")
+	store, err := state.NewFileStore(statePath)
+	if err != nil {
+		return fmt.Errorf("create state store: %w", err)
+	}
+
+	// Create driver
+	drv := driver.NewDriver(mgr, store, *nodeID, *rootPath)
+
+	// Handle SIGTERM for graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+
+	// Start driver in a goroutine
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- drv.Run(*endpoint)
+	}()
+
+	// Wait for signal or error
+	select {
+	case sig := <-sigCh:
+		klog.Infof("Received signal %v, shutting down", sig)
+		drv.Stop()
+		// Wait for Run() to return after Stop()
+		if err := <-errCh; err != nil {
+			return fmt.Errorf("driver stopped with error: %w", err)
+		}
+	case err := <-errCh:
+		if err != nil {
+			return fmt.Errorf("driver failed: %w", err)
+		}
+	}
+
+	klog.Infof("Driver stopped successfully")
+	return nil
 }

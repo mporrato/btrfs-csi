@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -85,7 +86,7 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 	}
 
 	// Idempotency: return existing volume if one with the same name exists.
-	if existing, ok := d.GetVolumeByName(req.Name); ok {
+	if existing, ok := d.Store.GetVolumeByName(req.Name); ok {
 		if err := validateContentSourceMatch(existing, req.VolumeContentSource); err != nil {
 			return nil, err
 		}
@@ -98,7 +99,10 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 		capacityBytes = req.CapacityRange.RequiredBytes
 	}
 
-	basePath := d.resolveBasePath(req.Parameters)
+	basePath, err := d.resolveBasePath(req.Parameters)
+	if err != nil {
+		return nil, err
+	}
 	id := uuid.New().String()
 	subvolPath := filepath.Join(basePath, "volumes", id)
 
@@ -350,11 +354,21 @@ func contentSourceIDs(src *csi.VolumeContentSource) (snapID, volID string) {
 }
 
 // resolveBasePath returns the basePath from StorageClass parameters, falling back to rootPath.
-func (d *Driver) resolveBasePath(params map[string]string) string {
+// It validates the basePath to prevent path traversal attacks.
+func (d *Driver) resolveBasePath(params map[string]string) (string, error) {
 	if bp := params["basePath"]; bp != "" {
-		return bp
+		// Validate the path is absolute and doesn't contain traversal
+		if !filepath.IsAbs(bp) {
+			return "", status.Errorf(codes.InvalidArgument, "basePath must be absolute: %q", bp)
+		}
+		// Clean and check for traversal
+		cleaned := filepath.Clean(bp)
+		if strings.Contains(cleaned, "..") {
+			return "", status.Errorf(codes.InvalidArgument, "basePath contains invalid path traversal: %q", bp)
+		}
+		return cleaned, nil
 	}
-	return d.rootPath
+	return d.rootPath, nil
 }
 
 // toCSIVolume converts a state.Volume to the CSI Volume proto with topology.
