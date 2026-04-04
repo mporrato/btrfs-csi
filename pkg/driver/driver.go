@@ -15,6 +15,7 @@ const (
 // Driver implements the CSI Identity, Controller, and Node services.
 type Driver struct {
 	csi.UnimplementedIdentityServer
+	csi.UnimplementedControllerServer
 	name     string
 	version  string
 	nodeID   string

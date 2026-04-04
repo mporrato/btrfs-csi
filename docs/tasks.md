@@ -183,31 +183,31 @@ Run `go test ./...` after every Green and Gray step.
 
 - **Requirements**: Write failing tests in `pkg/driver/controller_test.go` using mock `btrfs.Manager`.
 - **Acceptance Criteria**:
-  - [ ] `TestCreateVolume_NewVolume` — asserts: mock `CreateSubvolume` called, mock `SetQgroupLimit` called with requested capacity, state contains the volume, response has correct volume ID and topology
-  - [ ] `TestCreateVolume_Idempotent` — create with same name twice, returns same volume ID, `CreateSubvolume` only called once
-  - [ ] `TestCreateVolume_MissingName` — returns gRPC `InvalidArgument`
-  - [ ] `TestCreateVolume_MissingCapabilities` — returns gRPC `InvalidArgument`
-  - [ ] `TestCreateVolume_WithBasePath` — sets `basePath` in request parameters, asserts subvolume created under that path instead of default
-  - [ ] `TestDeleteVolume_Exists` — asserts: mock `DeleteSubvolume` called, state no longer contains volume
-  - [ ] `TestDeleteVolume_NotFound` — returns success (idempotent), no btrfs calls
-  - [ ] `TestDeleteVolume_MissingID` — returns gRPC `InvalidArgument`
-  - [ ] All tests fail (RED)
+  - [x] `TestCreateVolume_NewVolume` — asserts: mock `CreateSubvolume` called, mock `SetQgroupLimit` called with requested capacity, state contains the volume, response has correct volume ID and topology
+  - [x] `TestCreateVolume_Idempotent` — create with same name twice, returns same volume ID, `CreateSubvolume` only called once
+  - [x] `TestCreateVolume_MissingName` — returns gRPC `InvalidArgument`
+  - [x] `TestCreateVolume_MissingCapabilities` — returns gRPC `InvalidArgument`
+  - [x] `TestCreateVolume_WithBasePath` — sets `basePath` in request parameters, asserts subvolume created under that path instead of default
+  - [x] `TestDeleteVolume_Exists` — asserts: mock `DeleteSubvolume` called, state no longer contains volume
+  - [x] `TestDeleteVolume_NotFound` — returns success (idempotent), no btrfs calls
+  - [x] `TestDeleteVolume_MissingID` — returns gRPC `InvalidArgument`
+  - [x] All tests fail (RED)
 
 ### Task 5.2: Green — Implement CreateVolume / DeleteVolume
 
 - **Requirements**: Implement in `pkg/driver/controller.go`.
 - **Acceptance Criteria**:
-  - [ ] `CreateVolume` validates request, checks idempotency, creates subvolume, sets qgroup limit, saves state, returns volume with topology
-  - [ ] `DeleteVolume` validates request, deletes subvolume (if exists), removes state
-  - [ ] `go test ./pkg/driver/` passes — all tests GREEN
+  - [x] `CreateVolume` validates request, checks idempotency, creates subvolume, sets qgroup limit, saves state, returns volume with topology
+  - [x] `DeleteVolume` validates request, deletes subvolume (if exists), removes state
+  - [x] `go test ./pkg/driver/` passes — all tests GREEN
 
 ### Task 5.3: Gray — Refactor controller code
 
 - **Requirements**: Extract validation and parameter parsing helpers.
 - **Acceptance Criteria**:
-  - [ ] `basePath` resolution extracted into a helper method
-  - [ ] Request validation logic is clean and consistent
-  - [ ] `go test ./pkg/driver/` still passes
+  - [x] `basePath` resolution extracted into a helper method
+  - [x] Request validation logic is clean and consistent
+  - [x] `go test ./pkg/driver/` still passes
 
 ---
 

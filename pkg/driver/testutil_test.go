@@ -91,3 +91,10 @@ func newTestDriver() *Driver {
 func newTestDriverWithPath(rootPath string) *Driver {
 	return NewDriver(&btrfs.MockManager{}, newMemStore(), "test-node", rootPath)
 }
+
+// newTestDriverWithMock creates a Driver and returns the mock and store for assertion in tests.
+func newTestDriverWithMock() (*Driver, *btrfs.MockManager, *memStore) {
+	mock := &btrfs.MockManager{}
+	store := newMemStore()
+	return NewDriver(mock, store, "test-node", "/tmp/btrfs-csi-test"), mock, store
+}
