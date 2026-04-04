@@ -45,10 +45,6 @@ type MockManager struct {
 	RemoveQgroupLimitCalls []string
 	RemoveQgroupLimitErr   error
 
-	// DestroyQgroup
-	DestroyQgroupCalls []string
-	DestroyQgroupErr   error
-
 	// GetQgroupUsage
 	GetQgroupUsageCalls  []string
 	GetQgroupUsageResult *QgroupUsage
@@ -100,11 +96,6 @@ func (m *MockManager) SetQgroupLimit(path string, bytes uint64) error {
 func (m *MockManager) RemoveQgroupLimit(path string) error {
 	m.RemoveQgroupLimitCalls = append(m.RemoveQgroupLimitCalls, path)
 	return m.RemoveQgroupLimitErr
-}
-
-func (m *MockManager) DestroyQgroup(path string) error {
-	m.DestroyQgroupCalls = append(m.DestroyQgroupCalls, path)
-	return m.DestroyQgroupErr
 }
 
 func (m *MockManager) GetQgroupUsage(path string) (*QgroupUsage, error) {

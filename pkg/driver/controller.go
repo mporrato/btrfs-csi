@@ -157,10 +157,6 @@ func (d *Driver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest)
 		return &csi.DeleteVolumeResponse{}, nil
 	}
 
-	if err := d.Manager.DestroyQgroup(vol.SubvolumePath); err != nil {
-		return nil, status.Errorf(codes.Internal, "destroy qgroup: %v", err)
-	}
-
 	if err := d.Manager.DeleteSubvolume(vol.SubvolumePath); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete subvolume: %v", err)
 	}
@@ -323,10 +319,6 @@ func (d *Driver) DeleteSnapshot(_ context.Context, req *csi.DeleteSnapshotReques
 	if !ok {
 		// Already deleted — idempotent.
 		return &csi.DeleteSnapshotResponse{}, nil
-	}
-
-	if err := d.Manager.DestroyQgroup(snap.SnapshotPath); err != nil {
-		return nil, status.Errorf(codes.Internal, "destroy snapshot qgroup: %v", err)
 	}
 
 	if err := d.Manager.DeleteSubvolume(snap.SnapshotPath); err != nil {

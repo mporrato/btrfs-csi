@@ -19,7 +19,6 @@ func TestManagerInterface(t *testing.T) {
 		"EnsureQuotaEnabled",
 		"SetQgroupLimit",
 		"RemoveQgroupLimit",
-		"DestroyQgroup",
 		"GetQgroupUsage",
 		"GetFilesystemUsage",
 	}

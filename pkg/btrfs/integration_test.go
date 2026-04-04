@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -174,11 +175,11 @@ func TestQuotaEnableAndLimit(t *testing.T) {
 	}
 }
 
-func TestDestroyQgroup(t *testing.T) {
+func TestDeleteSubvolume_CleansUpQgroup(t *testing.T) {
 	mnt := setupLoopbackBtrfs(t)
 
 	m := &RealManager{}
-	subvol := filepath.Join(mnt, "destroy-qgroup-test")
+	subvol := filepath.Join(mnt, "qgroup-cleanup-test")
 
 	if err := m.CreateSubvolume(subvol); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
@@ -192,23 +193,24 @@ func TestDestroyQgroup(t *testing.T) {
 		t.Fatalf("SetQgroupLimit: %v", err)
 	}
 
-	// Destroy the qgroup while the subvolume still exists.
-	if err := m.DestroyQgroup(subvol); err != nil {
-		t.Fatalf("DestroyQgroup: %v", err)
-	}
-
-	// Verify the qgroup is gone by checking that GetQgroupUsage fails.
-	if _, err := m.GetQgroupUsage(subvol); err == nil {
-		t.Fatal("expected GetQgroupUsage to fail after DestroyQgroup, but it succeeded")
-	}
-
-	// Subvolume should still exist and be deletable.
 	if err := m.DeleteSubvolume(subvol); err != nil {
-		t.Fatalf("DeleteSubvolume after DestroyQgroup: %v", err)
+		t.Fatalf("DeleteSubvolume: %v", err)
+	}
+
+	// Verify no stale qgroups remain.
+	out, err := runCommand("btrfs", "qgroup", "show", "--raw", mnt)
+	if err != nil {
+		t.Fatalf("qgroup show after delete: %v", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if strings.Contains(line, "<stale>") {
+			t.Errorf("stale qgroup found after DeleteSubvolume:\n%s", out)
+			break
+		}
 	}
 }
 
-func TestDestroyQgroup_NoQuotas(t *testing.T) {
+func TestDeleteSubvolume_CleansUpQgroup_NoQuotas(t *testing.T) {
 	mnt := setupLoopbackBtrfs(t)
 
 	m := &RealManager{}
@@ -218,9 +220,9 @@ func TestDestroyQgroup_NoQuotas(t *testing.T) {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
-	// DestroyQgroup should be a no-op when quotas aren't enabled.
-	if err := m.DestroyQgroup(subvol); err != nil {
-		t.Fatalf("DestroyQgroup without quotas should be no-op, got: %v", err)
+	// DeleteSubvolume should succeed without error even when quotas are not enabled.
+	if err := m.DeleteSubvolume(subvol); err != nil {
+		t.Fatalf("DeleteSubvolume without quotas: %v", err)
 	}
 }
 

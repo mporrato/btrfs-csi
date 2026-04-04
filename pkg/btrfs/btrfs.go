@@ -49,11 +49,6 @@ type Manager interface {
 	// GetQgroupUsage returns the quota usage information for the subvolume at the specified path.
 	GetQgroupUsage(path string) (*QgroupUsage, error)
 
-	// DestroyQgroup removes the qgroup associated with the subvolume at the specified path.
-	// Must be called before DeleteSubvolume since the subvolume must still exist to
-	// determine its qgroup ID. A no-op if the qgroup does not exist.
-	DestroyQgroup(path string) error
-
 	// GetFilesystemUsage returns the filesystem usage information for the filesystem
 	// containing the specified path.
 	GetFilesystemUsage(path string) (*FsUsage, error)

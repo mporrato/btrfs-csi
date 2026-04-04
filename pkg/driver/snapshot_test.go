@@ -183,13 +183,6 @@ func TestDeleteSnapshot_Success(t *testing.T) {
 		t.Fatalf("DeleteSnapshot: %v", err)
 	}
 
-	if len(mock.DestroyQgroupCalls) != 1 {
-		t.Fatalf("expected 1 DestroyQgroup call, got %d", len(mock.DestroyQgroupCalls))
-	}
-	if mock.DestroyQgroupCalls[0] != snap.SnapshotPath {
-		t.Errorf("DestroyQgroup path = %q, want %q", mock.DestroyQgroupCalls[0], snap.SnapshotPath)
-	}
-
 	if len(mock.DeleteSubvolumeCalls) != 1 {
 		t.Fatalf("expected 1 DeleteSubvolume call, got %d", len(mock.DeleteSubvolumeCalls))
 	}
