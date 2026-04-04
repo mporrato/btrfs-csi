@@ -49,6 +49,12 @@ type Manager interface {
 	// GetQgroupUsage returns the quota usage information for the subvolume at the specified path.
 	GetQgroupUsage(path string) (*QgroupUsage, error)
 
+	// ClearStaleQgroups removes all qgroup entries that have no corresponding subvolume
+	// on the filesystem at the given mountpoint. This is a periodic housekeeping
+	// operation; stale entries accumulate because btrfs does not auto-remove qgroups
+	// when subvolumes are deleted.
+	ClearStaleQgroups(mountpoint string) error
+
 	// GetFilesystemUsage returns the filesystem usage information for the filesystem
 	// containing the specified path.
 	GetFilesystemUsage(path string) (*FsUsage, error)

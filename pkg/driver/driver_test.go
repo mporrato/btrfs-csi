@@ -14,6 +14,16 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+func TestNewDriver_ClearsStaleQgroupsOnStartup(t *testing.T) {
+	_, mock, _ := newTestDriverWithMock()
+	if len(mock.ClearStaleQgroupsCalls) != 1 {
+		t.Fatalf("expected 1 ClearStaleQgroups call on startup, got %d", len(mock.ClearStaleQgroupsCalls))
+	}
+	if mock.ClearStaleQgroupsCalls[0] != "/tmp/btrfs-csi-test" {
+		t.Errorf("ClearStaleQgroups mountpoint = %q, want /tmp/btrfs-csi-test", mock.ClearStaleQgroupsCalls[0])
+	}
+}
+
 func TestParseEndpoint(t *testing.T) {
 	tests := []struct {
 		name      string

@@ -5,6 +5,8 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/guru/btrfs-csi/pkg/btrfs"
@@ -14,8 +16,9 @@ import (
 )
 
 const (
-	driverName = "btrfs.csi.local"
-	version    = "0.1.0"
+	driverName          = "btrfs.csi.local"
+	version             = "0.1.0"
+	qgroupCleanupDelay  = 10 * time.Minute
 )
 
 // Driver implements the CSI Identity, Controller, and Node services.
@@ -31,6 +34,9 @@ type Driver struct {
 	grpcServer *grpc.Server
 	btrfs.Manager
 	Store state.Store
+
+	qgroupCleanupMu    sync.Mutex
+	qgroupCleanupTimer *time.Timer
 }
 
 // NewDriver creates a new Driver with the given btrfs manager, state store, node ID, and root path.
@@ -50,7 +56,7 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID, rootPath string) *D
 		"rootPath", rootPath,
 	)
 
-	return &Driver{
+	d := &Driver{
 		name:     driverName,
 		version:  version,
 		nodeID:   nodeID,
@@ -59,6 +65,13 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID, rootPath string) *D
 		Manager:  mgr,
 		Store:    store,
 	}
+
+	// Clean up stale qgroups left by any previous driver run.
+	if err := mgr.ClearStaleQgroups(rootPath); err != nil {
+		klog.V(4).InfoS("startup qgroup cleanup skipped", "err", err)
+	}
+
+	return d
 }
 
 // parseEndpoint extracts the socket path from a CSI endpoint string.
@@ -115,8 +128,35 @@ func (d *Driver) Run(endpoint string) error {
 	return d.grpcServer.Serve(listener)
 }
 
+// scheduleQgroupCleanup schedules a debounced call to ClearStaleQgroups. If a
+// cleanup is already pending, the timer is reset so the cleanup runs 10 minutes
+// after the last deletion rather than after every individual one.
+func (d *Driver) scheduleQgroupCleanup() {
+	d.qgroupCleanupMu.Lock()
+	defer d.qgroupCleanupMu.Unlock()
+	if d.qgroupCleanupTimer != nil {
+		d.qgroupCleanupTimer.Reset(qgroupCleanupDelay)
+		return
+	}
+	d.qgroupCleanupTimer = time.AfterFunc(qgroupCleanupDelay, func() {
+		if err := d.Manager.ClearStaleQgroups(d.rootPath); err != nil {
+			klog.V(4).InfoS("periodic qgroup cleanup failed", "err", err)
+		}
+		d.qgroupCleanupMu.Lock()
+		d.qgroupCleanupTimer = nil
+		d.qgroupCleanupMu.Unlock()
+	})
+}
+
 // Stop gracefully shuts down the gRPC server.
 func (d *Driver) Stop() {
+	d.qgroupCleanupMu.Lock()
+	if d.qgroupCleanupTimer != nil {
+		d.qgroupCleanupTimer.Stop()
+		d.qgroupCleanupTimer = nil
+	}
+	d.qgroupCleanupMu.Unlock()
+
 	if d.grpcServer != nil {
 		klog.InfoS("Stopping gRPC server")
 		d.grpcServer.GracefulStop()

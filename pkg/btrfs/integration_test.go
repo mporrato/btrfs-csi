@@ -175,58 +175,64 @@ func TestQuotaEnableAndLimit(t *testing.T) {
 	}
 }
 
-func TestDeleteSubvolume_CleansUpQgroup(t *testing.T) {
+func TestClearStaleQgroups(t *testing.T) {
 	mnt := setupLoopbackBtrfs(t)
 
 	m := &RealManager{}
-	subvol := filepath.Join(mnt, "qgroup-cleanup-test")
+	subvol := filepath.Join(mnt, "stale-qgroup-test")
 
 	if err := m.CreateSubvolume(subvol); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
-
 	if err := m.EnsureQuotaEnabled(mnt); err != nil {
 		t.Fatalf("EnsureQuotaEnabled: %v", err)
 	}
-
 	if err := m.SetQgroupLimit(subvol, 100*1024*1024); err != nil {
 		t.Fatalf("SetQgroupLimit: %v", err)
 	}
-
 	if err := m.DeleteSubvolume(subvol); err != nil {
 		t.Fatalf("DeleteSubvolume: %v", err)
 	}
 
-	// With traditional quotas, DeleteSubvolume destroys the qgroup so no stale entry
-	// should remain. With simple quotas (squota, kernel 6.7+) the kernel cleans up
-	// automatically. Either way, no stale qgroups should appear after deletion.
+	// After deletion without cleanup, a stale qgroup should exist.
 	out, err := runCommand("btrfs", "qgroup", "show", "--raw", mnt)
 	if err != nil {
-		// Quotas may be disabled on this kernel/config — skip the stale check.
-		t.Logf("qgroup show after delete: %v (skipping stale check)", err)
-		return
+		t.Skipf("qgroup show failed (quotas unavailable on this kernel): %v", err)
+	}
+	hasStale := false
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if strings.Contains(line, "<stale>") {
+			hasStale = true
+			break
+		}
+	}
+	if !hasStale {
+		t.Skip("no stale qgroups present (may be using squota); skipping cleanup test")
+	}
+
+	// ClearStaleQgroups should remove it.
+	if err := m.ClearStaleQgroups(mnt); err != nil {
+		t.Fatalf("ClearStaleQgroups: %v", err)
+	}
+	out, err = runCommand("btrfs", "qgroup", "show", "--raw", mnt)
+	if err != nil {
+		t.Fatalf("qgroup show after ClearStaleQgroups: %v", err)
 	}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if strings.Contains(line, "<stale>") {
-			t.Errorf("stale qgroup found after DeleteSubvolume:\n%s", out)
+			t.Errorf("stale qgroup still present after ClearStaleQgroups:\n%s", out)
 			break
 		}
 	}
 }
 
-func TestDeleteSubvolume_CleansUpQgroup_NoQuotas(t *testing.T) {
+func TestClearStaleQgroups_NoQuotas(t *testing.T) {
 	mnt := setupLoopbackBtrfs(t)
 
 	m := &RealManager{}
-	subvol := filepath.Join(mnt, "no-quota-test")
-
-	if err := m.CreateSubvolume(subvol); err != nil {
-		t.Fatalf("CreateSubvolume: %v", err)
-	}
-
-	// DeleteSubvolume should succeed without error even when quotas are not enabled.
-	if err := m.DeleteSubvolume(subvol); err != nil {
-		t.Fatalf("DeleteSubvolume without quotas: %v", err)
+	// ClearStaleQgroups should be a no-op when quotas are not enabled.
+	if err := m.ClearStaleQgroups(mnt); err != nil {
+		t.Fatalf("ClearStaleQgroups without quotas should be no-op, got: %v", err)
 	}
 }
 

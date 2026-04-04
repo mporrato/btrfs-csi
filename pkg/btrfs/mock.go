@@ -50,6 +50,10 @@ type MockManager struct {
 	GetQgroupUsageResult *QgroupUsage
 	GetQgroupUsageErr    error
 
+	// ClearStaleQgroups
+	ClearStaleQgroupsCalls []string
+	ClearStaleQgroupsErr   error
+
 	// GetFilesystemUsage
 	GetFilesystemUsageCalls  []string
 	GetFilesystemUsageResult *FsUsage
@@ -96,6 +100,11 @@ func (m *MockManager) SetQgroupLimit(path string, bytes uint64) error {
 func (m *MockManager) RemoveQgroupLimit(path string) error {
 	m.RemoveQgroupLimitCalls = append(m.RemoveQgroupLimitCalls, path)
 	return m.RemoveQgroupLimitErr
+}
+
+func (m *MockManager) ClearStaleQgroups(mountpoint string) error {
+	m.ClearStaleQgroupsCalls = append(m.ClearStaleQgroupsCalls, mountpoint)
+	return m.ClearStaleQgroupsErr
 }
 
 func (m *MockManager) GetQgroupUsage(path string) (*QgroupUsage, error) {

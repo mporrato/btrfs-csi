@@ -168,6 +168,26 @@ func TestMockManagerRemoveQgroupLimitError(t *testing.T) {
 	}
 }
 
+func TestMockManagerClearStaleQgroups(t *testing.T) {
+	m := &MockManager{}
+	if err := m.ClearStaleQgroups("/mnt/btrfs"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(m.ClearStaleQgroupsCalls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(m.ClearStaleQgroupsCalls))
+	}
+	if m.ClearStaleQgroupsCalls[0] != "/mnt/btrfs" {
+		t.Errorf("expected mountpoint /mnt/btrfs, got %s", m.ClearStaleQgroupsCalls[0])
+	}
+}
+
+func TestMockManagerClearStaleQgroupsError(t *testing.T) {
+	m := &MockManager{ClearStaleQgroupsErr: errTest}
+	if err := m.ClearStaleQgroups("/mnt/btrfs"); err != errTest {
+		t.Fatalf("expected errTest, got %v", err)
+	}
+}
+
 func TestMockManagerGetQgroupUsage(t *testing.T) {
 	want := &QgroupUsage{Referenced: 100, Exclusive: 50, MaxRfer: 200}
 	m := &MockManager{

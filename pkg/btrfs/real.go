@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -38,32 +37,20 @@ func (m *RealManager) CreateSubvolume(path string) error {
 }
 
 func (m *RealManager) DeleteSubvolume(path string) error {
-	// Capture the subvolume ID before deletion so we can destroy its qgroup afterward.
-	var subvolID uint64
-	if showOut, err := runCommand("btrfs", "subvolume", "show", path); err == nil {
-		subvolID, _ = parseSubvolumeID(showOut)
-	}
-
 	if _, err := runCommand("btrfs", "subvolume", "delete", path); err != nil {
 		return fmt.Errorf("delete subvolume %s: %w", path, err)
 	}
+	return nil
+}
 
-	if subvolID == 0 {
-		return nil
+func (m *RealManager) ClearStaleQgroups(mountpoint string) error {
+	if _, err := runCommand("btrfs", "qgroup", "clear-stale", mountpoint); err != nil {
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "quotas not enabled") {
+			return nil
+		}
+		return fmt.Errorf("clear stale qgroups on %s: %w", mountpoint, err)
 	}
-
-	parent := filepath.Dir(path)
-
-	// btrfs subvolume deletion is asynchronous: the command returns immediately but
-	// the kernel completes the work in the background. The qgroup stays attached to
-	// the subvolume ID until that background work finishes, so qgroup destroy would
-	// return EBUSY if called too soon. Sync first to wait for the deletion to commit.
-	runCommand("btrfs", "subvolume", "sync", parent, strconv.FormatUint(subvolID, 10)) //nolint:errcheck
-
-	// Best-effort qgroup cleanup. Errors are ignored: if quotas are not enabled or
-	// the qgroup was already removed, there is nothing to do.
-	runCommand("btrfs", "qgroup", "destroy", fmt.Sprintf("0/%d", subvolID), parent) //nolint:errcheck
-
 	return nil
 }
 
