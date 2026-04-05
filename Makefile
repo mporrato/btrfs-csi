@@ -32,6 +32,9 @@ deploy:
 minikube-setup:
 	IMAGE=localhost/$(IMAGE):$(TAG) CLUSTER=$(CLUSTER) bash test/setup-minikube.sh
 
+minikube-teardown:
+	CLUSTER=$(CLUSTER) bash test/teardown-minikube.sh
+
 # Build the CSI sanity test binary and run it inside the minikube VM.
 minikube-sanity:
 	CLUSTER=$(CLUSTER) bash test/run-sanity.sh
