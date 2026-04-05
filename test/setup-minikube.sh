@@ -47,8 +47,8 @@ echo "==> Deploying btrfs-csi-driver..."
 # Extract namespace name from manifest and create it first, then wait for it to be active
 # before deploying other resources (avoids race condition with resources created in parallel).
 NS=$(awk '/^[[:space:]]*name:/ {print $NF; exit}' "${SCRIPT_DIR}/../deploy/namespace.yaml")
-${K} create namespace "${NS}" --dry-run=client -o yaml | ${K} apply -f -
-${K} wait --for=condition=Active "namespace/${NS}" --timeout=30s || true
+${K} apply -f "${SCRIPT_DIR}/../deploy/namespace.yaml"
+${K} wait --for=jsonpath='{.status.phase}'=Active "namespace/${NS}" --timeout=10s || true
 
 # Now deploy all resources (they'll be created in the ready namespace)
 ${K} apply -f "${SCRIPT_DIR}/../deploy/"
