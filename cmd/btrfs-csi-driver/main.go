@@ -113,25 +113,35 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 }
 
 // initializeStores parses the pool config and initializes the MultiStore.
+// Pools that are not btrfs filesystems are skipped with a warning.
+// Returns an error only if no valid pools are found.
 func initializeStores(configFile string, mgr btrfs.Manager) (map[string]string, state.Store, error) {
 	ms := state.NewMultiStore()
 	pools, err := driver.ParsePoolConfig(configFile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse pool config: %w", err)
 	}
+	validPools := make(map[string]string)
 	for name, bp := range pools {
 		ok, err := mgr.IsBtrfsFilesystem(bp)
 		if err != nil {
-			return nil, nil, fmt.Errorf("check filesystem for pool %q at %s: %w", name, bp, err)
+			klog.ErrorS(err, "Skipping pool: failed to check if btrfs filesystem", "pool", name, "path", bp)
+			continue
 		}
 		if !ok {
-			return nil, nil, fmt.Errorf("pool %q: %s is not a btrfs filesystem", name, bp)
+			klog.InfoS("Skipping pool: not a btrfs filesystem", "pool", name, "path", bp)
+			continue
 		}
 		if err := ms.AddPath(bp); err != nil {
-			return nil, nil, fmt.Errorf("open store for pool %q at %s: %w", name, bp, err)
+			klog.ErrorS(err, "Skipping pool: failed to open store", "pool", name, "path", bp)
+			continue
 		}
+		validPools[name] = bp
 	}
-	return pools, ms, nil
+	if len(validPools) == 0 {
+		return nil, nil, fmt.Errorf("no valid btrfs pools found in config")
+	}
+	return validPools, ms, nil
 }
 
 // reloadPoolConfig handles configuration changes during runtime.

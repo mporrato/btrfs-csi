@@ -63,6 +63,7 @@ type MockManager struct {
 	IsBtrfsFilesystemCalls  []string
 	IsBtrfsFilesystemResult bool
 	IsBtrfsFilesystemErr    error
+	IsBtrfsFilesystemFunc   func(path string) (bool, error)
 }
 
 func (m *MockManager) CreateSubvolume(path string) error {
@@ -124,5 +125,8 @@ func (m *MockManager) GetFilesystemUsage(path string) (*FsUsage, error) {
 
 func (m *MockManager) IsBtrfsFilesystem(path string) (bool, error) {
 	m.IsBtrfsFilesystemCalls = append(m.IsBtrfsFilesystemCalls, path)
+	if m.IsBtrfsFilesystemFunc != nil {
+		return m.IsBtrfsFilesystemFunc(path)
+	}
 	return m.IsBtrfsFilesystemResult, m.IsBtrfsFilesystemErr
 }

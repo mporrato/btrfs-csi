@@ -31,7 +31,56 @@ func TestRunFailsWhenConfigNotProvided(t *testing.T) {
 	}
 }
 
-func TestRunFailsWhenConfigPathNotBtrfs(t *testing.T) {
+func TestRunToleratesMissingPoolsButFailsWhenAllPoolsMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Write two pool configs: one valid, one missing
+	goodPool := filepath.Join(tmpDir, "good-pool")
+	missingPool := filepath.Join(tmpDir, "missing-pool")
+	if err := os.WriteFile(filepath.Join(configDir, "good"), []byte(goodPool), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "missing"), []byte(missingPool), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// MockManager returns true only for the good pool
+	mgr := &btrfs.MockManager{
+		IsBtrfsFilesystemFunc: func(path string) (bool, error) {
+			return path == goodPool, nil
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runWithContext(ctx, []string{
+			"--endpoint", "unix://" + filepath.Join(tmpDir, "csi", "csi.sock"),
+			"--config", configDir,
+			"--nodeid", "test-node",
+		}, mgr)
+	}()
+
+	// Wait briefly to allow driver to start
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("expected driver to tolerate missing pool, got error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("test timed out waiting for driver to start")
+	}
+}
+
+func TestRunFailsWhenAllPoolsMissing(t *testing.T) {
 	tmpDir := t.TempDir()
 	bpDir := filepath.Join(tmpDir, "pool")
 	configDir := filepath.Join(tmpDir, "config")
@@ -48,7 +97,7 @@ func TestRunFailsWhenConfigPathNotBtrfs(t *testing.T) {
 		"--nodeid", "test-node",
 	}, &btrfs.MockManager{IsBtrfsFilesystemResult: false})
 	if err == nil {
-		t.Fatal("expected error when config path is not a btrfs filesystem")
+		t.Fatal("expected error when all pools are missing")
 	}
 }
 
