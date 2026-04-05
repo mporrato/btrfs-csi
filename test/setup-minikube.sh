@@ -77,6 +77,13 @@ sed \
   -e 's/^#   pool: default.*$/  pool: secondary/' \
   "${SCRIPT_DIR}/../deploy/storageclass.yaml" | ${K} apply -f -
 
+echo "==> Creating secondary VolumeSnapshotClass pointing to secondary pool..."
+sed \
+  -e 's/^  name: btrfs$/  name: btrfs-secondary/' \
+  -e 's/^# parameters:/parameters:/' \
+  -e 's/^#   pool: default.*$/  pool: secondary/' \
+  "${SCRIPT_DIR}/../deploy/snapshotclass.yaml" | ${K} apply -f -
+
 echo "==> Waiting for DaemonSet to be ready..."
 ${K} rollout status daemonset/btrfs-csi-driver \
     -n "${NS}" --timeout=120s

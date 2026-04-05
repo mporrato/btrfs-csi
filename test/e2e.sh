@@ -172,7 +172,7 @@ metadata:
   labels:
     btrfs-csi-e2e: "true"
 spec:
-  volumeSnapshotClassName: btrfs-snapshot
+  volumeSnapshotClassName: ${PRIMARY_STORAGECLASS}
   source:
     persistentVolumeClaimName: e2e-snap-source-pvc
 EOF
@@ -484,142 +484,22 @@ ${KUBECTL} delete pod e2e-quota-writer e2e-quota-overflow -n "${NAMESPACE}" --wa
 ${KUBECTL} delete pvc e2e-quota-pvc -n "${NAMESPACE}" --wait=true 2>/dev/null || true
 pass "Quota test resources cleaned up"
 
-# ─── Cross-filesystem snapshot ─────────────────────────────────────────────────
-log "=== Cross-filesystem snapshot ==="
+# ─── Snapshot creation on different pool ──────────────────────────────────────
+log "=== Snapshot creation on different pool ==="
 
-# Note: This test assumes the cluster has StorageClasses for different pools/filesystems.
-# It may be skipped if multiple pools are not available.
+# Note: With pool routing support, snapshots can be created on any configured pool
+# via the pool parameter in VolumeSnapshotClass. This test verifies cross-pool snapshot creation.
 if ! ${KUBECTL} get storageclass "${SECONDARY_STORAGECLASS}" &>/dev/null; then
-  log "SKIP: Cross-filesystem snapshot test (${SECONDARY_STORAGECLASS} StorageClass not found)"
+  log "SKIP: Cross-pool snapshot test (${SECONDARY_STORAGECLASS} StorageClass not found)"
+elif ! ${KUBECTL} get volumesnapshotclass "${SECONDARY_STORAGECLASS}" &>/dev/null; then
+  log "SKIP: Cross-pool snapshot test (${SECONDARY_STORAGECLASS} VolumeSnapshotClass not found)"
 else
+  # Create source volume on primary pool
   ${KUBECTL} apply -f - <<EOF
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: e2e-xfs-snap-source-pvc
-  namespace: ${NAMESPACE}
-  labels:
-    btrfs-csi-e2e: "true"
-spec:
-  accessModes: [ReadWriteOnce]
-  storageClassName: ${SECONDARY_STORAGECLASS}
-  resources:
-    requests:
-      storage: 256Mi
----
-apiVersion: v1
-kind: Pod
-metadata:
-  name: e2e-xfs-snap-writer
-  namespace: ${NAMESPACE}
-  labels:
-    btrfs-csi-e2e: "true"
-spec:
-  restartPolicy: Never
-  containers:
-    - name: writer
-      image: busybox
-      command: [sh, -c, "echo cross-filesystem-snap > /data/xfs.txt"]
-      volumeMounts:
-        - name: vol
-          mountPath: /data
-  volumes:
-    - name: vol
-      persistentVolumeClaim:
-        claimName: e2e-xfs-snap-source-pvc
-EOF
-
-  wait_for_pvc e2e-xfs-snap-source-pvc && wait_for_pod_succeeded e2e-xfs-snap-writer
-  ${KUBECTL} delete pod e2e-xfs-snap-writer -n "${NAMESPACE}" --wait=true 2>/dev/null || true
-
-  ${KUBECTL} apply -f - <<EOF
-apiVersion: snapshot.storage.k8s.io/v1
-kind: VolumeSnapshot
-metadata:
-  name: e2e-xfs-snap
-  namespace: ${NAMESPACE}
-  labels:
-    btrfs-csi-e2e: "true"
-spec:
-  volumeSnapshotClassName: btrfs-snapshot
-  source:
-    persistentVolumeClaimName: e2e-xfs-snap-source-pvc
-EOF
-
-  if wait_for_snapshot e2e-xfs-snap; then
-    pass "Cross-filesystem snapshot created"
-  else
-    fail "Cross-filesystem snapshot creation failed"
-  fi
-
-  # Restore to different filesystem/pool
-  ${KUBECTL} apply -f - <<EOF
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: e2e-xfs-snap-restore-pvc
-  namespace: ${NAMESPACE}
-  labels:
-    btrfs-csi-e2e: "true"
-spec:
-  accessModes: [ReadWriteOnce]
-  storageClassName: ${SECONDARY_STORAGECLASS}
-  resources:
-    requests:
-      storage: 256Mi
-  dataSource:
-    name: e2e-xfs-snap
-    kind: VolumeSnapshot
-    apiGroup: snapshot.storage.k8s.io
----
-apiVersion: v1
-kind: Pod
-metadata:
-  name: e2e-xfs-snap-reader
-  namespace: ${NAMESPACE}
-  labels:
-    btrfs-csi-e2e: "true"
-spec:
-  restartPolicy: Never
-  containers:
-    - name: reader
-      image: busybox
-      command: [sh, -c, "grep cross-filesystem-snap /data/xfs.txt"]
-      volumeMounts:
-        - name: vol
-          mountPath: /data
-  volumes:
-    - name: vol
-      persistentVolumeClaim:
-        claimName: e2e-xfs-snap-restore-pvc
-EOF
-
-  wait_for_pvc e2e-xfs-snap-restore-pvc
-  if wait_for_pod_succeeded e2e-xfs-snap-reader; then
-    pass "Cross-filesystem snapshot restore successful"
-  else
-    fail "Cross-filesystem snapshot restore failed"
-  fi
-
-  ${KUBECTL} delete pod e2e-xfs-snap-reader -n "${NAMESPACE}" --wait=true 2>/dev/null || true
-  ${KUBECTL} delete pvc e2e-xfs-snap-restore-pvc e2e-xfs-snap-source-pvc -n "${NAMESPACE}" --wait=true 2>/dev/null || true
-  ${KUBECTL} delete volumesnapshot e2e-xfs-snap -n "${NAMESPACE}" --wait=true 2>/dev/null || true
-  pass "Cross-filesystem snapshot test resources cleaned up"
-fi
-
-# ─── Cross-filesystem clone ───────────────────────────────────────────────────
-log "=== Cross-filesystem clone ==="
-
-# Note: This test also requires multiple StorageClasses for different pools.
-# It may be skipped if only one pool is available.
-if ! ${KUBECTL} get storageclass "${SECONDARY_STORAGECLASS}" &>/dev/null; then
-  log "SKIP: Cross-filesystem clone test (${SECONDARY_STORAGECLASS} StorageClass not found)"
-else
-  ${KUBECTL} apply -f - <<EOF
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: e2e-xfs-clone-source-pvc
+  name: e2e-crosspool-snap-source-pvc
   namespace: ${NAMESPACE}
   labels:
     btrfs-csi-e2e: "true"
@@ -633,7 +513,7 @@ spec:
 apiVersion: v1
 kind: Pod
 metadata:
-  name: e2e-xfs-clone-writer
+  name: e2e-crosspool-snap-writer
   namespace: ${NAMESPACE}
   labels:
     btrfs-csi-e2e: "true"
@@ -642,25 +522,149 @@ spec:
   containers:
     - name: writer
       image: busybox
-      command: [sh, -c, "echo cross-filesystem-clone > /data/xfs-clone.txt"]
+      command: [sh, -c, "echo cross-pool-snapshot-data > /data/crosspool.txt"]
       volumeMounts:
         - name: vol
           mountPath: /data
   volumes:
     - name: vol
       persistentVolumeClaim:
-        claimName: e2e-xfs-clone-source-pvc
+        claimName: e2e-crosspool-snap-source-pvc
 EOF
 
-  wait_for_pvc e2e-xfs-clone-source-pvc && wait_for_pod_succeeded e2e-xfs-clone-writer
-  ${KUBECTL} delete pod e2e-xfs-clone-writer -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+  wait_for_pvc e2e-crosspool-snap-source-pvc && wait_for_pod_succeeded e2e-crosspool-snap-writer
+  ${KUBECTL} delete pod e2e-crosspool-snap-writer -n "${NAMESPACE}" --wait=true 2>/dev/null || true
 
-  # Clone to different filesystem/pool
+  # Create snapshot on secondary pool using pool-routed VolumeSnapshotClass
+  ${KUBECTL} apply -f - <<EOF
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: e2e-crosspool-snap
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  volumeSnapshotClassName: ${SECONDARY_STORAGECLASS}
+  source:
+    persistentVolumeClaimName: e2e-crosspool-snap-source-pvc
+EOF
+
+  if wait_for_snapshot e2e-crosspool-snap; then
+    pass "Snapshot created on secondary pool via VolumeSnapshotClass"
+  else
+    fail "Cross-pool snapshot creation failed"
+  fi
+
+  # Restore from secondary-pool snapshot to verify it works
   ${KUBECTL} apply -f - <<EOF
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: e2e-xfs-clone-pvc
+  name: e2e-crosspool-snap-restore-pvc
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ${PRIMARY_STORAGECLASS}
+  resources:
+    requests:
+      storage: 256Mi
+  dataSource:
+    name: e2e-crosspool-snap
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-crosspool-snap-reader
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: reader
+      image: busybox
+      command: [sh, -c, "grep cross-pool-snapshot-data /data/crosspool.txt"]
+      volumeMounts:
+        - name: vol
+          mountPath: /data
+  volumes:
+    - name: vol
+      persistentVolumeClaim:
+        claimName: e2e-crosspool-snap-restore-pvc
+EOF
+
+  wait_for_pvc e2e-crosspool-snap-restore-pvc
+  if wait_for_pod_succeeded e2e-crosspool-snap-reader; then
+    pass "Snapshot from secondary pool restored successfully"
+  else
+    fail "Snapshot restore from secondary pool failed"
+  fi
+
+  ${KUBECTL} delete pod e2e-crosspool-snap-reader -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+  ${KUBECTL} delete pvc e2e-crosspool-snap-restore-pvc e2e-crosspool-snap-source-pvc -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+  ${KUBECTL} delete volumesnapshot e2e-crosspool-snap -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+  pass "Cross-pool snapshot test resources cleaned up"
+fi
+
+# ─── Volume clone to different pool ───────────────────────────────────────────
+log "=== Volume clone to different pool ==="
+
+# Note: This test verifies cloning a volume to a different pool/filesystem.
+# Multiple StorageClasses are required; it may be skipped if only one pool is available.
+if ! ${KUBECTL} get storageclass "${SECONDARY_STORAGECLASS}" &>/dev/null; then
+  log "SKIP: Volume clone test (${SECONDARY_STORAGECLASS} StorageClass not found)"
+else
+  ${KUBECTL} apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: e2e-clone-pool2-source-pvc
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ${PRIMARY_STORAGECLASS}
+  resources:
+    requests:
+      storage: 256Mi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-clone-pool2-writer
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: writer
+      image: busybox
+      command: [sh, -c, "echo clone-pool2-data > /data/clone.txt"]
+      volumeMounts:
+        - name: vol
+          mountPath: /data
+  volumes:
+    - name: vol
+      persistentVolumeClaim:
+        claimName: e2e-clone-pool2-source-pvc
+EOF
+
+  wait_for_pvc e2e-clone-pool2-source-pvc && wait_for_pod_succeeded e2e-clone-pool2-writer
+  ${KUBECTL} delete pod e2e-clone-pool2-writer -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+
+  # Clone to different pool
+  ${KUBECTL} apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: e2e-clone-pool2-dest-pvc
   namespace: ${NAMESPACE}
   labels:
     btrfs-csi-e2e: "true"
@@ -671,13 +675,13 @@ spec:
     requests:
       storage: 256Mi
   dataSource:
-    name: e2e-xfs-clone-source-pvc
+    name: e2e-clone-pool2-source-pvc
     kind: PersistentVolumeClaim
 ---
 apiVersion: v1
 kind: Pod
 metadata:
-  name: e2e-xfs-clone-reader
+  name: e2e-clone-pool2-reader
   namespace: ${NAMESPACE}
   labels:
     btrfs-csi-e2e: "true"
@@ -686,26 +690,26 @@ spec:
   containers:
     - name: reader
       image: busybox
-      command: [sh, -c, "grep cross-filesystem-clone /data/xfs-clone.txt"]
+      command: [sh, -c, "grep clone-pool2-data /data/clone.txt"]
       volumeMounts:
         - name: vol
           mountPath: /data
   volumes:
     - name: vol
       persistentVolumeClaim:
-        claimName: e2e-xfs-clone-pvc
+        claimName: e2e-clone-pool2-dest-pvc
 EOF
 
-  wait_for_pvc e2e-xfs-clone-pvc
-  if wait_for_pod_succeeded e2e-xfs-clone-reader; then
-    pass "Cross-filesystem clone successful"
+  wait_for_pvc e2e-clone-pool2-dest-pvc
+  if wait_for_pod_succeeded e2e-clone-pool2-reader; then
+    pass "Volume cloned to secondary pool"
   else
-    fail "Cross-filesystem clone failed"
+    fail "Volume clone to different pool failed"
   fi
 
-  ${KUBECTL} delete pod e2e-xfs-clone-reader -n "${NAMESPACE}" --wait=true 2>/dev/null || true
-  ${KUBECTL} delete pvc e2e-xfs-clone-pvc e2e-xfs-clone-source-pvc -n "${NAMESPACE}" --wait=true 2>/dev/null || true
-  pass "Cross-filesystem clone test resources cleaned up"
+  ${KUBECTL} delete pod e2e-clone-pool2-reader -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+  ${KUBECTL} delete pvc e2e-clone-pool2-dest-pvc e2e-clone-pool2-source-pvc -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+  pass "Volume clone test resources cleaned up"
 fi
 
 # ─── Summary ──────────────────────────────────────────────────────────────────

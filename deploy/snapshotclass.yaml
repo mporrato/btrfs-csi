@@ -2,9 +2,8 @@
 apiVersion: snapshot.storage.k8s.io/v1
 kind: VolumeSnapshotClass
 metadata:
-  name: btrfs-snapshot
+  name: btrfs
 driver: btrfs.csi.local
 deletionPolicy: Delete
-parameters: {}
-  # pool: default   # Optional: route snapshots to a named pool.
-  #                 # Omit to use the "default" pool (or the sole configured pool).
+# parameters:
+#   pool: default  # optional; falls back to "default" or sole pool
