@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	// Import csi-test sanity for dependency management
+	// Import csi-test sanity for dependency management.
 	_ "github.com/kubernetes-csi/csi-test/v5/pkg/sanity"
 )
 

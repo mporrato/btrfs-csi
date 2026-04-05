@@ -76,7 +76,7 @@ var _ = AfterSuite(func() {
 		}
 	}
 	if sanityRoot != "" {
-		os.RemoveAll(sanityRoot)
+		_ = os.RemoveAll(sanityRoot)
 	}
 })
 

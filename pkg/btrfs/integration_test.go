@@ -28,10 +28,12 @@ func setupLoopbackBtrfs(t *testing.T) string {
 		t.Fatalf("create loop image: %v", err)
 	}
 	if err := f.Truncate(256 * 1024 * 1024); err != nil {
-		f.Close()
+		_ = f.Close()
 		t.Fatalf("truncate loop image: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close loop image: %v", err)
+	}
 
 	if out, err := exec.Command("mkfs.btrfs", imgPath).CombinedOutput(); err != nil {
 		t.Fatalf("mkfs.btrfs: %v: %s", err, out)

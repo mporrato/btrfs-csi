@@ -105,7 +105,8 @@ func TestScheduleQgroupCleanup_OnlyTargetsSpecifiedPath(t *testing.T) {
 
 	// Only pathA should have been cleaned.
 	if len(mock.ClearStaleQgroupsCalls) != 1 {
-		t.Fatalf("expected 1 ClearStaleQgroups call, got %d: %v", len(mock.ClearStaleQgroupsCalls), mock.ClearStaleQgroupsCalls)
+		t.Fatalf("expected 1 ClearStaleQgroups call, got %d",
+			len(mock.ClearStaleQgroupsCalls))
 	}
 	if mock.ClearStaleQgroupsCalls[0] != pathA {
 		t.Errorf("ClearStaleQgroups called with %q, want %q", mock.ClearStaleQgroupsCalls[0], pathA)

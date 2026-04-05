@@ -37,7 +37,7 @@ func (d *Driver) ControllerGetCapabilities(_ context.Context, _ *csi.ControllerG
 		csi.ControllerServiceCapability_RPC_GET_VOLUME,
 		csi.ControllerServiceCapability_RPC_VOLUME_CONDITION,
 	}
-	var out []*csi.ControllerServiceCapability
+	out := make([]*csi.ControllerServiceCapability, 0, len(caps))
 	for _, c := range caps {
 		out = append(out, &csi.ControllerServiceCapability{
 			Type: &csi.ControllerServiceCapability_Rpc{
@@ -321,13 +321,12 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context, req *csi.Controller
 	}
 
 	// Update state.
-	oldCapacity := vol.CapacityBytes
 	vol.CapacityBytes = newCapacity
 	if err := d.Store.SaveVolume(vol); err != nil {
 		return nil, status.Errorf(codes.Internal, "save volume state: %v", err)
 	}
 
-	klog.V(4).InfoS("ControllerExpandVolume", "volumeID", req.VolumeId, "oldCapacity", oldCapacity, "newCapacity", newCapacity)
+	klog.V(4).InfoS("ControllerExpandVolume", "volumeID", req.VolumeId, "newCapacity", newCapacity)
 	return &csi.ControllerExpandVolumeResponse{
 		CapacityBytes:         newCapacity,
 		NodeExpansionRequired: false,
@@ -391,7 +390,8 @@ func (d *Driver) CreateSnapshot(_ context.Context, req *csi.CreateSnapshotReques
 	// Idempotency: return existing snapshot if one with the same name exists.
 	if existing, ok := d.Store.GetSnapshotByName(req.Name); ok {
 		if existing.SourceVolID != req.SourceVolumeId {
-			return nil, status.Errorf(codes.AlreadyExists, "snapshot %q already exists with different source volume %s", req.Name, existing.SourceVolID)
+			return nil, status.Errorf(codes.AlreadyExists,
+				"snapshot %q already exists with different source volume", req.Name)
 		}
 		klog.V(4).InfoS("CreateSnapshot idempotent", "name", req.Name, "snapshotID", existing.ID)
 		return &csi.CreateSnapshotResponse{Snapshot: toCSISnapshot(existing)}, nil
@@ -489,7 +489,7 @@ func validateContentSourceMatch(vol *state.Volume, src *csi.VolumeContentSource)
 }
 
 // contentSourceIDs extracts the snapshot ID and volume ID from a VolumeContentSource.
-func contentSourceIDs(src *csi.VolumeContentSource) (snapID, volID string) {
+func contentSourceIDs(src *csi.VolumeContentSource) (string, string) {
 	if src == nil {
 		return "", ""
 	}
@@ -533,7 +533,8 @@ func (d *Driver) resolveBasePath(params map[string]string) (string, error) {
 	if path, ok := pools["default"]; ok {
 		return path, nil
 	}
-	return "", status.Errorf(codes.InvalidArgument, "multiple storage pools configured and no \"default\" pool exists; specify pool parameter in StorageClass")
+	return "", status.Errorf(codes.InvalidArgument,
+		"multiple storage pools configured without \"default\"; specify pool in StorageClass")
 }
 
 // toCSIVolume converts a state.Volume to the CSI Volume proto with topology.

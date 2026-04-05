@@ -1,6 +1,7 @@
 package btrfs
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -25,7 +26,7 @@ func TestMockManagerCreateSubvolumeError(t *testing.T) {
 	m := &MockManager{
 		CreateSubvolumeErr: errTest,
 	}
-	if err := m.CreateSubvolume("/volumes/vol1"); err != errTest {
+	if err := m.CreateSubvolume("/volumes/vol1"); !errors.Is(err, errTest) {
 		t.Fatalf("expected errTest, got %v", err)
 	}
 }
@@ -47,7 +48,7 @@ func TestMockManagerDeleteSubvolumeError(t *testing.T) {
 	m := &MockManager{
 		DeleteSubvolumeErr: errTest,
 	}
-	if err := m.DeleteSubvolume("/volumes/vol1"); err != errTest {
+	if err := m.DeleteSubvolume("/volumes/vol1"); !errors.Is(err, errTest) {
 		t.Fatalf("expected errTest, got %v", err)
 	}
 }
@@ -73,7 +74,7 @@ func TestMockManagerSubvolumeExistsError(t *testing.T) {
 		SubvolumeExistsErr: errTest,
 	}
 	_, err := m.SubvolumeExists("/volumes/vol1")
-	if err != errTest {
+	if !errors.Is(err, errTest) {
 		t.Fatalf("expected errTest, got %v", err)
 	}
 }
@@ -96,7 +97,7 @@ func TestMockManagerCreateSnapshotError(t *testing.T) {
 	m := &MockManager{
 		CreateSnapshotErr: errTest,
 	}
-	if err := m.CreateSnapshot("/volumes/vol1", "/snapshots/snap1", false); err != errTest {
+	if err := m.CreateSnapshot("/volumes/vol1", "/snapshots/snap1", false); !errors.Is(err, errTest) {
 		t.Fatalf("expected errTest, got %v", err)
 	}
 }
@@ -118,7 +119,7 @@ func TestMockManagerEnsureQuotaEnabledError(t *testing.T) {
 	m := &MockManager{
 		EnsureQuotaEnabledErr: errTest,
 	}
-	if err := m.EnsureQuotaEnabled("/mnt/btrfs"); err != errTest {
+	if err := m.EnsureQuotaEnabled("/mnt/btrfs"); !errors.Is(err, errTest) {
 		t.Fatalf("expected errTest, got %v", err)
 	}
 }
@@ -141,7 +142,7 @@ func TestMockManagerSetQgroupLimitError(t *testing.T) {
 	m := &MockManager{
 		SetQgroupLimitErr: errTest,
 	}
-	if err := m.SetQgroupLimit("/volumes/vol1", 1024); err != errTest {
+	if err := m.SetQgroupLimit("/volumes/vol1", 1024); !errors.Is(err, errTest) {
 		t.Fatalf("expected errTest, got %v", err)
 	}
 }
@@ -163,7 +164,7 @@ func TestMockManagerRemoveQgroupLimitError(t *testing.T) {
 	m := &MockManager{
 		RemoveQgroupLimitErr: errTest,
 	}
-	if err := m.RemoveQgroupLimit("/volumes/vol1"); err != errTest {
+	if err := m.RemoveQgroupLimit("/volumes/vol1"); !errors.Is(err, errTest) {
 		t.Fatalf("expected errTest, got %v", err)
 	}
 }
@@ -183,7 +184,7 @@ func TestMockManagerClearStaleQgroups(t *testing.T) {
 
 func TestMockManagerClearStaleQgroupsError(t *testing.T) {
 	m := &MockManager{ClearStaleQgroupsErr: errTest}
-	if err := m.ClearStaleQgroups("/mnt/btrfs"); err != errTest {
+	if err := m.ClearStaleQgroups("/mnt/btrfs"); !errors.Is(err, errTest) {
 		t.Fatalf("expected errTest, got %v", err)
 	}
 }
@@ -210,7 +211,7 @@ func TestMockManagerGetQgroupUsageError(t *testing.T) {
 		GetQgroupUsageErr: errTest,
 	}
 	_, err := m.GetQgroupUsage("/volumes/vol1")
-	if err != errTest {
+	if !errors.Is(err, errTest) {
 		t.Fatalf("expected errTest, got %v", err)
 	}
 }
@@ -237,7 +238,7 @@ func TestMockManagerGetFilesystemUsageError(t *testing.T) {
 		GetFilesystemUsageErr: errTest,
 	}
 	_, err := m.GetFilesystemUsage("/mnt/btrfs")
-	if err != errTest {
+	if !errors.Is(err, errTest) {
 		t.Fatalf("expected errTest, got %v", err)
 	}
 }
@@ -273,7 +274,7 @@ func TestMockManagerIsBtrfsFilesystemNotBtrfs(t *testing.T) {
 func TestMockManagerIsBtrfsFilesystemError(t *testing.T) {
 	m := &MockManager{IsBtrfsFilesystemErr: errTest}
 	_, err := m.IsBtrfsFilesystem("/tmp")
-	if err != errTest {
+	if !errors.Is(err, errTest) {
 		t.Fatalf("expected errTest, got %v", err)
 	}
 }

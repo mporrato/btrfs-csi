@@ -41,7 +41,7 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 	var (
 		endpoint   = fs.String("endpoint", "unix:///csi/csi.sock", "CSI endpoint")
 		nodeID     = fs.String("nodeid", "", "Node ID")
-		configFile = fs.String("config", "", "Path to config directory (mounted ConfigMap) where each file is a pool name and its content is the btrfs base path")
+		configFile = fs.String("config", "", "Path to config directory with pool definitions")
 		version    = fs.Bool("version", false, "Print version and exit")
 	)
 
@@ -55,7 +55,7 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 	}
 
 	if *configFile == "" {
-		return fmt.Errorf("--config is required: provide a path to a config directory (mounted ConfigMap) with pool definitions")
+		return fmt.Errorf("--config is required: provide a path to a config directory with pool definitions")
 	}
 
 	if *nodeID == "" {

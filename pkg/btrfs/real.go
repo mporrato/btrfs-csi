@@ -187,7 +187,7 @@ func parseSubvolumeID(out string) (uint64, error) {
 }
 
 // parseQgroupShow finds the qgroup entry matching qgroupID in `btrfs qgroup show -r --raw` output.
-// Column order: qgroupid rfer excl max_rfer max_excl
+// Column order: qgroupid rfer excl max_rfer max_excl.
 func parseQgroupShow(out, qgroupID string) (*QgroupUsage, error) {
 	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		fields := strings.Fields(line)
