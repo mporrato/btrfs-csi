@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -130,6 +131,27 @@ func (m *RealManager) GetQgroupUsage(path string) (*QgroupUsage, error) {
 		return nil, fmt.Errorf("parse qgroup output for %s: %w", path, err)
 	}
 	return usage, nil
+}
+
+// btrfsSuperMagic is the magic number for btrfs filesystems (from Linux kernel).
+const btrfsSuperMagic = 0x9123683E
+
+func (m *RealManager) IsBtrfsFilesystem(path string) (bool, error) {
+	// Walk up to the nearest existing ancestor — path may not exist yet.
+	cur := path
+	for {
+		var stat syscall.Statfs_t
+		if err := syscall.Statfs(cur, &stat); err == nil {
+			return stat.Type == btrfsSuperMagic, nil
+		} else if !os.IsNotExist(err) {
+			return false, fmt.Errorf("statfs %s: %w", cur, err)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return false, fmt.Errorf("no existing ancestor found for %s", path)
+		}
+		cur = parent
+	}
 }
 
 func (m *RealManager) GetFilesystemUsage(path string) (*FsUsage, error) {

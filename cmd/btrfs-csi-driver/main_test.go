@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/guru/btrfs-csi/pkg/btrfs"
 )
 
 func TestRunVersionFlag(t *testing.T) {
@@ -13,6 +15,25 @@ func TestRunVersionFlag(t *testing.T) {
 	err := run([]string{"--version"})
 	if err != nil {
 		t.Errorf("run with --version should not return error, got: %v", err)
+	}
+}
+
+func TestRunFailsWhenRootPathNotBtrfs(t *testing.T) {
+	tmpDir := t.TempDir()
+	socketPath := filepath.Join(tmpDir, "csi", "csi.sock")
+
+	mgr := &btrfs.MockManager{IsBtrfsFilesystemResult: false}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := runWithContext(ctx, []string{
+		"--endpoint", "unix://" + socketPath,
+		"--root-path", filepath.Join(tmpDir, "root"),
+		"--nodeid", "test-node",
+	}, mgr)
+	if err == nil {
+		t.Fatal("expected error when root-path is not a btrfs filesystem")
 	}
 }
 
@@ -34,6 +55,8 @@ func TestRunCreatesSocketDirectory(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	mgr := &btrfs.MockManager{IsBtrfsFilesystemResult: true}
+
 	// Run in a goroutine since it blocks
 	errCh := make(chan error, 1)
 	go func() {
@@ -41,7 +64,7 @@ func TestRunCreatesSocketDirectory(t *testing.T) {
 			"--endpoint", endpoint,
 			"--root-path", rootPath,
 			"--nodeid", "test-node",
-		})
+		}, mgr)
 	}()
 
 	// Wait for the socket to appear (proper readiness probe, no fixed sleep)

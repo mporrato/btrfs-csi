@@ -242,5 +242,41 @@ func TestMockManagerGetFilesystemUsageError(t *testing.T) {
 	}
 }
 
+func TestMockManagerIsBtrfsFilesystem(t *testing.T) {
+	m := &MockManager{IsBtrfsFilesystemResult: true}
+	got, err := m.IsBtrfsFilesystem("/mnt/btrfs")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got {
+		t.Error("expected true for btrfs path")
+	}
+	if len(m.IsBtrfsFilesystemCalls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(m.IsBtrfsFilesystemCalls))
+	}
+	if m.IsBtrfsFilesystemCalls[0] != "/mnt/btrfs" {
+		t.Errorf("expected path /mnt/btrfs, got %s", m.IsBtrfsFilesystemCalls[0])
+	}
+}
+
+func TestMockManagerIsBtrfsFilesystemNotBtrfs(t *testing.T) {
+	m := &MockManager{IsBtrfsFilesystemResult: false}
+	got, err := m.IsBtrfsFilesystem("/tmp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got {
+		t.Error("expected false for non-btrfs path")
+	}
+}
+
+func TestMockManagerIsBtrfsFilesystemError(t *testing.T) {
+	m := &MockManager{IsBtrfsFilesystemErr: errTest}
+	_, err := m.IsBtrfsFilesystem("/tmp")
+	if err != errTest {
+		t.Fatalf("expected errTest, got %v", err)
+	}
+}
+
 // errTest is a sentinel error used in mock tests.
 var errTest = fmt.Errorf("test error")

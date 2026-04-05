@@ -58,6 +58,11 @@ type MockManager struct {
 	GetFilesystemUsageCalls  []string
 	GetFilesystemUsageResult *FsUsage
 	GetFilesystemUsageErr    error
+
+	// IsBtrfsFilesystem
+	IsBtrfsFilesystemCalls  []string
+	IsBtrfsFilesystemResult bool
+	IsBtrfsFilesystemErr    error
 }
 
 func (m *MockManager) CreateSubvolume(path string) error {
@@ -115,4 +120,9 @@ func (m *MockManager) GetQgroupUsage(path string) (*QgroupUsage, error) {
 func (m *MockManager) GetFilesystemUsage(path string) (*FsUsage, error) {
 	m.GetFilesystemUsageCalls = append(m.GetFilesystemUsageCalls, path)
 	return m.GetFilesystemUsageResult, m.GetFilesystemUsageErr
+}
+
+func (m *MockManager) IsBtrfsFilesystem(path string) (bool, error) {
+	m.IsBtrfsFilesystemCalls = append(m.IsBtrfsFilesystemCalls, path)
+	return m.IsBtrfsFilesystemResult, m.IsBtrfsFilesystemErr
 }

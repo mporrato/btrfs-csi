@@ -58,4 +58,8 @@ type Manager interface {
 	// GetFilesystemUsage returns the filesystem usage information for the filesystem
 	// containing the specified path.
 	GetFilesystemUsage(path string) (*FsUsage, error)
+
+	// IsBtrfsFilesystem reports whether path (or its nearest existing ancestor)
+	// resides on a btrfs filesystem.
+	IsBtrfsFilesystem(path string) (bool, error)
 }

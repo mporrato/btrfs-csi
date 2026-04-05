@@ -22,6 +22,7 @@ func TestManagerInterface(t *testing.T) {
 		"ClearStaleQgroups",
 		"GetQgroupUsage",
 		"GetFilesystemUsage",
+		"IsBtrfsFilesystem",
 	}
 
 	// Verify all expected methods exist
