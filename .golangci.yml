@@ -1,0 +1,85 @@
+version: 2
+run:
+  timeout: 5m
+  build-tags:
+    - integration
+
+output:
+  format: colored-line-number
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - opinionated
+      - performance
+  lll:
+    line-length: 120
+  misspell:
+    locale: US
+  revive:
+    rules:
+      - name: blank-imports
+        severity: warning
+      - name: context-as-argument
+        severity: warning
+      - name: indent-error-flow
+        severity: warning
+      - name: receiver-naming
+        severity: warning
+      - name: time-naming
+        severity: warning
+      - name: unexported-return
+        severity: warning
+
+linters:
+  enable:
+    - asciicheck
+    - bodyclose
+    - copyloopvar
+    - dupl
+    - durationcheck
+    - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - gocritic
+    - gocyclo
+    - godot
+    - godox
+    - goprintffuncname
+    - gosec
+    - govet
+    - ineffassign
+    - lll
+    - misspell
+    - nakedret
+    - nolintlint
+    - nonamedreturns
+    - nosprintfhostport
+    - prealloc
+    - predeclared
+    - reassign
+    - revive
+    - rowserrcheck
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+
+issues:
+  exclude-rules:
+    # Allow long lines in tests
+    - path: _test\.go
+      linters:
+        - lll
+    # Allow unused parameters in interface implementations
+    - path: _test\.go
+      linters:
+        - unparam
