@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # e2e.sh — end-to-end tests for btrfs-csi-driver.
-# Requires a running Kubernetes cluster with the driver deployed.
+# Requires a running Kubernetes cluster with the driver deployed and at least
+# two StargeClasses backed by different btrfs filesystem.
 # Run: bash test/e2e.sh
 set -euo pipefail
 
 KUBECTL="${KUBECTL:-kubectl}"
-NAMESPACE="${NAMESPACE:-default}"
+NAMESPACE="${NAMESPACE:-btrfs-csi-e2e}"
+PRIMARY_STORAGECLASS="${PRIMARY_STORAGECLASS:-btrfs}"
+SECONDARY_STORAGECLASS="${SECONDARY_STORAGECLASS:-btrfs-secondary}"
 PASS=0
 FAIL=0
 
@@ -51,15 +54,16 @@ wait_for_snapshot() {
 
 cleanup() {
   log "Cleaning up test resources..."
-  ${KUBECTL} delete pod,pvc,volumesnapshot -l btrfs-csi-e2e=true -n "${NAMESPACE}" \
-    --ignore-not-found --wait=false 2>/dev/null || true
+  ${KUBECTL} delete namespace "${NAMESPACE}" --ignore-not-found --wait=true 2>/dev/null || true
 }
 trap cleanup EXIT
 
-cleanup
+# Create dedicated namespace for e2e tests
+log "Creating namespace ${NAMESPACE}..."
+${KUBECTL} create namespace "${NAMESPACE}" --dry-run=client -o yaml | ${KUBECTL} apply -f - 2>/dev/null || true
 
-# ─── Test 12.3: Basic volume lifecycle ───────────────────────────────────────
-log "=== Test 12.3: Basic volume lifecycle ==="
+# ─── Basic volume lifecycle ───────────────────────────────────────────────────
+log "=== Basic volume lifecycle ==="
 
 ${KUBECTL} apply -f - <<EOF
 apiVersion: v1
@@ -71,7 +75,7 @@ metadata:
     btrfs-csi-e2e: "true"
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: btrfs
+  storageClassName: ${PRIMARY_STORAGECLASS}
   resources:
     requests:
       storage: 256Mi
@@ -116,8 +120,8 @@ ${KUBECTL} delete pod e2e-basic-writer -n "${NAMESPACE}" --wait=true 2>/dev/null
 ${KUBECTL} delete pvc e2e-basic-pvc -n "${NAMESPACE}" --wait=true 2>/dev/null || true
 pass "PVC e2e-basic-pvc deleted"
 
-# ─── Test 12.4: Snapshot and restore ─────────────────────────────────────────
-log "=== Test 12.4: Snapshot and restore ==="
+# ─── Snapshot and restore ────────────────────────────────────────────────────
+log "=== Snapshot and restore ==="
 
 ${KUBECTL} apply -f - <<EOF
 apiVersion: v1
@@ -129,7 +133,7 @@ metadata:
     btrfs-csi-e2e: "true"
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: btrfs
+  storageClassName: ${PRIMARY_STORAGECLASS}
   resources:
     requests:
       storage: 256Mi
@@ -189,7 +193,7 @@ metadata:
     btrfs-csi-e2e: "true"
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: btrfs
+  storageClassName: ${PRIMARY_STORAGECLASS}
   resources:
     requests:
       storage: 256Mi
@@ -232,8 +236,8 @@ ${KUBECTL} delete pvc e2e-snap-restore-pvc e2e-snap-source-pvc -n "${NAMESPACE}"
 ${KUBECTL} delete volumesnapshot e2e-snap -n "${NAMESPACE}" --wait=true 2>/dev/null || true
 pass "Snapshot test resources cleaned up"
 
-# ─── Test 12.5: Volume cloning ────────────────────────────────────────────────
-log "=== Test 12.5: Volume cloning ==="
+# ─── Volume cloning ───────────────────────────────────────────────────────────
+log "=== Volume cloning ==="
 
 ${KUBECTL} apply -f - <<EOF
 apiVersion: v1
@@ -245,7 +249,7 @@ metadata:
     btrfs-csi-e2e: "true"
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: btrfs
+  storageClassName: ${PRIMARY_STORAGECLASS}
   resources:
     requests:
       storage: 256Mi
@@ -285,7 +289,7 @@ metadata:
     btrfs-csi-e2e: "true"
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: btrfs
+  storageClassName: ${PRIMARY_STORAGECLASS}
   resources:
     requests:
       storage: 256Mi
@@ -356,8 +360,8 @@ ${KUBECTL} delete pod e2e-clone-verifier e2e-clone-source-check -n "${NAMESPACE}
 ${KUBECTL} delete pvc e2e-clone-pvc e2e-clone-source-pvc -n "${NAMESPACE}" --wait=true 2>/dev/null || true
 pass "Clone test resources cleaned up"
 
-# ─── Test 12.6: Volume expansion ─────────────────────────────────────────────
-log "=== Test 12.6: Volume expansion ==="
+# ─── Volume expansion ─────────────────────────────────────────────────────────
+log "=== Volume expansion ==="
 
 ${KUBECTL} apply -f - <<EOF
 apiVersion: v1
@@ -369,7 +373,7 @@ metadata:
     btrfs-csi-e2e: "true"
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: btrfs
+  storageClassName: ${PRIMARY_STORAGECLASS}
   resources:
     requests:
       storage: 100Mi
@@ -395,6 +399,314 @@ for i in $(seq 1 30); do
 done
 
 ${KUBECTL} delete pvc e2e-expand-pvc -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+
+# ─── Quota enforcement ─────────────────────────────────────────────────────────
+log "=== Quota enforcement ==="
+
+${KUBECTL} apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: e2e-quota-pvc
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ${PRIMARY_STORAGECLASS}
+  resources:
+    requests:
+      storage: 50Mi
+EOF
+
+wait_for_pvc e2e-quota-pvc
+pass "Quota-limited PVC created at 50Mi"
+
+${KUBECTL} apply -f - <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-quota-writer
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: writer
+      image: busybox
+      command: [sh, -c, "dd if=/dev/zero of=/data/file bs=1M count=40 && echo 'Write succeeded within limit'"]
+      volumeMounts:
+        - name: vol
+          mountPath: /data
+  volumes:
+    - name: vol
+      persistentVolumeClaim:
+        claimName: e2e-quota-pvc
+EOF
+
+if wait_for_pod_succeeded e2e-quota-writer; then
+  pass "Pod successfully wrote data within quota limit"
+else
+  fail "Quota limit write test failed"
+fi
+
+${KUBECTL} apply -f - <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-quota-overflow
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: overflow
+      image: busybox
+      command: [sh, -c, "dd if=/dev/zero of=/data/overflow bs=1M count=100 2>&1 || echo 'Write correctly rejected at quota limit'"]
+      volumeMounts:
+        - name: vol
+          mountPath: /data
+  volumes:
+    - name: vol
+      persistentVolumeClaim:
+        claimName: e2e-quota-pvc
+EOF
+
+if wait_for_pod_succeeded e2e-quota-overflow; then
+  pass "Quota enforcement prevented exceeding limit"
+else
+  fail "Quota enforcement test failed"
+fi
+
+${KUBECTL} delete pod e2e-quota-writer e2e-quota-overflow -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+${KUBECTL} delete pvc e2e-quota-pvc -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+pass "Quota test resources cleaned up"
+
+# ─── Cross-filesystem snapshot ─────────────────────────────────────────────────
+log "=== Cross-filesystem snapshot ==="
+
+# Note: This test assumes the cluster has StorageClasses for different pools/filesystems.
+# It may be skipped if multiple pools are not available.
+if ! ${KUBECTL} get storageclass "${SECONDARY_STORAGECLASS}" &>/dev/null; then
+  log "SKIP: Cross-filesystem snapshot test (${SECONDARY_STORAGECLASS} StorageClass not found)"
+else
+  ${KUBECTL} apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: e2e-xfs-snap-source-pvc
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ${SECONDARY_STORAGECLASS}
+  resources:
+    requests:
+      storage: 256Mi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-xfs-snap-writer
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: writer
+      image: busybox
+      command: [sh, -c, "echo cross-filesystem-snap > /data/xfs.txt"]
+      volumeMounts:
+        - name: vol
+          mountPath: /data
+  volumes:
+    - name: vol
+      persistentVolumeClaim:
+        claimName: e2e-xfs-snap-source-pvc
+EOF
+
+  wait_for_pvc e2e-xfs-snap-source-pvc && wait_for_pod_succeeded e2e-xfs-snap-writer
+  ${KUBECTL} delete pod e2e-xfs-snap-writer -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+
+  ${KUBECTL} apply -f - <<EOF
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: e2e-xfs-snap
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  volumeSnapshotClassName: btrfs-snapshot
+  source:
+    persistentVolumeClaimName: e2e-xfs-snap-source-pvc
+EOF
+
+  if wait_for_snapshot e2e-xfs-snap; then
+    pass "Cross-filesystem snapshot created"
+  else
+    fail "Cross-filesystem snapshot creation failed"
+  fi
+
+  # Restore to different filesystem/pool
+  ${KUBECTL} apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: e2e-xfs-snap-restore-pvc
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ${SECONDARY_STORAGECLASS}
+  resources:
+    requests:
+      storage: 256Mi
+  dataSource:
+    name: e2e-xfs-snap
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-xfs-snap-reader
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: reader
+      image: busybox
+      command: [sh, -c, "grep cross-filesystem-snap /data/xfs.txt"]
+      volumeMounts:
+        - name: vol
+          mountPath: /data
+  volumes:
+    - name: vol
+      persistentVolumeClaim:
+        claimName: e2e-xfs-snap-restore-pvc
+EOF
+
+  wait_for_pvc e2e-xfs-snap-restore-pvc
+  if wait_for_pod_succeeded e2e-xfs-snap-reader; then
+    pass "Cross-filesystem snapshot restore successful"
+  else
+    fail "Cross-filesystem snapshot restore failed"
+  fi
+
+  ${KUBECTL} delete pod e2e-xfs-snap-reader -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+  ${KUBECTL} delete pvc e2e-xfs-snap-restore-pvc e2e-xfs-snap-source-pvc -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+  ${KUBECTL} delete volumesnapshot e2e-xfs-snap -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+  pass "Cross-filesystem snapshot test resources cleaned up"
+fi
+
+# ─── Cross-filesystem clone ───────────────────────────────────────────────────
+log "=== Cross-filesystem clone ==="
+
+# Note: This test also requires multiple StorageClasses for different pools.
+# It may be skipped if only one pool is available.
+if ! ${KUBECTL} get storageclass "${SECONDARY_STORAGECLASS}" &>/dev/null; then
+  log "SKIP: Cross-filesystem clone test (${SECONDARY_STORAGECLASS} StorageClass not found)"
+else
+  ${KUBECTL} apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: e2e-xfs-clone-source-pvc
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ${PRIMARY_STORAGECLASS}
+  resources:
+    requests:
+      storage: 256Mi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-xfs-clone-writer
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: writer
+      image: busybox
+      command: [sh, -c, "echo cross-filesystem-clone > /data/xfs-clone.txt"]
+      volumeMounts:
+        - name: vol
+          mountPath: /data
+  volumes:
+    - name: vol
+      persistentVolumeClaim:
+        claimName: e2e-xfs-clone-source-pvc
+EOF
+
+  wait_for_pvc e2e-xfs-clone-source-pvc && wait_for_pod_succeeded e2e-xfs-clone-writer
+  ${KUBECTL} delete pod e2e-xfs-clone-writer -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+
+  # Clone to different filesystem/pool
+  ${KUBECTL} apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: e2e-xfs-clone-pvc
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ${SECONDARY_STORAGECLASS}
+  resources:
+    requests:
+      storage: 256Mi
+  dataSource:
+    name: e2e-xfs-clone-source-pvc
+    kind: PersistentVolumeClaim
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-xfs-clone-reader
+  namespace: ${NAMESPACE}
+  labels:
+    btrfs-csi-e2e: "true"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: reader
+      image: busybox
+      command: [sh, -c, "grep cross-filesystem-clone /data/xfs-clone.txt"]
+      volumeMounts:
+        - name: vol
+          mountPath: /data
+  volumes:
+    - name: vol
+      persistentVolumeClaim:
+        claimName: e2e-xfs-clone-pvc
+EOF
+
+  wait_for_pvc e2e-xfs-clone-pvc
+  if wait_for_pod_succeeded e2e-xfs-clone-reader; then
+    pass "Cross-filesystem clone successful"
+  else
+    fail "Cross-filesystem clone failed"
+  fi
+
+  ${KUBECTL} delete pod e2e-xfs-clone-reader -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+  ${KUBECTL} delete pvc e2e-xfs-clone-pvc e2e-xfs-clone-source-pvc -n "${NAMESPACE}" --wait=true 2>/dev/null || true
+  pass "Cross-filesystem clone test resources cleaned up"
+fi
 
 # ─── Summary ──────────────────────────────────────────────────────────────────
 echo ""
