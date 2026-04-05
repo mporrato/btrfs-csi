@@ -24,7 +24,6 @@ pkg/btrfs/                       # btrfs CLI wrapper (Manager interface)
 pkg/state/                       # JSON-backed volume/snapshot metadata
 deploy/                          # Kubernetes manifests
 test/                            # Kind cluster config, e2e helpers
-docs/                            # Architecture doc + task breakdown
 ```
 
 ## Key Interfaces
@@ -43,14 +42,6 @@ docs/                            # Architecture doc + task breakdown
 - **Integration tests**: gated with `//go:build integration` build tag
 - **No mocking frameworks**: use hand-written mocks (simple structs implementing interfaces)
 
-## Build Commands
-
-- `go build ./cmd/btrfs-csi-driver/` — compile the binary
-- `go test ./...` — run unit tests
-- `go test -tags integration ./pkg/btrfs/` — run btrfs integration tests (requires root + btrfs)
-- `make image` — build container image
-- `make deploy` — apply Kubernetes manifests
-
 ## CSI Driver Details
 
 - **Driver name**: `btrfs.csi.local`
@@ -67,8 +58,3 @@ docs/                            # Architecture doc + task breakdown
 - Quota enforcement uses simple quotas (`--simple`) when available, falls back to traditional qgroups
 - All CSI operations must be **idempotent** per the CSI spec
 - Capacity is enforced via qgroup limits, not filesystem-level sizing
-
-## Task Tracking
-
-See `docs/tasks.md` for the full phase-by-phase task breakdown with acceptance criteria.
-See `docs/architecture.md` for the detailed architecture document.

@@ -241,6 +241,4 @@ Contributions are welcome. Please ensure:
 ## References
 
 - [CSI Specification](https://github.com/container-storage-interface/spec)
-- [Architecture Document](docs/architecture.md)
-- [Task Breakdown](docs/tasks.md)
 - [Reference: kubernetes-csi/csi-driver-host-path](https://github.com/kubernetes-csi/csi-driver-host-path)
