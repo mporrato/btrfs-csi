@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -152,14 +153,7 @@ func TestNodePublishVolume_Readonly(t *testing.T) {
 	}
 
 	// Assert mount options include "ro"
-	foundRo := false
-	for _, opt := range mounter.MountCalls[0].Options {
-		if opt == "ro" {
-			foundRo = true
-			break
-		}
-	}
-	if !foundRo {
+	if !slices.Contains(mounter.MountCalls[0].Options, "ro") {
 		t.Errorf("Mount options = %v, want to contain 'ro'", mounter.MountCalls[0].Options)
 	}
 }

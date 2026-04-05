@@ -22,10 +22,7 @@ func TestRunFailsWhenConfigNotProvided(t *testing.T) {
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "csi", "csi.sock")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	err := runWithContext(ctx, []string{
+	err := runWithContext(t.Context(), []string{
 		"--endpoint", "unix://" + socketPath,
 		"--nodeid", "test-node",
 	}, &btrfs.MockManager{})
@@ -45,10 +42,7 @@ func TestRunFailsWhenConfigPathNotBtrfs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	err := runWithContext(ctx, []string{
+	err := runWithContext(t.Context(), []string{
 		"--endpoint", "unix://" + filepath.Join(tmpDir, "csi", "csi.sock"),
 		"--config", configDir,
 		"--nodeid", "test-node",

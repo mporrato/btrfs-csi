@@ -200,7 +200,7 @@ func TestClearStaleQgroups(t *testing.T) {
 		t.Skipf("qgroup show failed (quotas unavailable on this kernel): %v", err)
 	}
 	hasStale := false
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		if strings.Contains(line, "<stale>") {
 			hasStale = true
 			break
@@ -218,7 +218,7 @@ func TestClearStaleQgroups(t *testing.T) {
 	if err != nil {
 		t.Fatalf("qgroup show after ClearStaleQgroups: %v", err)
 	}
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		if strings.Contains(line, "<stale>") {
 			t.Errorf("stale qgroup still present after ClearStaleQgroups:\n%s", out)
 			break

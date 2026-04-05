@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -21,10 +22,8 @@ func validatePath(path string) error {
 		return status.Errorf(codes.InvalidArgument, "path %q must be absolute", path)
 	}
 	// Check for path traversal patterns before cleaning
-	for _, part := range strings.Split(path, "/") {
-		if part == ".." {
-			return status.Errorf(codes.InvalidArgument, "path %q contains invalid traversal sequence", path)
-		}
+	if slices.Contains(strings.Split(path, "/"), "..") {
+		return status.Errorf(codes.InvalidArgument, "path %q contains invalid traversal sequence", path)
 	}
 	return nil
 }
@@ -231,10 +230,7 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeSta
 
 	var available int64
 	if usage.MaxRfer > 0 {
-		available = int64(usage.MaxRfer) - int64(usage.Referenced)
-		if available < 0 {
-			available = 0
-		}
+		available = max(0, int64(usage.MaxRfer)-int64(usage.Referenced))
 	}
 
 	return &csi.NodeGetVolumeStatsResponse{

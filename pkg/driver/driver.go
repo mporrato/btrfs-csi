@@ -2,6 +2,7 @@ package driver
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"sort"
@@ -90,11 +91,7 @@ func (d *Driver) SetPools(pools map[string]string) {
 func (d *Driver) getPools() map[string]string {
 	d.poolsMu.RLock()
 	defer d.poolsMu.RUnlock()
-	cp := make(map[string]string, len(d.pools))
-	for k, v := range d.pools {
-		cp[k] = v
-	}
-	return cp
+	return maps.Clone(d.pools)
 }
 
 // basePaths returns all base paths managed by this driver.

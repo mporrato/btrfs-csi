@@ -173,7 +173,7 @@ func (m *RealManager) GetFilesystemUsage(path string) (*FsUsage, error) {
 
 // parseSubvolumeID extracts the numeric subvolume ID from `btrfs subvolume show` output.
 func parseSubvolumeID(out string) (uint64, error) {
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "Subvolume ID:") {
 			fields := strings.Fields(line)
@@ -189,7 +189,7 @@ func parseSubvolumeID(out string) (uint64, error) {
 // parseQgroupShow finds the qgroup entry matching qgroupID in `btrfs qgroup show -r --raw` output.
 // Column order: qgroupid rfer excl max_rfer max_excl
 func parseQgroupShow(out, qgroupID string) (*QgroupUsage, error) {
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 5 || fields[0] != qgroupID {
 			continue

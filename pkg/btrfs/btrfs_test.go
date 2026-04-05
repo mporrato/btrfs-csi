@@ -8,7 +8,7 @@ import (
 // TestManagerInterface verifies that the Manager interface exists with all required methods.
 func TestManagerInterface(t *testing.T) {
 	// Get the Manager interface type
-	managerType := reflect.TypeOf((*Manager)(nil)).Elem()
+	managerType := reflect.TypeFor[Manager]()
 
 	// Expected methods
 	expectedMethods := []string{
@@ -43,7 +43,7 @@ func TestManagerInterface(t *testing.T) {
 
 // TestQgroupUsageType verifies that QgroupUsage struct exists with required fields.
 func TestQgroupUsageType(t *testing.T) {
-	qgroupType := reflect.TypeOf(QgroupUsage{})
+	qgroupType := reflect.TypeFor[QgroupUsage]()
 
 	// Check for required fields
 	requiredFields := []string{"Referenced", "Exclusive", "MaxRfer"}
@@ -67,7 +67,7 @@ func TestQgroupUsageType(t *testing.T) {
 
 // TestFsUsageType verifies that FsUsage struct exists with required fields.
 func TestFsUsageType(t *testing.T) {
-	fsUsageType := reflect.TypeOf(FsUsage{})
+	fsUsageType := reflect.TypeFor[FsUsage]()
 
 	// Check for required fields
 	requiredFields := []string{"Total", "Used", "Available"}

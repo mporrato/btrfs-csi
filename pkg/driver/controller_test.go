@@ -524,16 +524,15 @@ func TestCreateVolume_ConcurrentSameNameIdempotent(t *testing.T) {
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		idx := i // capture loop variable
+		wg.Go(func() {
 			<-start
 			resp, err := d.CreateVolume(context.Background(), req)
-			errs[i] = err
+			errs[idx] = err
 			if err == nil {
-				volIDs[i] = resp.Volume.VolumeId
+				volIDs[idx] = resp.Volume.VolumeId
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -578,16 +577,15 @@ func TestCreateSnapshot_ConcurrentSameNameIdempotent(t *testing.T) {
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		idx := i // capture loop variable
+		wg.Go(func() {
 			<-start
 			resp, err := d.CreateSnapshot(context.Background(), req)
-			errs[i] = err
+			errs[idx] = err
 			if err == nil {
-				snapIDs[i] = resp.Snapshot.SnapshotId
+				snapIDs[idx] = resp.Snapshot.SnapshotId
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
