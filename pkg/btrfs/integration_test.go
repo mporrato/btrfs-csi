@@ -270,3 +270,122 @@ func TestRemoveQgroupLimit(t *testing.T) {
 		t.Fatalf("expected MaxRfer=0 after removing limit, got %d", usage.MaxRfer)
 	}
 }
+
+// TestCrossFilesystemSnapshot tests snapshot creation across different btrfs filesystems.
+func TestCrossFilesystemSnapshot(t *testing.T) {
+	// Create two separate btrfs filesystems
+	mnt1 := setupLoopbackBtrfs(t)
+	mnt2 := setupLoopbackBtrfs(t)
+
+	m := &RealManager{}
+	src := filepath.Join(mnt1, "source")
+	dst := filepath.Join(mnt2, "snapshot")
+
+	// Create source subvolume
+	if err := m.CreateSubvolume(src); err != nil {
+		t.Fatalf("CreateSubvolume: %v", err)
+	}
+
+	// Write some data to source
+	testFile := filepath.Join(src, "test.txt")
+	if err := os.WriteFile(testFile, []byte("cross-filesystem test"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Create snapshot across filesystems
+	if err := m.CreateSnapshot(src, dst, false); err != nil {
+		t.Fatalf("CreateSnapshot across filesystems: %v", err)
+	}
+
+	// Verify snapshot contains the data
+	data, err := os.ReadFile(filepath.Join(dst, "test.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile from snapshot: %v", err)
+	}
+	if string(data) != "cross-filesystem test" {
+		t.Fatalf("expected 'cross-filesystem test', got %q", string(data))
+	}
+
+	// Verify snapshot is writable (not readonly)
+	if err := os.WriteFile(filepath.Join(dst, "new.txt"), []byte("new data"), 0o644); err != nil {
+		t.Fatalf("WriteFile to snapshot: %v", err)
+	}
+}
+
+// TestCrossFilesystemReadonlySnapshot tests readonly snapshot creation across different btrfs filesystems.
+func TestCrossFilesystemReadonlySnapshot(t *testing.T) {
+	// Create two separate btrfs filesystems
+	mnt1 := setupLoopbackBtrfs(t)
+	mnt2 := setupLoopbackBtrfs(t)
+
+	m := &RealManager{}
+	src := filepath.Join(mnt1, "source")
+	dst := filepath.Join(mnt2, "ro-snapshot")
+
+	// Create source subvolume
+	if err := m.CreateSubvolume(src); err != nil {
+		t.Fatalf("CreateSubvolume: %v", err)
+	}
+
+	// Create readonly snapshot across filesystems
+	if err := m.CreateSnapshot(src, dst, true); err != nil {
+		t.Fatalf("CreateSnapshot (readonly) across filesystems: %v", err)
+	}
+
+	// Verify snapshot is readonly
+	err := os.WriteFile(filepath.Join(dst, "test.txt"), []byte("hello"), 0o644)
+	if err == nil {
+		t.Fatal("expected write to readonly snapshot to fail")
+	}
+}
+
+// TestSameFilesystem_Integration tests that sameFilesystem correctly identifies same filesystem.
+func TestSameFilesystem_Integration(t *testing.T) {
+	mnt := setupLoopbackBtrfs(t)
+
+	m := &RealManager{}
+	src := filepath.Join(mnt, "src")
+	dst := filepath.Join(mnt, "dst")
+
+	// Create directories
+	if err := os.Mkdir(src, 0o755); err != nil {
+		t.Fatalf("create src dir: %v", err)
+	}
+	if err := os.Mkdir(dst, 0o755); err != nil {
+		t.Fatalf("create dst dir: %v", err)
+	}
+
+	same, err := m.sameFilesystem(src, dst)
+	if err != nil {
+		t.Fatalf("sameFilesystem: %v", err)
+	}
+	if !same {
+		t.Error("expected same filesystem for paths in same mount")
+	}
+}
+
+// TestDifferentFilesystem_Integration tests that sameFilesystem correctly identifies different filesystems.
+func TestDifferentFilesystem_Integration(t *testing.T) {
+	mnt1 := setupLoopbackBtrfs(t)
+	mnt2 := setupLoopbackBtrfs(t)
+
+	m := &RealManager{}
+	src := filepath.Join(mnt1, "src")
+	dst := filepath.Join(mnt2, "dst")
+
+	// Create directories
+	if err := os.Mkdir(src, 0o755); err != nil {
+		t.Fatalf("create src dir: %v", err)
+	}
+	if err := os.Mkdir(dst, 0o755); err != nil {
+		t.Fatalf("create dst dir: %v", err)
+	}
+
+	same, err := m.sameFilesystem(src, dst)
+	if err != nil {
+		t.Fatalf("sameFilesystem: %v", err)
+	}
+	if same {
+		t.Error("expected different filesystem for paths in different mounts")
+	}
+}

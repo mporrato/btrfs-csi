@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"k8s.io/klog/v2"
 )
 
 // RealManager implements Manager using the btrfs CLI.
@@ -77,14 +79,122 @@ func (m *RealManager) SubvolumeExists(path string) (bool, error) {
 }
 
 func (m *RealManager) CreateSnapshot(src, dst string, readonly bool) error {
-	args := []string{"subvolume", "snapshot"}
-	if readonly {
-		args = append(args, "-r")
+	same, err := m.sameFilesystem(src, dst)
+	if err != nil {
+		return err
 	}
-	args = append(args, src, dst)
-	if _, err := runCommand("btrfs", args...); err != nil {
-		return fmt.Errorf("create snapshot %s -> %s: %w", src, dst, err)
+	if same {
+		klog.V(4).InfoS("CreateSnapshot: same filesystem, using btrfs subvolume snapshot",
+			"src", src, "dst", dst, "readonly", readonly)
+		args := []string{"subvolume", "snapshot"}
+		if readonly {
+			args = append(args, "-r")
+		}
+		args = append(args, src, dst)
+		if _, err := runCommand("btrfs", args...); err != nil {
+			return fmt.Errorf("create snapshot %s -> %s: %w", src, dst, err)
+		}
+		return nil
 	}
+	klog.V(4).InfoS("CreateSnapshot: different filesystem, using send/receive",
+		"src", src, "dst", dst, "readonly", readonly)
+	return m.sendReceive(src, dst, readonly)
+}
+
+// sameFilesystem checks if src and dst are on the same btrfs filesystem.
+// Since dst may not exist yet, it walks up to the nearest existing ancestor.
+func (m *RealManager) sameFilesystem(src, dst string) (bool, error) {
+	var srcStat, dstStat syscall.Stat_t
+	if err := syscall.Stat(src, &srcStat); err != nil {
+		return false, fmt.Errorf("stat %s: %w", src, err)
+	}
+	dstDir := dst
+	for {
+		if err := syscall.Stat(dstDir, &dstStat); err == nil {
+			break
+		}
+		parent := filepath.Dir(dstDir)
+		if parent == dstDir {
+			return false, fmt.Errorf("no existing ancestor for %s", dst)
+		}
+		dstDir = parent
+	}
+	return srcStat.Dev == dstStat.Dev, nil
+}
+
+// sendReceive performs cross-filesystem snapshot using btrfs send/receive.
+func (m *RealManager) sendReceive(src, dst string, readonly bool) error {
+	klog.V(4).InfoS("sendReceive: creating cross-filesystem snapshot", "src", src, "dst", dst, "readonly", readonly)
+
+	// 0. Idempotency check: if destination already exists, return success
+	exists, err := m.SubvolumeExists(dst)
+	if err != nil {
+		return fmt.Errorf("check destination: %w", err)
+	}
+	if exists {
+		klog.V(4).InfoS("sendReceive: destination already exists", "dst", dst)
+		return nil
+	}
+
+	// 1. Create temporary readonly snapshot of src
+	// Use direct runCommand to avoid potential recursion if src and tempSnap are on different filesystems
+	tempSnap := filepath.Join(filepath.Dir(src), fmt.Sprintf(".btrfs-csi-send-%s-%d", filepath.Base(src), os.Getpid()))
+	if _, err := runCommand("btrfs", "subvolume", "snapshot", "-r", src, tempSnap); err != nil {
+		return fmt.Errorf("create temp snapshot: %w", err)
+	}
+	defer func() { _ = m.DeleteSubvolume(tempSnap) }()
+
+	// 2. Ensure destination parent directory exists
+	dstDir := filepath.Dir(dst)
+	if err := os.MkdirAll(dstDir, 0o750); err != nil {
+		return fmt.Errorf("create dst directory: %w", err)
+	}
+
+	// 3. btrfs send <temp> | btrfs receive <dst_dir>
+	//nolint:gosec // tempSnap is generated internally, not user input
+	sendCmd := exec.Command("btrfs", "send", tempSnap)
+	//nolint:gosec // dstDir is derived from dst parameter, controlled by CSI driver
+	receiveCmd := exec.Command("btrfs", "receive", dstDir)
+	sendStdout, err := sendCmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("create send stdout pipe: %w", err)
+	}
+	receiveCmd.Stdin = sendStdout
+	var sendStderr, recvStderr bytes.Buffer
+	sendCmd.Stderr = &sendStderr
+	receiveCmd.Stderr = &recvStderr
+	if err := receiveCmd.Start(); err != nil {
+		return fmt.Errorf("start receive: %w", err)
+	}
+	if err := sendCmd.Run(); err != nil {
+		_ = receiveCmd.Process.Kill()
+		return fmt.Errorf("btrfs send %s: %w: %s", tempSnap, err, sendStderr.String())
+	}
+	if err := receiveCmd.Wait(); err != nil {
+		// Clean up partial received snapshot
+		receivedPath := filepath.Join(dstDir, filepath.Base(tempSnap))
+		_ = m.DeleteSubvolume(receivedPath)
+		return fmt.Errorf("btrfs receive %s: %w: %s", dstDir, err, recvStderr.String())
+	}
+
+	// 4. Rename received snapshot to dst
+	receivedName := filepath.Base(tempSnap)
+	receivedPath := filepath.Join(dstDir, receivedName)
+	if receivedPath != dst {
+		if err := os.Rename(receivedPath, dst); err != nil {
+			_ = m.DeleteSubvolume(receivedPath)
+			return fmt.Errorf("rename %s -> %s: %w", receivedPath, dst, err)
+		}
+	}
+
+	// 5. Make writable if needed
+	if !readonly {
+		if _, err := runCommand("btrfs", "property", "set", dst, "ro", "false"); err != nil {
+			return fmt.Errorf("make writable %s: %w", dst, err)
+		}
+	}
+
+	klog.V(4).InfoS("sendReceive: cross-filesystem snapshot created", "src", src, "dst", dst)
 	return nil
 }
 
