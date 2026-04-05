@@ -19,6 +19,7 @@ var _ Manager = (*RealManager)(nil)
 
 // runCommand executes a command and returns its stdout. On failure, stderr is
 // included in the returned error for debuggability.
+//
 //nolint:unparam // name parameter allows for testing flexibility and future generalization
 func runCommand(name string, args ...string) (string, error) {
 	//nolint:gosec // btrfs command with internal args, not user input
@@ -98,8 +99,8 @@ func (m *RealManager) EnsureQuotaEnabled(mountpoint string) error {
 	return nil
 }
 
-func (m *RealManager) SetQgroupLimit(path string, bytes uint64) error {
-	if _, err := runCommand("btrfs", "qgroup", "limit", strconv.FormatUint(bytes, 10), path); err != nil {
+func (m *RealManager) SetQgroupLimit(path string, limitBytes uint64) error {
+	if _, err := runCommand("btrfs", "qgroup", "limit", strconv.FormatUint(limitBytes, 10), path); err != nil {
 		return fmt.Errorf("set qgroup limit on %s: %w", path, err)
 	}
 	return nil

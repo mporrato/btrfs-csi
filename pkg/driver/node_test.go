@@ -360,7 +360,7 @@ func TestNodeGetVolumeStats(t *testing.T) {
 			if u.Used != 1024*1024*100 {
 				t.Errorf("Used bytes = %d, want %d", u.Used, 1024*1024*100)
 			}
-			if u.Available != 1024*1024*924 { // 1024 - 100 = 924
+			if u.Available != 1024*1024*924 {
 				t.Errorf("Available bytes = %d, want %d", u.Available, 1024*1024*924)
 			}
 		}

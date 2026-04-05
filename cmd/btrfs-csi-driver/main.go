@@ -32,7 +32,7 @@ func run(args []string) error {
 	return runWithContext(ctx, args, &btrfs.RealManager{})
 }
 
-// runWithContext parses flags, creates the driver, and runs it until the context is cancelled.
+// runWithContext parses flags, creates the driver, and runs it until the context is canceled.
 // It is the core implementation that can be tested without relying on OS signals.
 func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error {
 	fs := flag.NewFlagSet("btrfs-csi-driver", flag.ContinueOnError)
@@ -72,22 +72,9 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 	}
 
 	// Build the MultiStore from the pool config directory.
-	ms := state.NewMultiStore()
-	pools, err := driver.ParsePoolConfig(*configFile)
+	pools, ms, err := initializeStores(*configFile, mgr)
 	if err != nil {
-		return fmt.Errorf("parse pool config: %w", err)
-	}
-	for name, bp := range pools {
-		ok, err := mgr.IsBtrfsFilesystem(bp)
-		if err != nil {
-			return fmt.Errorf("check filesystem for pool %q at %s: %w", name, bp, err)
-		}
-		if !ok {
-			return fmt.Errorf("pool %q: %s is not a btrfs filesystem", name, bp)
-		}
-		if err := ms.AddPath(bp); err != nil {
-			return fmt.Errorf("open store for pool %q at %s: %w", name, bp, err)
-		}
+		return err
 	}
 
 	// Create driver
@@ -96,19 +83,7 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 
 	// Watch for changes (ConfigMap kubelet updates) — 30 s poll interval.
 	configStop := driver.WatchPoolConfig(*configFile, 30000, func(newPools map[string]string) {
-		validPools := make(map[string]string)
-		validPaths := make([]string, 0, len(newPools))
-		for name, p := range newPools {
-			ok, err := mgr.IsBtrfsFilesystem(p)
-			if err != nil || !ok {
-				klog.ErrorS(err, "Skipping pool on reload: not a btrfs filesystem", "pool", name, "path", p)
-				continue
-			}
-			validPools[name] = p
-			validPaths = append(validPaths, p)
-		}
-		ms.ReloadPaths(validPaths)
-		drv.SetPools(validPools)
+		reloadPoolConfig(newPools, mgr, ms, drv)
 	})
 
 	// Start driver in a goroutine
@@ -121,7 +96,7 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 	select {
 	case <-ctx.Done():
 		close(configStop)
-		klog.InfoS("Context cancelled, shutting down")
+		klog.InfoS("Context canceled, shutting down")
 		drv.Stop()
 		// Wait for Run() to return after Stop()
 		if err := <-errCh; err != nil {
@@ -135,4 +110,43 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 
 	klog.InfoS("Driver stopped successfully")
 	return nil
+}
+
+// initializeStores parses the pool config and initializes the MultiStore.
+func initializeStores(configFile string, mgr btrfs.Manager) (map[string]string, state.Store, error) {
+	ms := state.NewMultiStore()
+	pools, err := driver.ParsePoolConfig(configFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse pool config: %w", err)
+	}
+	for name, bp := range pools {
+		ok, err := mgr.IsBtrfsFilesystem(bp)
+		if err != nil {
+			return nil, nil, fmt.Errorf("check filesystem for pool %q at %s: %w", name, bp, err)
+		}
+		if !ok {
+			return nil, nil, fmt.Errorf("pool %q: %s is not a btrfs filesystem", name, bp)
+		}
+		if err := ms.AddPath(bp); err != nil {
+			return nil, nil, fmt.Errorf("open store for pool %q at %s: %w", name, bp, err)
+		}
+	}
+	return pools, ms, nil
+}
+
+// reloadPoolConfig handles configuration changes during runtime.
+func reloadPoolConfig(newPools map[string]string, mgr btrfs.Manager, ms state.Store, drv *driver.Driver) {
+	validPools := make(map[string]string)
+	validPaths := make([]string, 0, len(newPools))
+	for name, p := range newPools {
+		ok, err := mgr.IsBtrfsFilesystem(p)
+		if err != nil || !ok {
+			klog.ErrorS(err, "Skipping pool on reload: not a btrfs filesystem", "pool", name, "path", p)
+			continue
+		}
+		validPools[name] = p
+		validPaths = append(validPaths, p)
+	}
+	ms.(*state.MultiStore).ReloadPaths(validPaths)
+	drv.SetPools(validPools)
 }

@@ -44,7 +44,7 @@ func TestCreateSnapshot_Success(t *testing.T) {
 	if !call.Readonly {
 		t.Error("expected readonly=true for snapshot creation")
 	}
-	wantDstPrefix := filepath.Join("/tmp/btrfs-csi-test", "snapshots") + string(filepath.Separator)
+	wantDstPrefix := "/tmp/btrfs-csi-test/snapshots" + string(filepath.Separator)
 	if !strings.HasPrefix(call.Dst, wantDstPrefix) {
 		t.Errorf("snapshot dst %q should be under %q", call.Dst, wantDstPrefix)
 	}

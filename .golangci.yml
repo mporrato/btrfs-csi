@@ -1,41 +1,41 @@
-version: 2
+version: "2"
 run:
   timeout: 5m
   build-tags:
     - integration
 
 output:
-  format: colored-line-number
-
-linters-settings:
-  gocyclo:
-    min-complexity: 15
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - opinionated
-      - performance
-  lll:
-    line-length: 120
-  misspell:
-    locale: US
-  revive:
-    rules:
-      - name: blank-imports
-        severity: warning
-      - name: context-as-argument
-        severity: warning
-      - name: indent-error-flow
-        severity: warning
-      - name: receiver-naming
-        severity: warning
-      - name: time-naming
-        severity: warning
-      - name: unexported-return
-        severity: warning
+  formats:
+    text: {}
 
 linters:
+  settings:
+    gocyclo:
+      min-complexity: 15
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - opinionated
+        - performance
+    lll:
+      line-length: 120
+    misspell:
+      locale: US
+    revive:
+      rules:
+        - name: blank-imports
+          severity: warning
+        - name: context-as-argument
+          severity: warning
+        - name: indent-error-flow
+          severity: warning
+        - name: receiver-naming
+          severity: warning
+        - name: time-naming
+          severity: warning
+        - name: unexported-return
+          severity: warning
   enable:
     - asciicheck
     - bodyclose
@@ -73,14 +73,13 @@ linters:
     - usestdlibvars
     - wastedassign
     - whitespace
-
-issues:
-  exclude-rules:
-    # Test-specific exclusions
-    - path: "_test.go"
-      linters:
-        - lll        # allow long lines in tests
-        - unparam    # allow unused params in test helpers
-        - revive     # exclude missing doc comment checks
-        - gosec      # exclude security checks (temp files, subprocess, file ops)
-        - dupl       # allow duplicate test setup code
+  exclusions:
+    rules:
+      # Test-specific exclusions
+      - path: "_test.go"
+        linters:
+          - lll        # allow long lines in tests
+          - unparam    # allow unused params in test helpers
+          - revive     # exclude missing doc comment checks
+          - gosec      # exclude security checks (temp files, subprocess, file ops)
+          - dupl       # allow duplicate test setup code

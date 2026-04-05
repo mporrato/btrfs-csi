@@ -48,7 +48,8 @@ func setupLoopbackBtrfs(t *testing.T) string {
 	}
 
 	t.Cleanup(func() {
-		exec.Command("umount", mntDir).Run() //nolint:errcheck
+		// Best effort unmount; ignore errors during cleanup.
+		exec.Command("umount", mntDir).Run() //nolint:errcheck // intentional: cleanup
 	})
 	return mntDir
 }

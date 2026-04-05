@@ -17,7 +17,8 @@ func (d *Driver) GetPluginInfo(_ context.Context, _ *csi.GetPluginInfoRequest) (
 	}, nil
 }
 
-func (d *Driver) GetPluginCapabilities(_ context.Context, _ *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error) {
+func (d *Driver) GetPluginCapabilities(_ context.Context,
+	_ *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error) {
 	klog.V(5).InfoS("GetPluginCapabilities called")
 	return &csi.GetPluginCapabilitiesResponse{
 		Capabilities: []*csi.PluginCapability{

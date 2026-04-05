@@ -9,16 +9,6 @@ import (
 	"time"
 )
 
-// Path returns the absolute path to the btrfs subvolume for this volume.
-func (v *Volume) Path() string {
-	return filepath.Join(v.BasePath, "volumes", v.ID)
-}
-
-// Path returns the absolute path to the btrfs snapshot for this snapshot.
-func (s *Snapshot) Path() string {
-	return filepath.Join(s.BasePath, "snapshots", s.ID)
-}
-
 // Volume represents a btrfs subvolume used as a CSI volume.
 type Volume struct {
 	// ID is the unique identifier for the volume.
@@ -35,6 +25,11 @@ type Volume struct {
 	SourceSnapID string
 	// SourceVolID is the volume ID if this volume was cloned from another volume.
 	SourceVolID string
+}
+
+// Path returns the absolute path to the btrfs subvolume for this volume.
+func (v *Volume) Path() string {
+	return filepath.Join(v.BasePath, "volumes", v.ID)
 }
 
 // Snapshot represents a readonly btrfs snapshot of a volume.
@@ -54,6 +49,11 @@ type Snapshot struct {
 	SizeBytes int64
 	// ReadyToUse indicates whether the snapshot is ready to be used.
 	ReadyToUse bool
+}
+
+// Path returns the absolute path to the btrfs snapshot for this snapshot.
+func (s *Snapshot) Path() string {
+	return filepath.Join(s.BasePath, "snapshots", s.ID)
 }
 
 // Store abstracts volume and snapshot metadata persistence.

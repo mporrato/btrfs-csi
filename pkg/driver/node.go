@@ -62,7 +62,8 @@ func (m *realMounter) IsMountPoint(file string) (bool, error) {
 	return m.mounter.IsMountPoint(file)
 }
 
-func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
+func (d *Driver) NodePublishVolume(_ context.Context,
+	req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
 	klog.V(5).InfoS("NodePublishVolume called",
 		"volumeID", req.GetVolumeId(),
 		"targetPath", req.GetTargetPath(),
@@ -89,7 +90,7 @@ func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolume
 
 	targetPath := req.GetTargetPath()
 
-	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+	if err := os.MkdirAll(targetPath, 0o750); err != nil {
 		return nil, status.Errorf(codes.Internal, "create target directory: %v", err)
 	}
 
@@ -121,7 +122,8 @@ func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolume
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
-func (d *Driver) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
+func (d *Driver) NodeUnpublishVolume(_ context.Context,
+	req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
 	klog.V(5).InfoS("NodeUnpublishVolume called",
 		"volumeID", req.GetVolumeId(),
 		"targetPath", req.GetTargetPath(),
@@ -179,7 +181,8 @@ func (d *Driver) NodeGetInfo(_ context.Context, _ *csi.NodeGetInfoRequest) (*csi
 	}, nil
 }
 
-func (d *Driver) NodeGetCapabilities(_ context.Context, _ *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
+func (d *Driver) NodeGetCapabilities(_ context.Context,
+	_ *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
 	klog.V(5).InfoS("NodeGetCapabilities called")
 	return &csi.NodeGetCapabilitiesResponse{
 		Capabilities: []*csi.NodeServiceCapability{
@@ -194,7 +197,8 @@ func (d *Driver) NodeGetCapabilities(_ context.Context, _ *csi.NodeGetCapabiliti
 	}, nil
 }
 
-func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
+func (d *Driver) NodeGetVolumeStats(_ context.Context,
+	req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
 	klog.V(5).InfoS("NodeGetVolumeStats called",
 		"volumeID", req.GetVolumeId(),
 		"volumePath", req.GetVolumePath(),
@@ -238,7 +242,7 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeSta
 		Usage: []*csi.VolumeUsage{
 			{
 				//nolint:gosec // qgroup values always fit in int64
-				Total:     int64(usage.MaxRfer),
+				Total: int64(usage.MaxRfer),
 				//nolint:gosec // qgroup values always fit in int64
 				Used:      int64(usage.Referenced),
 				Available: available,
@@ -248,7 +252,8 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeSta
 	}, nil
 }
 
-func (d *Driver) NodeExpandVolume(_ context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+func (d *Driver) NodeExpandVolume(_ context.Context,
+	req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
 	klog.V(5).InfoS("NodeExpandVolume called", "volumeID", req.GetVolumeId())
 	// Node expansion is not required for this driver (handled by ControllerExpandVolume).
 	return &csi.NodeExpandVolumeResponse{}, nil

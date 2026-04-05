@@ -25,7 +25,8 @@ var supportedAccessModes = map[csi.VolumeCapability_AccessMode_Mode]struct{}{
 	csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY: {},
 }
 
-func (d *Driver) ControllerGetCapabilities(_ context.Context, _ *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
+func (d *Driver) ControllerGetCapabilities(_ context.Context,
+	_ *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
 	caps := []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
@@ -79,7 +80,7 @@ func (d *Driver) ListVolumes(_ context.Context, req *csi.ListVolumesRequest) (*c
 // ListSnapshots returns snapshots known to this driver, with optional filtering
 // by snapshot ID or source volume ID. Supports max_entries and starting_token
 // for pagination; the token is a numeric offset into the sorted snapshot list.
-//nolint:godox // TODO: consider cursor-based tokens if snapshot ordering changes under load.
+// (TODO: consider cursor-based tokens if snapshot ordering changes under load.)
 func (d *Driver) ListSnapshots(_ context.Context, req *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
 	// Fast path: single snapshot lookup by ID.
 	if req.SnapshotId != "" {
@@ -136,7 +137,8 @@ func (d *Driver) ListSnapshots(_ context.Context, req *csi.ListSnapshotsRequest)
 	return &csi.ListSnapshotsResponse{Entries: entries, NextToken: nextToken}, nil
 }
 
-func (d *Driver) ControllerGetVolume(_ context.Context, req *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
+func (d *Driver) ControllerGetVolume(_ context.Context,
+	req *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
 	if req.VolumeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
 	}
@@ -157,7 +159,8 @@ func (d *Driver) ControllerGetVolume(_ context.Context, req *csi.ControllerGetVo
 	}, nil
 }
 
-func (d *Driver) ValidateVolumeCapabilities(_ context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+func (d *Driver) ValidateVolumeCapabilities(_ context.Context,
+	req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
 	if req.VolumeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
 	}
@@ -235,7 +238,7 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 		BasePath:      basePath,
 	}
 
-	if err := os.MkdirAll(filepath.Dir(vol.Path()), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(vol.Path()), 0o750); err != nil {
 		return nil, status.Errorf(codes.Internal, "create volumes directory: %v", err)
 	}
 
@@ -286,7 +289,8 @@ func (d *Driver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest)
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
-func (d *Driver) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
+func (d *Driver) ControllerExpandVolume(ctx context.Context,
+	req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
 	if req.VolumeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
 	}
@@ -376,7 +380,8 @@ func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource
 	return nil
 }
 
-func (d *Driver) CreateSnapshot(_ context.Context, req *csi.CreateSnapshotRequest) (*csi.CreateSnapshotResponse, error) {
+func (d *Driver) CreateSnapshot(_ context.Context,
+	req *csi.CreateSnapshotRequest) (*csi.CreateSnapshotResponse, error) {
 	klog.V(2).InfoS("CreateSnapshot called", "name", req.Name, "sourceVolumeId", req.SourceVolumeId)
 
 	if req.Name == "" {
@@ -415,7 +420,7 @@ func (d *Driver) CreateSnapshot(_ context.Context, req *csi.CreateSnapshotReques
 		ReadyToUse:  true,
 	}
 
-	if err := os.MkdirAll(filepath.Dir(snap.Path()), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(snap.Path()), 0o750); err != nil {
 		return nil, status.Errorf(codes.Internal, "create snapshots directory: %v", err)
 	}
 
@@ -431,7 +436,8 @@ func (d *Driver) CreateSnapshot(_ context.Context, req *csi.CreateSnapshotReques
 }
 
 //nolint:dupl // DeleteSnapshot and DeleteVolume must have parallel structure per CSI spec
-func (d *Driver) DeleteSnapshot(_ context.Context, req *csi.DeleteSnapshotRequest) (*csi.DeleteSnapshotResponse, error) {
+func (d *Driver) DeleteSnapshot(_ context.Context,
+	req *csi.DeleteSnapshotRequest) (*csi.DeleteSnapshotResponse, error) {
 	if req.SnapshotId == "" {
 		return nil, status.Error(codes.InvalidArgument, "snapshot ID is required")
 	}
@@ -492,6 +498,8 @@ func validateContentSourceMatch(vol *state.Volume, src *csi.VolumeContentSource)
 }
 
 // contentSourceIDs extracts the snapshot ID and volume ID from a VolumeContentSource.
+//
+//nolint:gocritic // unnamedResult conflicts with nonamedreturns linter
 func contentSourceIDs(src *csi.VolumeContentSource) (string, string) {
 	if src == nil {
 		return "", ""
