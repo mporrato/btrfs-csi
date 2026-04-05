@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/google/uuid"
 	"k8s.io/klog/v2"
 )
 
@@ -136,23 +137,33 @@ func (m *RealManager) sendReceive(src, dst string, readonly bool) error {
 		return nil
 	}
 
-	// 1. Create temporary readonly snapshot of src
+	// 1. Clean up any stale temp snapshot from previous run
+	tempSnapBase := fmt.Sprintf(".btrfs-csi-send-%s-*", filepath.Base(src))
+	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(src), tempSnapBase))
+	for _, match := range matches {
+		klog.V(4).InfoS("sendReceive: cleaning up stale temp snapshot", "path", match)
+		_ = m.DeleteSubvolume(match)
+	}
+
+	// 2. Create temporary readonly snapshot of src
 	// Use direct runCommand to avoid potential recursion if src and tempSnap are on different filesystems
-	tempSnap := filepath.Join(filepath.Dir(src), fmt.Sprintf(".btrfs-csi-send-%s-%d", filepath.Base(src), os.Getpid()))
+	// Use UUID instead of PID to avoid collisions when a previous run left a stale temp snapshot
+	snapName := fmt.Sprintf(".btrfs-csi-send-%s-%s", filepath.Base(src), uuid.New().String()[:8])
+	tempSnap := filepath.Join(filepath.Dir(src), snapName)
 	if _, err := runCommand("btrfs", "subvolume", "snapshot", "-r", src, tempSnap); err != nil {
 		return fmt.Errorf("create temp snapshot: %w", err)
 	}
 	defer func() { _ = m.DeleteSubvolume(tempSnap) }()
 
-	// 2. Ensure destination parent directory exists
+	// 3. Ensure destination parent directory exists
 	dstDir := filepath.Dir(dst)
 	if err := os.MkdirAll(dstDir, 0o750); err != nil {
 		return fmt.Errorf("create dst directory: %w", err)
 	}
 
-	// 3. btrfs send <temp> | btrfs receive <dst_dir>
+	// 4. btrfs send <temp> | btrfs receive <dst_dir>
 	//nolint:gosec // tempSnap is generated internally, not user input
-	sendCmd := exec.Command("btrfs", "send", tempSnap)
+	sendCmd := exec.Command("btrfs", "send", "--compressed-data", tempSnap)
 	//nolint:gosec // dstDir is derived from dst parameter, controlled by CSI driver
 	receiveCmd := exec.Command("btrfs", "receive", dstDir)
 	sendStdout, err := sendCmd.StdoutPipe()
@@ -177,7 +188,7 @@ func (m *RealManager) sendReceive(src, dst string, readonly bool) error {
 		return fmt.Errorf("btrfs receive %s: %w: %s", dstDir, err, recvStderr.String())
 	}
 
-	// 4. Rename received snapshot to dst
+	// 5. Rename received snapshot to dst
 	receivedName := filepath.Base(tempSnap)
 	receivedPath := filepath.Join(dstDir, receivedName)
 	if receivedPath != dst {
@@ -187,7 +198,7 @@ func (m *RealManager) sendReceive(src, dst string, readonly bool) error {
 		}
 	}
 
-	// 5. Make writable if needed
+	// 6. Make writable if needed
 	if !readonly {
 		if _, err := runCommand("btrfs", "property", "set", dst, "ro", "false"); err != nil {
 			return fmt.Errorf("make writable %s: %w", dst, err)
