@@ -43,7 +43,6 @@ spec:
             privileged: true
           args:
             - --endpoint=unix:///csi/csi.sock
-            - --root-path=/var/lib/btrfs-csi
             - --config=/etc/btrfs-csi/basepaths.txt
             - --nodeid=$(NODE_NAME)
           env:

@@ -29,7 +29,6 @@ type Driver struct {
 	name       string
 	version    string
 	nodeID     string
-	rootPath   string
 	mounter    Mounter
 	grpcServer *grpc.Server
 	btrfs.Manager
@@ -43,9 +42,9 @@ type Driver struct {
 	qgroupCleanupTimer *time.Timer
 }
 
-// NewDriver creates a new Driver with the given btrfs manager, state store, node ID, and root path.
+// NewDriver creates a new Driver with the given btrfs manager, state store, and node ID.
 // It panics if mgr or store is nil.
-func NewDriver(mgr btrfs.Manager, store state.Store, nodeID, rootPath string) *Driver {
+func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) *Driver {
 	if mgr == nil {
 		panic("btrfs.Manager must not be nil")
 	}
@@ -57,17 +56,15 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID, rootPath string) *D
 		"driverName", driverName,
 		"version", version,
 		"nodeID", nodeID,
-		"rootPath", rootPath,
 	)
 
 	d := &Driver{
-		name:     driverName,
-		version:  version,
-		nodeID:   nodeID,
-		rootPath: rootPath,
-		mounter:  newRealMounter(),
-		Manager:  mgr,
-		Store:    store,
+		name:    driverName,
+		version: version,
+		nodeID:  nodeID,
+		mounter: newRealMounter(),
+		Manager: mgr,
+		Store:   store,
 	}
 
 	// Clean up stale qgroups on all managed base paths from any previous run.
@@ -83,15 +80,11 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID, rootPath string) *D
 }
 
 // basePaths returns all base paths managed by this driver.
-// When the store is a MultiStore it returns all registered dirs;
-// otherwise it falls back to rootPath.
 func (d *Driver) basePaths() []string {
 	if ms, ok := d.Store.(*state.MultiStore); ok {
-		if dirs := ms.Dirs(); len(dirs) > 0 {
-			return dirs
-		}
+		return ms.Dirs()
 	}
-	return []string{d.rootPath}
+	return nil
 }
 
 // parseEndpoint extracts the socket path from a CSI endpoint string.

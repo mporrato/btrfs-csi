@@ -103,7 +103,7 @@ func TestNewDriverValidation(t *testing.T) {
 				t.Error("NewDriver with nil manager should panic")
 			}
 		}()
-		NewDriver(nil, ms, "node1", "/tmp")
+		NewDriver(nil, ms, "node1")
 	})
 
 	t.Run("nil store", func(t *testing.T) {
@@ -112,7 +112,7 @@ func TestNewDriverValidation(t *testing.T) {
 				t.Error("NewDriver with nil store should panic")
 			}
 		}()
-		NewDriver(&btrfs.MockManager{}, nil, "node1", "/tmp")
+		NewDriver(&btrfs.MockManager{}, nil, "node1")
 	})
 }
 
@@ -120,16 +120,16 @@ func TestNewDriverSetsFields(t *testing.T) {
 	mgr := &btrfs.MockManager{}
 	ms, _ := newTestMultiStore(testRootPath)
 	nodeID := "test-node"
-	rootPath := "/var/lib/btrfs-csi"
 
-	d := NewDriver(mgr, ms, nodeID, rootPath)
+	d := NewDriver(mgr, ms, nodeID)
 
 	if d.nodeID != nodeID {
 		t.Errorf("nodeID = %q, want %q", d.nodeID, nodeID)
 	}
 
-	if d.rootPath != rootPath {
-		t.Errorf("rootPath = %q, want %q", d.rootPath, rootPath)
+	paths := d.basePaths()
+	if len(paths) != 1 || paths[0] != testRootPath {
+		t.Errorf("basePaths = %v, want [%q]", paths, testRootPath)
 	}
 }
 

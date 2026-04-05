@@ -18,51 +18,69 @@ func TestRunVersionFlag(t *testing.T) {
 	}
 }
 
-func TestRunFailsWhenRootPathNotBtrfs(t *testing.T) {
+func TestRunFailsWhenConfigNotProvided(t *testing.T) {
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "csi", "csi.sock")
-
-	mgr := &btrfs.MockManager{IsBtrfsFilesystemResult: false}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	err := runWithContext(ctx, []string{
 		"--endpoint", "unix://" + socketPath,
-		"--root-path", filepath.Join(tmpDir, "root"),
 		"--nodeid", "test-node",
-	}, mgr)
+	}, &btrfs.MockManager{})
 	if err == nil {
-		t.Fatal("expected error when root-path is not a btrfs filesystem")
+		t.Fatal("expected error when --config is not provided")
+	}
+}
+
+func TestRunFailsWhenConfigPathNotBtrfs(t *testing.T) {
+	tmpDir := t.TempDir()
+	bpDir := filepath.Join(tmpDir, "pool")
+	configFile := filepath.Join(tmpDir, "basepaths.txt")
+	if err := os.WriteFile(configFile, []byte(bpDir+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := runWithContext(ctx, []string{
+		"--endpoint", "unix://" + filepath.Join(tmpDir, "csi", "csi.sock"),
+		"--config", configFile,
+		"--nodeid", "test-node",
+	}, &btrfs.MockManager{IsBtrfsFilesystemResult: false})
+	if err == nil {
+		t.Fatal("expected error when config path is not a btrfs filesystem")
 	}
 }
 
 func TestRunCreatesSocketDirectory(t *testing.T) {
-	// Create a temporary directory for testing
 	tmpDir := t.TempDir()
 	socketDir := filepath.Join(tmpDir, "csi")
 	socketPath := filepath.Join(socketDir, "csi.sock")
 	endpoint := "unix://" + socketPath
 
-	// Verify socket directory doesn't exist yet
 	if _, err := os.Stat(socketDir); !os.IsNotExist(err) {
 		t.Fatalf("socket directory should not exist yet")
 	}
 
-	// Create a temporary root path for state
-	rootPath := filepath.Join(tmpDir, "root")
+	bpDir := filepath.Join(tmpDir, "pool")
+	configFile := filepath.Join(tmpDir, "basepaths.txt")
+	if err := os.WriteFile(configFile, []byte(bpDir+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := &btrfs.MockManager{IsBtrfsFilesystemResult: true}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mgr := &btrfs.MockManager{IsBtrfsFilesystemResult: true}
-
-	// Run in a goroutine since it blocks
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- runWithContext(ctx, []string{
 			"--endpoint", endpoint,
-			"--root-path", rootPath,
+			"--config", configFile,
 			"--nodeid", "test-node",
 		}, mgr)
 	}()
@@ -79,15 +97,12 @@ func TestRunCreatesSocketDirectory(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Socket directory must have been created as a side-effect
 	if _, err := os.Stat(socketDir); os.IsNotExist(err) {
 		t.Errorf("socket directory should have been created")
 	}
 
-	// Cancel context to stop the driver — no process-wide signal
 	cancel()
 
-	// Wait for runWithContext to return
 	select {
 	case err := <-errCh:
 		if err != nil {

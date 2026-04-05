@@ -40,21 +40,23 @@ func (d *Driver) GetPluginCapabilities(_ context.Context, _ *csi.GetPluginCapabi
 }
 
 func (d *Driver) Probe(_ context.Context, _ *csi.ProbeRequest) (*csi.ProbeResponse, error) {
-	klog.V(5).InfoS("Probe called", "rootPath", d.rootPath)
+	paths := d.basePaths()
+	klog.V(5).InfoS("Probe called", "paths", paths)
 
-	// Verify btrfs is operational by checking if root path exists
-	_, err := os.Stat(d.rootPath)
-	if err != nil {
-		klog.V(2).InfoS("Probe: root path check failed", "rootPath", d.rootPath, "error", err)
-		return &csi.ProbeResponse{
-			Ready: wrapperspb.Bool(false),
-		}, nil
+	if len(paths) == 0 {
+		klog.V(2).InfoS("Probe: no base paths registered")
+		return &csi.ProbeResponse{Ready: wrapperspb.Bool(false)}, nil
 	}
 
-	klog.V(5).InfoS("Probe: healthy", "rootPath", d.rootPath)
-	return &csi.ProbeResponse{
-		Ready: wrapperspb.Bool(true),
-	}, nil
+	for _, p := range paths {
+		if _, err := os.Stat(p); err != nil {
+			klog.V(2).InfoS("Probe: path check failed", "path", p, "error", err)
+			return &csi.ProbeResponse{Ready: wrapperspb.Bool(false)}, nil
+		}
+	}
+
+	klog.V(5).InfoS("Probe: healthy", "paths", paths)
+	return &csi.ProbeResponse{Ready: wrapperspb.Bool(true)}, nil
 }
 
 // Ensure Driver implements the CSI Identity server (compile-time check).

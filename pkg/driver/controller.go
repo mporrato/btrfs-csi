@@ -504,7 +504,9 @@ func contentSourceIDs(src *csi.VolumeContentSource) (snapID, volID string) {
 	return "", ""
 }
 
-// resolveBasePath returns the basePath from StorageClass parameters, falling back to rootPath.
+// resolveBasePath returns the basePath from StorageClass parameters.
+// If not specified, it falls back to the sole registered base path; with multiple
+// pools configured the parameter is required to avoid ambiguity.
 // It validates the basePath to prevent path traversal attacks.
 func (d *Driver) resolveBasePath(params map[string]string) (string, error) {
 	if bp := params["basePath"]; bp != "" {
@@ -519,7 +521,14 @@ func (d *Driver) resolveBasePath(params map[string]string) (string, error) {
 		}
 		return cleaned, nil
 	}
-	return d.rootPath, nil
+	paths := d.basePaths()
+	if len(paths) == 0 {
+		return "", status.Errorf(codes.Internal, "no base paths registered")
+	}
+	if len(paths) > 1 {
+		return "", status.Errorf(codes.InvalidArgument, "multiple storage pools configured: basePath parameter is required in StorageClass")
+	}
+	return paths[0], nil
 }
 
 // toCSIVolume converts a state.Volume to the CSI Volume proto with topology.
