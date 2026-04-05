@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guru/btrfs-csi/pkg/btrfs"
+	"github.com/mporrato/btrfs-csi/pkg/btrfs"
 )
 
 func TestRunVersionFlag(t *testing.T) {

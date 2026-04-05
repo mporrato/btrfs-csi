@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/guru/btrfs-csi/pkg/btrfs"
+	"github.com/mporrato/btrfs-csi/pkg/btrfs"
 )
 
 func TestGetPluginInfo(t *testing.T) {

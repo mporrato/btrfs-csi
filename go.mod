@@ -1,4 +1,4 @@
-module github.com/guru/btrfs-csi
+module github.com/mporrato/btrfs-csi
 
 go 1.25.8
 

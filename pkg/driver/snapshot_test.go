@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/guru/btrfs-csi/pkg/state"
+	"github.com/mporrato/btrfs-csi/pkg/state"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

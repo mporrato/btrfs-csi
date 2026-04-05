@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guru/btrfs-csi/pkg/btrfs"
-	"github.com/guru/btrfs-csi/pkg/state"
 	"github.com/kubernetes-csi/csi-test/v5/pkg/sanity"
+	"github.com/mporrato/btrfs-csi/pkg/btrfs"
+	"github.com/mporrato/btrfs-csi/pkg/state"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )

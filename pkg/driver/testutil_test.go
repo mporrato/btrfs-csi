@@ -1,8 +1,8 @@
 package driver
 
 import (
-	"github.com/guru/btrfs-csi/pkg/btrfs"
-	"github.com/guru/btrfs-csi/pkg/state"
+	"github.com/mporrato/btrfs-csi/pkg/btrfs"
+	"github.com/mporrato/btrfs-csi/pkg/state"
 )
 
 const testRootPath = "/tmp/btrfs-csi-test"
