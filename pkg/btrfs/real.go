@@ -142,7 +142,9 @@ func (m *RealManager) sendReceive(src, dst string, readonly bool) error {
 	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(src), tempSnapBase))
 	for _, match := range matches {
 		klog.V(4).InfoS("sendReceive: cleaning up stale temp snapshot", "path", match)
-		_ = m.DeleteSubvolume(match)
+		if err := m.DeleteSubvolume(match); err != nil {
+			klog.V(2).InfoS("sendReceive: failed to clean up stale temp snapshot", "path", match, "err", err)
+		}
 	}
 
 	// 2. Create temporary readonly snapshot of src
