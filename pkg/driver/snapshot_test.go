@@ -162,6 +162,193 @@ func TestCreateSnapshot_MissingName(t *testing.T) {
 	}
 }
 
+func TestCreateSnapshot_WithPoolParam(t *testing.T) {
+	altPath := t.TempDir()
+	d, mock, _ := newTestDriverWithMock()
+	// Register the extra basePath so the MultiStore can route saves there.
+	d.Store.(*state.MultiStore).AddStoreForTest(altPath, newMemStore(altPath))
+	d.SetPools(map[string]string{"archive": altPath, "default": testRootPath})
+
+	// Seed source volume in default pool.
+	vol := &state.Volume{
+		ID:       "vol-src",
+		Name:     "source-pvc",
+		BasePath: testRootPath,
+	}
+	defaultStore, ok := d.Store.(*state.MultiStore).StoreFor(testRootPath)
+	if !ok {
+		t.Fatal("default store not found")
+	}
+	if err := defaultStore.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	resp, err := d.CreateSnapshot(context.Background(), &csi.CreateSnapshotRequest{
+		SourceVolumeId: "vol-src",
+		Name:           "snap-to-archive",
+		Parameters:     map[string]string{"pool": "archive"},
+	})
+	if err != nil {
+		t.Fatalf("CreateSnapshot: %v", err)
+	}
+
+	// Verify the snapshot was created on the archive pool
+	if len(mock.CreateSnapshotCalls) != 1 {
+		t.Fatalf("expected 1 CreateSnapshot call, got %d", len(mock.CreateSnapshotCalls))
+	}
+	call := mock.CreateSnapshotCalls[0]
+	wantDstPrefix := filepath.Join(altPath, "snapshots") + string(filepath.Separator)
+	if !strings.HasPrefix(call.Dst, wantDstPrefix) {
+		t.Errorf("snapshot dst %q should be under %q", call.Dst, wantDstPrefix)
+	}
+
+	// Verify it's stored in the archive pool's store
+	archiveStore, ok := d.Store.(*state.MultiStore).StoreFor(altPath)
+	if !ok {
+		t.Fatal("archive store not found")
+	}
+	snap, ok := archiveStore.GetSnapshot(resp.Snapshot.SnapshotId)
+	if !ok {
+		t.Fatal("snapshot not found in archive store after CreateSnapshot")
+	}
+	if snap.BasePath != altPath {
+		t.Errorf("snapshot BasePath = %q, want %q", snap.BasePath, altPath)
+	}
+}
+
+func TestCreateSnapshot_MultiplePoolsNoDefault(t *testing.T) {
+	d, _, _ := newTestDriverWithMock()
+	d.SetPools(map[string]string{"fast": "/mnt/fast", "archive": "/mnt/archive"})
+
+	// Seed source volume
+	vol := &state.Volume{
+		ID:       "vol-src",
+		Name:     "source-pvc",
+		BasePath: testRootPath,
+	}
+	defaultStore, ok := d.Store.(*state.MultiStore).StoreFor(testRootPath)
+	if !ok {
+		t.Fatal("default store not found")
+	}
+	if err := defaultStore.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	_, err := d.CreateSnapshot(context.Background(), &csi.CreateSnapshotRequest{
+		SourceVolumeId: "vol-src",
+		Name:           "snap-1",
+		// No pool parameter
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument when multiple pools and no default, got %v", code)
+	}
+}
+
+func TestCreateSnapshot_UnknownPool(t *testing.T) {
+	d, _, _ := newTestDriverWithMock()
+	d.SetPools(map[string]string{"default": testRootPath})
+
+	// Seed source volume
+	vol := &state.Volume{
+		ID:       "vol-src",
+		Name:     "source-pvc",
+		BasePath: testRootPath,
+	}
+	defaultStore, ok := d.Store.(*state.MultiStore).StoreFor(testRootPath)
+	if !ok {
+		t.Fatal("default store not found")
+	}
+	if err := defaultStore.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	_, err := d.CreateSnapshot(context.Background(), &csi.CreateSnapshotRequest{
+		SourceVolumeId: "vol-src",
+		Name:           "snap-1",
+		Parameters:     map[string]string{"pool": "nonexistent"},
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument for unknown pool, got %v", code)
+	}
+}
+
+func TestCreateSnapshot_SinglePoolNoParam(t *testing.T) {
+	d, mock, _ := newTestDriverWithMock()
+	d.SetPools(map[string]string{"only": testRootPath})
+
+	// Seed source volume
+	vol := &state.Volume{
+		ID:       "vol-src",
+		Name:     "source-pvc",
+		BasePath: testRootPath,
+	}
+	defaultStore, ok := d.Store.(*state.MultiStore).StoreFor(testRootPath)
+	if !ok {
+		t.Fatal("default store not found")
+	}
+	if err := defaultStore.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	_, err := d.CreateSnapshot(context.Background(), &csi.CreateSnapshotRequest{
+		SourceVolumeId: "vol-src",
+		Name:           "snap-1",
+		// No pool parameter
+	})
+	if err != nil {
+		t.Fatalf("CreateSnapshot: %v", err)
+	}
+
+	if len(mock.CreateSnapshotCalls) != 1 {
+		t.Fatalf("expected 1 CreateSnapshot call, got %d", len(mock.CreateSnapshotCalls))
+	}
+	wantDstPrefix := filepath.Join(testRootPath, "snapshots") + string(filepath.Separator)
+	if !strings.HasPrefix(mock.CreateSnapshotCalls[0].Dst, wantDstPrefix) {
+		t.Errorf("snapshot dst %q should be under %q", mock.CreateSnapshotCalls[0].Dst, wantDstPrefix)
+	}
+}
+
+func TestCreateSnapshot_Idempotent_DifferentPool(t *testing.T) {
+	altPath := t.TempDir()
+	d, _, _ := newTestDriverWithMock()
+	d.Store.(*state.MultiStore).AddStoreForTest(altPath, newMemStore(altPath))
+	d.SetPools(map[string]string{"default": testRootPath, "archive": altPath})
+
+	// Seed source volume in default pool
+	vol := &state.Volume{
+		ID:       "vol-src",
+		Name:     "source-pvc",
+		BasePath: testRootPath,
+	}
+	defaultStore, ok := d.Store.(*state.MultiStore).StoreFor(testRootPath)
+	if !ok {
+		t.Fatal("default store not found")
+	}
+	if err := defaultStore.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	// First call: create snapshot in default pool
+	_, err := d.CreateSnapshot(context.Background(), &csi.CreateSnapshotRequest{
+		SourceVolumeId: "vol-src",
+		Name:           "snap-1",
+		// No pool param -> uses default
+	})
+	if err != nil {
+		t.Fatalf("first CreateSnapshot: %v", err)
+	}
+
+	// Second call: same name and source, but different pool parameter
+	_, err = d.CreateSnapshot(context.Background(), &csi.CreateSnapshotRequest{
+		SourceVolumeId: "vol-src",
+		Name:           "snap-1",
+		Parameters:     map[string]string{"pool": "archive"},
+	})
+	if code := status.Code(err); code != codes.AlreadyExists {
+		t.Errorf("expected AlreadyExists for same snapshot name in different pool, got %v", code)
+	}
+}
+
 // --- DeleteSnapshot tests ---
 
 func TestDeleteSnapshot_Success(t *testing.T) {

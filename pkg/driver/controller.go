@@ -394,11 +394,22 @@ func (d *Driver) CreateSnapshot(_ context.Context,
 	d.controllerMu.Lock()
 	defer d.controllerMu.Unlock()
 
+	// Resolve the destination pool for the snapshot.
+	basePath, err := d.resolveBasePath(req.Parameters)
+	if err != nil {
+		return nil, err
+	}
+
 	// Idempotency: return existing snapshot if one with the same name exists.
 	if existing, ok := d.Store.GetSnapshotByName(req.Name); ok {
 		if existing.SourceVolID != req.SourceVolumeId {
 			return nil, status.Errorf(codes.AlreadyExists,
 				"snapshot %q already exists with different source volume", req.Name)
+		}
+		// Also verify the existing snapshot is in the same pool as the current request.
+		if existing.BasePath != basePath {
+			return nil, status.Errorf(codes.AlreadyExists,
+				"snapshot %q already exists in a different pool", req.Name)
 		}
 		klog.V(4).InfoS("CreateSnapshot idempotent", "name", req.Name, "snapshotID", existing.ID)
 		return &csi.CreateSnapshotResponse{Snapshot: toCSISnapshot(existing)}, nil
@@ -408,8 +419,6 @@ func (d *Driver) CreateSnapshot(_ context.Context,
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "source volume %s not found", req.SourceVolumeId)
 	}
-
-	basePath := srcVol.BasePath
 	id := uuid.New().String()
 	snap := &state.Snapshot{
 		ID:          id,
@@ -513,7 +522,7 @@ func contentSourceIDs(src *csi.VolumeContentSource) (string, string) {
 	return "", ""
 }
 
-// resolveBasePath resolves the storage pool for a volume request.
+// resolveBasePath resolves the storage pool for a volume or snapshot request.
 // With a "pool" parameter, it looks up the named pool. Without one:
 //   - single pool configured: uses it regardless of name
 //   - multiple pools: falls back to the "default" pool, or fails if absent
