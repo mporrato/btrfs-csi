@@ -12,98 +12,133 @@ func after(ms int) <-chan time.Time {
 	return time.After(time.Duration(ms) * time.Millisecond)
 }
 
-func TestParseConfigFile_Valid(t *testing.T) {
-	f := filepath.Join(t.TempDir(), "basepaths.txt")
-	if err := os.WriteFile(f, []byte(`
-# comment
-/mnt/nvme
-
-/mnt/hdd
-# trailing comment
-`), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+func TestParsePoolConfig_SinglePool(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "default"), []byte("/var/lib/btrfs-csi\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-
-	got, err := parseConfigFile(f)
+	got, err := parsePoolConfig(dir)
 	if err != nil {
-		t.Fatalf("parseConfigFile: %v", err)
+		t.Fatalf("parsePoolConfig: %v", err)
 	}
-	want := []string{"/mnt/nvme", "/mnt/hdd"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
+	if len(got) != 1 {
+		t.Fatalf("got %d pools, want 1", len(got))
 	}
-	for i, p := range want {
-		if got[i] != p {
-			t.Errorf("[%d] got %q, want %q", i, got[i], p)
-		}
+	if got["default"] != "/var/lib/btrfs-csi" {
+		t.Errorf("got[\"default\"] = %q, want %q", got["default"], "/var/lib/btrfs-csi")
 	}
 }
 
-func TestParseConfigFile_Empty(t *testing.T) {
-	f := filepath.Join(t.TempDir(), "basepaths.txt")
-	if err := os.WriteFile(f, []byte("# only comments\n\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+func TestParsePoolConfig_MultiplePools(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "fast"), []byte("/mnt/nvme/btrfs-csi"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	got, err := parseConfigFile(f)
+	if err := os.WriteFile(filepath.Join(dir, "archive"), []byte("  /mnt/hdd/btrfs-csi \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := parsePoolConfig(dir)
 	if err != nil {
-		t.Fatalf("parseConfigFile: %v", err)
+		t.Fatalf("parsePoolConfig: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d pools, want 2", len(got))
+	}
+	if got["fast"] != "/mnt/nvme/btrfs-csi" {
+		t.Errorf("fast = %q", got["fast"])
+	}
+	if got["archive"] != "/mnt/hdd/btrfs-csi" {
+		t.Errorf("archive = %q", got["archive"])
+	}
+}
+
+func TestParsePoolConfig_SkipsHiddenAndDotDot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "default"), []byte("/var/lib/btrfs-csi"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".hidden"), []byte("/secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "..data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := parsePoolConfig(dir)
+	if err != nil {
+		t.Fatalf("parsePoolConfig: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %v, want only 'default'", got)
+	}
+}
+
+func TestParsePoolConfig_RelativePathRejected(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "bad"), []byte("relative/path"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := parsePoolConfig(dir)
+	if err == nil {
+		t.Error("expected error for relative path, got nil")
+	}
+}
+
+func TestParsePoolConfig_EmptyDir(t *testing.T) {
+	dir := t.TempDir()
+	got, err := parsePoolConfig(dir)
+	if err != nil {
+		t.Fatalf("parsePoolConfig: %v", err)
 	}
 	if len(got) != 0 {
 		t.Errorf("got %v, want empty", got)
 	}
 }
 
-func TestParseConfigFile_RelativePathRejected(t *testing.T) {
-	f := filepath.Join(t.TempDir(), "basepaths.txt")
-	if err := os.WriteFile(f, []byte("relative/path\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	_, err := parseConfigFile(f)
+func TestParsePoolConfig_MissingDir(t *testing.T) {
+	_, err := parsePoolConfig("/nonexistent/dir")
 	if err == nil {
-		t.Error("expected error for relative path, got nil")
+		t.Error("expected error for missing dir, got nil")
 	}
 }
 
-func TestParseConfigFile_Missing(t *testing.T) {
-	_, err := parseConfigFile("/nonexistent/file.txt")
-	if err == nil {
-		t.Error("expected error for missing file, got nil")
-	}
-}
-
-func TestWatchConfigFile_CallsReloadOnChange(t *testing.T) {
+func TestWatchPoolConfig_CallsReloadOnChange(t *testing.T) {
 	dir := t.TempDir()
-	f := filepath.Join(dir, "basepaths.txt")
-	if err := os.WriteFile(f, []byte("/mnt/a\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+	if err := os.WriteFile(filepath.Join(dir, "default"), []byte("/mnt/a"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 
-	called := make(chan []string, 2)
-	stop := watchConfigFile(f, 20, func(paths []string) {
-		called <- paths
+	called := make(chan map[string]string, 2)
+	stop := watchPoolConfig(dir, 20, func(pools map[string]string) {
+		called <- pools
 	})
 	defer close(stop)
 
 	// Initial load fires immediately.
 	select {
-	case paths := <-called:
-		if len(paths) != 1 || paths[0] != "/mnt/a" {
-			t.Errorf("initial reload got %v, want [/mnt/a]", paths)
+	case pools := <-called:
+		if len(pools) != 1 || pools["default"] != "/mnt/a" {
+			t.Errorf("initial reload got %v, want map[default:/mnt/a]", pools)
 		}
 	case <-after(2000):
 		t.Fatal("timed out waiting for initial reload")
 	}
 
-	// Update the file — watcher should call reload again.
-	if err := os.WriteFile(f, []byte("/mnt/a\n/mnt/b\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile update: %v", err)
+	// Add a second pool — watcher should call reload again.
+	if err := os.WriteFile(filepath.Join(dir, "fast"), []byte("/mnt/fast"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	select {
-	case paths := <-called:
-		if len(paths) != 2 {
-			t.Errorf("after update got %v, want [/mnt/a /mnt/b]", paths)
+	case pools := <-called:
+		if len(pools) != 2 {
+			t.Errorf("after update got %v, want 2 pools", pools)
+		}
+		if pools["fast"] != "/mnt/fast" {
+			t.Errorf("fast = %q, want /mnt/fast", pools["fast"])
 		}
 	case <-after(2000):
-		t.Fatal("timed out waiting for reload after file change")
+		t.Fatal("timed out waiting for reload after pool addition")
 	}
 }

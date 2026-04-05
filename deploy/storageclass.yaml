@@ -6,3 +6,5 @@ provisioner: btrfs.csi.local
 volumeBindingMode: Immediate
 reclaimPolicy: Delete
 allowVolumeExpansion: true
+# parameters:
+#   pool: default  # optional; falls back to "default" or sole pool

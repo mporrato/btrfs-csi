@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -503,31 +502,38 @@ func contentSourceIDs(src *csi.VolumeContentSource) (snapID, volID string) {
 	return "", ""
 }
 
-// resolveBasePath returns the basePath from StorageClass parameters.
-// If not specified, it falls back to the sole registered base path; with multiple
-// pools configured the parameter is required to avoid ambiguity.
-// It validates the basePath to prevent path traversal attacks.
+// resolveBasePath resolves the storage pool for a volume request.
+// With a "pool" parameter, it looks up the named pool. Without one:
+//   - single pool configured: uses it regardless of name
+//   - multiple pools: falls back to the "default" pool, or fails if absent
 func (d *Driver) resolveBasePath(params map[string]string) (string, error) {
-	if bp := params["basePath"]; bp != "" {
-		// Validate the path is absolute and doesn't contain traversal
-		if !filepath.IsAbs(bp) {
-			return "", status.Errorf(codes.InvalidArgument, "basePath must be absolute: %q", bp)
+	pools := d.getPools()
+	if len(pools) == 0 {
+		return "", status.Errorf(codes.Internal, "no storage pools configured")
+	}
+
+	poolName := params["pool"]
+
+	if poolName != "" {
+		path, ok := pools[poolName]
+		if !ok {
+			return "", status.Errorf(codes.InvalidArgument, "unknown storage pool %q", poolName)
 		}
-		// Clean and check for traversal
-		cleaned := filepath.Clean(bp)
-		if strings.Contains(cleaned, "..") {
-			return "", status.Errorf(codes.InvalidArgument, "basePath contains invalid path traversal: %q", bp)
+		return path, nil
+	}
+
+	// No pool param specified.
+	if len(pools) == 1 {
+		for _, path := range pools {
+			return path, nil
 		}
-		return cleaned, nil
 	}
-	paths := d.basePaths()
-	if len(paths) == 0 {
-		return "", status.Errorf(codes.Internal, "no base paths registered")
+
+	// Multiple pools — fall back to "default".
+	if path, ok := pools["default"]; ok {
+		return path, nil
 	}
-	if len(paths) > 1 {
-		return "", status.Errorf(codes.InvalidArgument, "multiple storage pools configured: basePath parameter is required in StorageClass")
-	}
-	return paths[0], nil
+	return "", status.Errorf(codes.InvalidArgument, "multiple storage pools configured and no \"default\" pool exists; specify pool parameter in StorageClass")
 }
 
 // toCSIVolume converts a state.Volume to the CSI Volume proto with topology.

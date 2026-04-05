@@ -41,7 +41,7 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 	var (
 		endpoint   = fs.String("endpoint", "unix:///csi/csi.sock", "CSI endpoint")
 		nodeID     = fs.String("nodeid", "", "Node ID")
-		configFile = fs.String("config", "", "Path to config file listing btrfs base paths (one per line); mounted from a ConfigMap")
+		configFile = fs.String("config", "", "Path to config directory (mounted ConfigMap) where each file is a pool name and its content is the btrfs base path")
 		version    = fs.Bool("version", false, "Print version and exit")
 	)
 
@@ -55,7 +55,7 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 	}
 
 	if *configFile == "" {
-		return fmt.Errorf("--config is required: provide a path to a file listing btrfs base paths")
+		return fmt.Errorf("--config is required: provide a path to a config directory (mounted ConfigMap) with pool definitions")
 	}
 
 	if *nodeID == "" {
@@ -71,41 +71,45 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 		return fmt.Errorf("create socket directory %s: %w", socketDir, err)
 	}
 
-	// Build the MultiStore from the config file.
+	// Build the MultiStore from the pool config directory.
 	ms := state.NewMultiStore()
-	basePaths, err := driver.ParseConfigFile(*configFile)
+	pools, err := driver.ParsePoolConfig(*configFile)
 	if err != nil {
-		return fmt.Errorf("parse config file: %w", err)
+		return fmt.Errorf("parse pool config: %w", err)
 	}
-	for _, bp := range basePaths {
+	for name, bp := range pools {
 		ok, err := mgr.IsBtrfsFilesystem(bp)
 		if err != nil {
-			return fmt.Errorf("check filesystem at %s: %w", bp, err)
+			return fmt.Errorf("check filesystem for pool %q at %s: %w", name, bp, err)
 		}
 		if !ok {
-			return fmt.Errorf("%s is not a btrfs filesystem", bp)
+			return fmt.Errorf("pool %q: %s is not a btrfs filesystem", name, bp)
 		}
 		if err := ms.AddPath(bp); err != nil {
-			return fmt.Errorf("open store for %s: %w", bp, err)
+			return fmt.Errorf("open store for pool %q at %s: %w", name, bp, err)
 		}
 	}
-
-	// Watch for changes (ConfigMap kubelet updates) — 30 s poll interval.
-	configStop := driver.WatchConfigFile(*configFile, 30000, func(paths []string) {
-		valid := make([]string, 0, len(paths))
-		for _, p := range paths {
-			ok, err := mgr.IsBtrfsFilesystem(p)
-			if err != nil || !ok {
-				klog.ErrorS(err, "Skipping path on reload: not a btrfs filesystem", "path", p)
-				continue
-			}
-			valid = append(valid, p)
-		}
-		ms.ReloadPaths(valid)
-	})
 
 	// Create driver
 	drv := driver.NewDriver(mgr, ms, *nodeID)
+	drv.SetPools(pools)
+
+	// Watch for changes (ConfigMap kubelet updates) — 30 s poll interval.
+	configStop := driver.WatchPoolConfig(*configFile, 30000, func(newPools map[string]string) {
+		validPools := make(map[string]string)
+		validPaths := make([]string, 0, len(newPools))
+		for name, p := range newPools {
+			ok, err := mgr.IsBtrfsFilesystem(p)
+			if err != nil || !ok {
+				klog.ErrorS(err, "Skipping pool on reload: not a btrfs filesystem", "pool", name, "path", p)
+				continue
+			}
+			validPools[name] = p
+			validPaths = append(validPaths, p)
+		}
+		ms.ReloadPaths(validPaths)
+		drv.SetPools(validPools)
+	})
 
 	// Start driver in a goroutine
 	errCh := make(chan error, 1)

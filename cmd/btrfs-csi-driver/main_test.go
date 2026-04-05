@@ -37,8 +37,11 @@ func TestRunFailsWhenConfigNotProvided(t *testing.T) {
 func TestRunFailsWhenConfigPathNotBtrfs(t *testing.T) {
 	tmpDir := t.TempDir()
 	bpDir := filepath.Join(tmpDir, "pool")
-	configFile := filepath.Join(tmpDir, "basepaths.txt")
-	if err := os.WriteFile(configFile, []byte(bpDir+"\n"), 0o644); err != nil {
+	configDir := filepath.Join(tmpDir, "config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "default"), []byte(bpDir), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -47,7 +50,7 @@ func TestRunFailsWhenConfigPathNotBtrfs(t *testing.T) {
 
 	err := runWithContext(ctx, []string{
 		"--endpoint", "unix://" + filepath.Join(tmpDir, "csi", "csi.sock"),
-		"--config", configFile,
+		"--config", configDir,
 		"--nodeid", "test-node",
 	}, &btrfs.MockManager{IsBtrfsFilesystemResult: false})
 	if err == nil {
@@ -66,8 +69,11 @@ func TestRunCreatesSocketDirectory(t *testing.T) {
 	}
 
 	bpDir := filepath.Join(tmpDir, "pool")
-	configFile := filepath.Join(tmpDir, "basepaths.txt")
-	if err := os.WriteFile(configFile, []byte(bpDir+"\n"), 0o644); err != nil {
+	configDir := filepath.Join(tmpDir, "config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "default"), []byte(bpDir), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -80,7 +86,7 @@ func TestRunCreatesSocketDirectory(t *testing.T) {
 	go func() {
 		errCh <- runWithContext(ctx, []string{
 			"--endpoint", endpoint,
-			"--config", configFile,
+			"--config", configDir,
 			"--nodeid", "test-node",
 		}, mgr)
 	}()

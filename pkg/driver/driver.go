@@ -39,6 +39,9 @@ type Driver struct {
 	// to enforce idempotency guarantees under concurrent requests.
 	controllerMu sync.Mutex
 
+	poolsMu sync.RWMutex
+	pools   map[string]string // pool name → base path
+
 	qgroupCleanupMu    sync.Mutex
 	qgroupCleanupTimer *time.Timer
 }
@@ -74,8 +77,34 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) *Driver {
 	return d
 }
 
+// SetPools replaces the pool map atomically.
+func (d *Driver) SetPools(pools map[string]string) {
+	d.poolsMu.Lock()
+	defer d.poolsMu.Unlock()
+	d.pools = pools
+}
+
+// getPools returns a snapshot of the current pool map.
+func (d *Driver) getPools() map[string]string {
+	d.poolsMu.RLock()
+	defer d.poolsMu.RUnlock()
+	cp := make(map[string]string, len(d.pools))
+	for k, v := range d.pools {
+		cp[k] = v
+	}
+	return cp
+}
+
 // basePaths returns all base paths managed by this driver.
 func (d *Driver) basePaths() []string {
+	pools := d.getPools()
+	if len(pools) > 0 {
+		paths := make([]string, 0, len(pools))
+		for _, p := range pools {
+			paths = append(paths, p)
+		}
+		return paths
+	}
 	if ms, ok := d.Store.(*state.MultiStore); ok {
 		return ms.Dirs()
 	}

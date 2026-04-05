@@ -119,20 +119,26 @@ func newTestMultiStore(dir string) (*state.MultiStore, *memStore) {
 // newTestDriver creates a Driver wired with a MockManager and in-memory store for testing.
 func newTestDriver() *Driver {
 	ms, _ := newTestMultiStore(testRootPath)
-	return NewDriver(&btrfs.MockManager{}, ms, "test-node")
+	d := NewDriver(&btrfs.MockManager{}, ms, "test-node")
+	d.SetPools(map[string]string{"default": testRootPath})
+	return d
 }
 
 // newTestDriverWithPath creates a Driver with a specific base path for testing.
 func newTestDriverWithPath(path string) *Driver {
 	ms, _ := newTestMultiStore(path)
-	return NewDriver(&btrfs.MockManager{}, ms, "test-node")
+	d := NewDriver(&btrfs.MockManager{}, ms, "test-node")
+	d.SetPools(map[string]string{"default": path})
+	return d
 }
 
 // newTestDriverWithMock creates a Driver and returns the mock and store for assertion in tests.
 func newTestDriverWithMock() (*Driver, *btrfs.MockManager, *memStore) {
 	mock := &btrfs.MockManager{}
 	ms, mem := newTestMultiStore(testRootPath)
-	return NewDriver(mock, ms, "test-node"), mock, mem
+	d := NewDriver(mock, ms, "test-node")
+	d.SetPools(map[string]string{"default": testRootPath})
+	return d, mock, mem
 }
 
 // newTestDriverWithMounter creates a Driver with mock btrfs, mock mounter, and in-memory store.
@@ -141,6 +147,7 @@ func newTestDriverWithMounter() (*Driver, *btrfs.MockManager, *MockMounter, *mem
 	mounter := &MockMounter{}
 	ms, mem := newTestMultiStore(testRootPath)
 	d := NewDriver(mock, ms, "test-node")
+	d.SetPools(map[string]string{"default": testRootPath})
 	d.mounter = mounter
 	return d, mock, mounter, mem
 }

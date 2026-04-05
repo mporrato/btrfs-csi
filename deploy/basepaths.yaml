@@ -1,12 +1,11 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: btrfs-csi-basepaths
+  name: btrfs-csi-pools
   namespace: btrfs-csi
 data:
-  # List one btrfs base path per line. All paths must be on btrfs filesystems.
-  # Each path may be used as a StorageClass parameters.basePath value.
-  # With a single pool, StorageClass need not specify basePath.
-  # With multiple pools, each StorageClass must specify basePath explicitly.
-  basepaths.txt: |
-    /var/lib/btrfs-csi
+  # Each key is a pool name; the value is the btrfs base path.
+  # StorageClass parameters.pool references the pool name.
+  # With a single pool, StorageClass need not specify pool.
+  # With multiple pools, omitting pool falls back to "default".
+  default: /var/lib/btrfs-csi

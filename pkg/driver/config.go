@@ -1,7 +1,6 @@
 package driver
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,75 +8,73 @@ import (
 	"time"
 )
 
-// ParseConfigFile reads a basePaths config file and returns the list of
-// absolute paths. Lines starting with '#' and blank lines are ignored.
-// Returns an error if any path is not absolute.
-func ParseConfigFile(path string) ([]string, error) {
-	return parseConfigFile(path)
+// ParsePoolConfig reads a directory (typically a mounted ConfigMap) where each
+// regular file represents a storage pool: the filename is the pool name and the
+// file content (trimmed) is the absolute path. Hidden files (starting with '.')
+// and directories are skipped. Returns an error if any path is not absolute.
+func ParsePoolConfig(dir string) (map[string]string, error) {
+	return parsePoolConfig(dir)
 }
 
-func parseConfigFile(path string) ([]string, error) {
-	f, err := os.Open(path)
+func parsePoolConfig(dir string) (map[string]string, error) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("open config file: %w", err)
+		return nil, fmt.Errorf("read pool config dir: %w", err)
 	}
-	defer func() { _ = f.Close() }()
-
-	var paths []string
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
+	pools := make(map[string]string)
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") {
 			continue
 		}
-		if !filepath.IsAbs(line) {
-			return nil, fmt.Errorf("config file contains non-absolute path: %q", line)
+		if e.IsDir() {
+			continue
 		}
-		paths = append(paths, line)
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return nil, fmt.Errorf("read pool %q: %w", name, err)
+		}
+		p := strings.TrimSpace(string(raw))
+		if !filepath.IsAbs(p) {
+			return nil, fmt.Errorf("pool %q contains non-absolute path: %q", name, p)
+		}
+		pools[name] = p
 	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("read config file: %w", err)
-	}
-	return paths, nil
+	return pools, nil
 }
 
-// WatchConfigFile is the exported wrapper around watchConfigFile for use by main.
-func WatchConfigFile(path string, intervalMs int, reload func([]string)) chan<- struct{} {
-	return watchConfigFile(path, intervalMs, reload)
+// WatchPoolConfig is the exported wrapper around watchPoolConfig for use by main.
+func WatchPoolConfig(dir string, intervalMs int, reload func(map[string]string)) chan<- struct{} {
+	return watchPoolConfig(dir, intervalMs, reload)
 }
 
-// pathsEqual returns true if both slices contain the same paths in the same order.
-func pathsEqual(a, b []string) bool {
+// poolsEqual returns true if both maps contain the same key-value pairs.
+func poolsEqual(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for i := range a {
-		if a[i] != b[i] {
+	for k, v := range a {
+		if b[k] != v {
 			return false
 		}
 	}
 	return true
 }
 
-// watchConfigFile polls path every intervalMs milliseconds. On each poll it
-// parses the config file and compares the result to the last-seen path list;
-// if it changed (or on first call), it calls reload with the new path list.
-// Errors parsing the file are silently skipped so a bad config update doesn't
-// break a running driver.
-//
-// The caller signals shutdown by closing the returned stop channel.
-func watchConfigFile(path string, intervalMs int, reload func([]string)) chan<- struct{} {
+// watchPoolConfig polls dir every intervalMs milliseconds. On each poll it
+// parses the pool config directory and compares the result to the last-seen
+// pool map; if it changed (or on first call), it calls reload with the new map.
+func watchPoolConfig(dir string, intervalMs int, reload func(map[string]string)) chan<- struct{} {
 	stop := make(chan struct{})
 	go func() {
-		var lastPaths []string
+		var lastPools map[string]string
 		tick := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
 		defer tick.Stop()
 		for {
-			// Fire immediately on first iteration before waiting for tick.
-			if paths, err := parseConfigFile(path); err == nil {
-				if !pathsEqual(paths, lastPaths) {
-					lastPaths = paths
-					reload(paths)
+			if pools, err := parsePoolConfig(dir); err == nil {
+				if !poolsEqual(pools, lastPools) {
+					lastPools = pools
+					reload(pools)
 				}
 			}
 			select {

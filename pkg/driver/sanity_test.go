@@ -49,6 +49,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	sanityDriver = NewDriver(&btrfs.RealManager{}, store, "sanity-node")
+	sanityDriver.SetPools(map[string]string{"default": sanityRoot})
 	sanityErrCh = make(chan error, 1)
 	go func() {
 		sanityErrCh <- sanityDriver.Run("unix://" + sockPath)

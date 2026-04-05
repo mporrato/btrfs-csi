@@ -119,17 +119,18 @@ func TestCreateVolume_MissingCapabilities(t *testing.T) {
 	}
 }
 
-func TestCreateVolume_WithBasePath(t *testing.T) {
+func TestCreateVolume_WithPoolParam(t *testing.T) {
 	basePath := t.TempDir()
 	d, mock, _ := newTestDriverWithMock()
 	// Register the extra basePath so the MultiStore can route saves there.
 	d.Store.(*state.MultiStore).AddStoreForTest(basePath, newMemStore(basePath))
+	d.SetPools(map[string]string{"fast": basePath})
 
 	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
 		Name:               "test-pvc",
 		CapacityRange:      &csi.CapacityRange{RequiredBytes: 1 << 30},
 		VolumeCapabilities: singleNodeWriterCap(),
-		Parameters:         map[string]string{"basePath": basePath},
+		Parameters:         map[string]string{"pool": "fast"},
 	})
 	if err != nil {
 		t.Fatalf("CreateVolume: %v", err)
@@ -148,6 +149,93 @@ func TestCreateVolume_WithBasePath(t *testing.T) {
 	}
 	if got := mock.EnsureQuotaEnabledCalls[0]; got != basePath {
 		t.Errorf("EnsureQuotaEnabled mountpoint = %q, want %q", got, basePath)
+	}
+}
+
+func TestResolveBasePath_SinglePoolNoParam(t *testing.T) {
+	d := newTestDriver()
+	d.SetPools(map[string]string{"mypool": testRootPath})
+
+	got, err := d.resolveBasePath(nil)
+	if err != nil {
+		t.Fatalf("resolveBasePath: %v", err)
+	}
+	if got != testRootPath {
+		t.Errorf("got %q, want %q", got, testRootPath)
+	}
+}
+
+func TestResolveBasePath_MultiplePoolsWithDefault(t *testing.T) {
+	d := newTestDriver()
+	d.SetPools(map[string]string{
+		"default": "/mnt/default",
+		"fast":    "/mnt/fast",
+	})
+
+	got, err := d.resolveBasePath(nil)
+	if err != nil {
+		t.Fatalf("resolveBasePath: %v", err)
+	}
+	if got != "/mnt/default" {
+		t.Errorf("got %q, want %q", got, "/mnt/default")
+	}
+}
+
+func TestResolveBasePath_MultiplePoolsNoDefaultFails(t *testing.T) {
+	d := newTestDriver()
+	d.SetPools(map[string]string{
+		"fast":    "/mnt/fast",
+		"archive": "/mnt/archive",
+	})
+
+	_, err := d.resolveBasePath(nil)
+	if err == nil {
+		t.Fatal("expected error when no pool param and no 'default' pool")
+	}
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v", code)
+	}
+}
+
+func TestResolveBasePath_ExplicitPoolParam(t *testing.T) {
+	d := newTestDriver()
+	d.SetPools(map[string]string{
+		"default": "/mnt/default",
+		"fast":    "/mnt/fast",
+	})
+
+	got, err := d.resolveBasePath(map[string]string{"pool": "fast"})
+	if err != nil {
+		t.Fatalf("resolveBasePath: %v", err)
+	}
+	if got != "/mnt/fast" {
+		t.Errorf("got %q, want %q", got, "/mnt/fast")
+	}
+}
+
+func TestResolveBasePath_UnknownPoolFails(t *testing.T) {
+	d := newTestDriver()
+	d.SetPools(map[string]string{"default": "/mnt/default"})
+
+	_, err := d.resolveBasePath(map[string]string{"pool": "nonexistent"})
+	if err == nil {
+		t.Fatal("expected error for unknown pool name")
+	}
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v", code)
+	}
+}
+
+func TestResolveBasePath_NoPools(t *testing.T) {
+	d := newTestDriver()
+	d.SetPools(map[string]string{})
+
+	_, err := d.resolveBasePath(nil)
+	if err == nil {
+		t.Fatal("expected error with no pools configured")
+	}
+	if code := status.Code(err); code != codes.Internal {
+		t.Errorf("expected Internal, got %v", code)
 	}
 }
 
