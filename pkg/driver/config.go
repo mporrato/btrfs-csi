@@ -46,27 +46,38 @@ func WatchConfigFile(path string, intervalMs int, reload func([]string)) chan<- 
 	return watchConfigFile(path, intervalMs, reload)
 }
 
+// pathsEqual returns true if both slices contain the same paths in the same order.
+func pathsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // watchConfigFile polls path every intervalMs milliseconds. On each poll it
-// compares the file's modification time to the last-seen value; if it
-// changed (or on first call), it parses the file and calls reload with the
-// new path list. Errors parsing the file are silently skipped so a bad
-// config update doesn't break a running driver.
+// parses the config file and compares the result to the last-seen path list;
+// if it changed (or on first call), it calls reload with the new path list.
+// Errors parsing the file are silently skipped so a bad config update doesn't
+// break a running driver.
 //
 // The caller signals shutdown by closing the returned stop channel.
 func watchConfigFile(path string, intervalMs int, reload func([]string)) chan<- struct{} {
 	stop := make(chan struct{})
 	go func() {
-		var lastMod time.Time
+		var lastPaths []string
 		tick := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
 		defer tick.Stop()
 		for {
 			// Fire immediately on first iteration before waiting for tick.
-			if info, err := os.Stat(path); err == nil {
-				if mod := info.ModTime(); !mod.Equal(lastMod) {
-					lastMod = mod
-					if paths, err := parseConfigFile(path); err == nil {
-						reload(paths)
-					}
+			if paths, err := parseConfigFile(path); err == nil {
+				if !pathsEqual(paths, lastPaths) {
+					lastPaths = paths
+					reload(paths)
 				}
 			}
 			select {
