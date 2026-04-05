@@ -3,7 +3,7 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/mporrato/btrfs-csi)](https://github.com/mporrato/btrfs-csi)
 [![License: Unlicense](https://img.shields.io/badge/License-Unlicense-green.svg)](LICENSE)
 
-A Kubernetes CSI (Container Storage Interface) storage driver for single-node clusters (e.g., k0s) that leverages btrfs features: subvolumes, snapshots, qgroups, and copy-on-write.
+A Kubernetes CSI (Container Storage Interface) storage driver for single-node clusters (e.g., k0s, minikube, kind) that leverages btrfs features: subvolumes, snapshots, qgroups, and copy-on-write.
 
 Written in Go. Single binary serving Identity, Controller, and Node gRPC services over a Unix socket.
 
@@ -11,14 +11,31 @@ Written in Go. Single binary serving Identity, Controller, and Node gRPC service
 
 - **Subvolume-based volumes**: Each PVC creates a btrfs subvolume
 - **Snapshots**: Create VolumeSnapshots from existing PVCs
-- **Cloning**: Clone existing PVCs via `dataSource`
+- **Cloning**: Clone existing PVCs via `dataSource` (same or cross-filesystem via btrfs send/receive)
 - **Volume expansion**: Online capacity expansion via qgroup limits
+- **Multi-pool support**: Configure multiple btrfs filesystems as named storage pools
 - **Topology-aware**: Supports `WaitForFirstConsumer` binding mode
 - **Idempotent operations**: All CSI operations follow the idempotency spec
 
 ## Architecture
 
 This is a **single-node** CSI driver designed for local storage. It does not implement `ControllerPublish/Unpublish` or `NodeStage/Unstage` since subvolumes are already part of the mounted btrfs filesystem.
+
+### Pool-Based Storage
+
+The driver manages one or more btrfs filesystems as **storage pools**. Pools are defined via a configuration directory (typically mounted from a ConfigMap):
+
+```
+/etc/btrfs-csi/pools/
+├── default    # contains: /mnt/btrfs-default
+└── fast       # contains: /mnt/btrfs-nvme
+```
+
+Each file in the config directory represents a pool:
+- Filename = pool name
+- File content = absolute path to a btrfs filesystem
+
+The driver watches this directory for changes and hot-reloads pool definitions when the ConfigMap updates.
 
 ### CSI Services
 
@@ -32,22 +49,23 @@ This is a **single-node** CSI driver designed for local storage. It does not imp
 
 | CSI Concept | Btrfs Feature |
 |-------------|---------------|
-| Volume | Subvolume (`<basePath>/volumes/<id>`) |
+| Volume | Subvolume (`<poolPath>/volumes/<id>`) |
 | Capacity | Qgroup limit |
-| Snapshot | Readonly snapshot (`<basePath>/snapshots/<id>`) |
+| Snapshot | Readonly snapshot (`<poolPath>/snapshots/<id>`) |
 | Clone | Writable snapshot |
 | Mount | Bind mount |
+| Pool | btrfs filesystem mount point |
 
 ### Driver Details
 
 - **Driver name**: `btrfs.csi.local`
 - **Topology key**: `topology.btrfs.csi.local/node`
-- **Default base path**: `/var/lib/btrfs-csi`
-- **State file**: `<basePath>/state.json`
+- **Default base path**: None (pools must be configured via `--config`)
+- **State file**: `<poolPath>/state.json` (one per pool)
 
 ## Prerequisites
 
-- Go 1.25+
+- Go 1.25.8+
 - btrfs-progs utilities
 - Kubernetes cluster (single-node like k0s recommended)
 - Root access (required for btrfs operations and mount)
@@ -93,7 +111,7 @@ provisioner: btrfs.csi.local
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
 parameters:
-  basePath: "/var/lib/btrfs-csi"  # optional, defaults to --root-path flag
+  pool: "default"  # references pool name from --config directory
 ```
 
 ### PVC Example
@@ -150,16 +168,18 @@ spec:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--endpoint` | `/csi/csi.sock` | CSI endpoint (Unix socket) |
-| `--nodeid` | (required) | Node ID for topology |
-| `--root-path` | `/var/lib/btrfs-csi` | Default btrfs base path |
+| `--endpoint` | `unix:///csi/csi.sock` | CSI endpoint (Unix socket) |
+| `--nodeid` | (auto-generated UUID) | Node ID for topology |
+| `--config` | (required) | Path to directory with pool definitions |
 | `--version` | (print and exit) | Print version |
+
+The `--config` directory should contain files where each filename is a pool name and the file content is the absolute path to a btrfs filesystem mount point.
 
 ### StorageClass Parameters
 
 | Parameter | Description |
 |-----------|-------------|
-| `basePath` | Override default root path (per StorageClass) |
+| `pool` | Pool name to use (must exist in --config directory) |
 
 ## Development
 
@@ -181,10 +201,9 @@ btrfs-csi/
 ├── pkg/
 │   ├── driver/              # CSI gRPC services
 │   ├── btrfs/               # btrfs CLI wrapper
-│   └── state/               # JSON-backed metadata
+│   └── state/               # JSON-backed metadata (MultiStore/FileStore)
 ├── deploy/                  # Kubernetes manifests
-├── test/                    # Kind cluster config
-└── docs/                    # Architecture & tasks
+└── test/                    # Kind cluster config, e2e helpers
 ```
 
 ### Key Interfaces
@@ -205,15 +224,25 @@ btrfs-csi/
 
 ### Driver Not Starting
 
-- Ensure the socket directory exists and is writable
-- Check that `--nodeid` is provided
+- Ensure the `--config` flag points to a valid directory with pool definitions
+- Verify the socket directory exists and is writable
+- Check that `--nodeid` is provided (or accept auto-generated UUID)
 - Verify btrfs-progs is installed: `btrfs --version`
+
+### Pool Configuration Issues
+
+- Each pool file must contain an absolute path to a btrfs filesystem
+- Verify the path is mounted: `mount | grep btrfs`
+- Ensure quota is enabled on each btrfs filesystem: `btrfs quota enable <path>`
+- Check the pool path is a btrfs filesystem: `btrfs filesystem df <path>`
+- Pool changes are detected automatically (30s polling interval)
 
 ### Volume Creation Fails
 
-- Verify the btrfs filesystem is mounted at the configured base path
-- Check that the base path directory exists and has correct permissions
+- Verify the pool's btrfs filesystem is mounted
+- Check that the pool path exists and has correct permissions
 - Ensure quota is enabled: `btrfs quota enable <path>`
+- Check the pool is defined in StorageClass: `parameters.pool: "default"`
 
 ### Mount Errors
 
