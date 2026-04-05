@@ -80,90 +80,41 @@ func (m *RealManager) SubvolumeExists(path string) (bool, error) {
 }
 
 func (m *RealManager) CreateSnapshot(src, dst string, readonly bool) error {
-	same, err := m.sameFilesystem(src, dst)
-	if err != nil {
-		return err
+	// Try direct snapshot first (works when src and dst are on the same btrfs filesystem).
+	// Fall back to send/receive for the cross-filesystem case.
+	// We avoid filesystem detection heuristics because btrfs subvolumes can report
+	// different device IDs and filesystem IDs depending on mount configuration.
+	args := []string{"subvolume", "snapshot"}
+	if readonly {
+		args = append(args, "-r")
 	}
-	if same {
-		klog.V(4).InfoS("CreateSnapshot: same filesystem, using btrfs subvolume snapshot",
+	args = append(args, src, dst)
+	if _, err := runCommand("btrfs", args...); err == nil {
+		klog.V(4).InfoS("CreateSnapshot: direct snapshot succeeded",
 			"src", src, "dst", dst, "readonly", readonly)
-		args := []string{"subvolume", "snapshot"}
-		if readonly {
-			args = append(args, "-r")
-		}
-		args = append(args, src, dst)
-		if _, err := runCommand("btrfs", args...); err != nil {
-			return fmt.Errorf("create snapshot %s -> %s: %w", src, dst, err)
-		}
 		return nil
 	}
-	klog.V(4).InfoS("CreateSnapshot: different filesystem, using send/receive",
+	klog.V(4).InfoS("CreateSnapshot: direct snapshot failed, trying send/receive",
 		"src", src, "dst", dst, "readonly", readonly)
 	return m.sendReceive(src, dst, readonly)
 }
 
-// sameFilesystem checks if src and dst are on the same btrfs filesystem.
-// Since dst may not exist yet, it walks up to the nearest existing ancestor.
-func (m *RealManager) sameFilesystem(src, dst string) (bool, error) {
-	var srcStat, dstStat syscall.Stat_t
-	if err := syscall.Stat(src, &srcStat); err != nil {
-		return false, fmt.Errorf("stat %s: %w", src, err)
-	}
-	dstDir := dst
-	for {
-		if err := syscall.Stat(dstDir, &dstStat); err == nil {
-			break
+// cleanupStaleSnapshots deletes stale temp snapshots from the given directories.
+func (m *RealManager) cleanupStaleSnapshots(srcDir, tempDir, srcBase string) {
+	tempSnapBase := fmt.Sprintf(".btrfs-csi-send-%s-*", srcBase)
+	for _, dir := range []string{srcDir, tempDir} {
+		matches, _ := filepath.Glob(filepath.Join(dir, tempSnapBase))
+		for _, match := range matches {
+			klog.V(4).InfoS("cleanupStaleSnapshots: removing", "path", match)
+			if err := m.DeleteSubvolume(match); err != nil {
+				klog.V(2).InfoS("cleanupStaleSnapshots: failed to remove", "path", match, "err", err)
+			}
 		}
-		parent := filepath.Dir(dstDir)
-		if parent == dstDir {
-			return false, fmt.Errorf("no existing ancestor for %s", dst)
-		}
-		dstDir = parent
 	}
-	return srcStat.Dev == dstStat.Dev, nil
 }
 
-// sendReceive performs cross-filesystem snapshot using btrfs send/receive.
-func (m *RealManager) sendReceive(src, dst string, readonly bool) error {
-	klog.V(4).InfoS("sendReceive: creating cross-filesystem snapshot", "src", src, "dst", dst, "readonly", readonly)
-
-	// 0. Idempotency check: if destination already exists, return success
-	exists, err := m.SubvolumeExists(dst)
-	if err != nil {
-		return fmt.Errorf("check destination: %w", err)
-	}
-	if exists {
-		klog.V(4).InfoS("sendReceive: destination already exists", "dst", dst)
-		return nil
-	}
-
-	// 1. Clean up any stale temp snapshot from previous run
-	tempSnapBase := fmt.Sprintf(".btrfs-csi-send-%s-*", filepath.Base(src))
-	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(src), tempSnapBase))
-	for _, match := range matches {
-		klog.V(4).InfoS("sendReceive: cleaning up stale temp snapshot", "path", match)
-		if err := m.DeleteSubvolume(match); err != nil {
-			klog.V(2).InfoS("sendReceive: failed to clean up stale temp snapshot", "path", match, "err", err)
-		}
-	}
-
-	// 2. Create temporary readonly snapshot of src
-	// Use direct runCommand to avoid potential recursion if src and tempSnap are on different filesystems
-	// Use UUID instead of PID to avoid collisions when a previous run left a stale temp snapshot
-	snapName := fmt.Sprintf(".btrfs-csi-send-%s-%s", filepath.Base(src), uuid.New().String()[:8])
-	tempSnap := filepath.Join(filepath.Dir(src), snapName)
-	if _, err := runCommand("btrfs", "subvolume", "snapshot", "-r", src, tempSnap); err != nil {
-		return fmt.Errorf("create temp snapshot: %w", err)
-	}
-	defer func() { _ = m.DeleteSubvolume(tempSnap) }()
-
-	// 3. Ensure destination parent directory exists
-	dstDir := filepath.Dir(dst)
-	if err := os.MkdirAll(dstDir, 0o750); err != nil {
-		return fmt.Errorf("create dst directory: %w", err)
-	}
-
-	// 4. btrfs send <temp> | btrfs receive <dst_dir>
+// doSendReceive performs btrfs send/receive and renames the result.
+func (m *RealManager) doSendReceive(tempSnap, dstDir, dst string, readonly bool) error {
 	//nolint:gosec // tempSnap is generated internally, not user input
 	sendCmd := exec.Command("btrfs", "send", "--compressed-data", tempSnap)
 	//nolint:gosec // dstDir is derived from dst parameter, controlled by CSI driver
@@ -190,7 +141,7 @@ func (m *RealManager) sendReceive(src, dst string, readonly bool) error {
 		return fmt.Errorf("btrfs receive %s: %w: %s", dstDir, err, recvStderr.String())
 	}
 
-	// 5. Rename received snapshot to dst
+	// Rename received snapshot to dst
 	receivedName := filepath.Base(tempSnap)
 	receivedPath := filepath.Join(dstDir, receivedName)
 	if receivedPath != dst {
@@ -200,11 +151,69 @@ func (m *RealManager) sendReceive(src, dst string, readonly bool) error {
 		}
 	}
 
-	// 6. Make writable if needed
+	// Make writable if needed
 	if !readonly {
-		if _, err := runCommand("btrfs", "property", "set", dst, "ro", "false"); err != nil {
+		if _, err := runCommand("btrfs", "property", "set", "-f", dst, "ro", "false"); err != nil {
 			return fmt.Errorf("make writable %s: %w", dst, err)
 		}
+	}
+	return nil
+}
+
+// sendReceive performs cross-filesystem snapshot using btrfs send/receive.
+func (m *RealManager) sendReceive(src, dst string, readonly bool) error {
+	klog.V(4).InfoS("sendReceive: creating cross-filesystem snapshot", "src", src, "dst", dst, "readonly", readonly)
+
+	// 0. Idempotency check: if destination already exists, return success
+	exists, err := m.SubvolumeExists(dst)
+	if err != nil {
+		return fmt.Errorf("check destination: %w", err)
+	}
+	if exists {
+		klog.V(4).InfoS("sendReceive: destination already exists", "dst", dst)
+		return nil
+	}
+
+	// 1. Create a dedicated temp subdirectory for temp snapshots.
+	// This prevents collision when srcDir == dstDir: btrfs receive would
+	// try to create a subvolume with the same name as the temp snapshot.
+	srcDir := filepath.Dir(src)
+	tempDir := filepath.Join(srcDir, ".btrfs-csi-tmp")
+	if err := os.MkdirAll(tempDir, 0o750); err != nil {
+		return fmt.Errorf("create temp directory: %w", err)
+	}
+	defer func() { _ = os.Remove(tempDir) }() // clean up empty dir
+
+	// 2. Clean up stale temp snapshots from previous runs (both old and new locations)
+	m.cleanupStaleSnapshots(srcDir, tempDir, filepath.Base(src))
+
+	// 3. Create temporary readonly snapshot of src in the temp subdirectory
+	snapName := fmt.Sprintf(".btrfs-csi-send-%s-%s", filepath.Base(src), uuid.New().String()[:8])
+	tempSnap := filepath.Join(tempDir, snapName)
+	if _, err := runCommand("btrfs", "subvolume", "snapshot", "-r", src, tempSnap); err != nil {
+		return fmt.Errorf("create temp snapshot: %w", err)
+	}
+	defer func() { _ = m.DeleteSubvolume(tempSnap) }()
+
+	// 4. Ensure destination parent directory exists
+	dstDir := filepath.Dir(dst)
+	if err := os.MkdirAll(dstDir, 0o750); err != nil {
+		return fmt.Errorf("create dst directory: %w", err)
+	}
+
+	// Also clean up stale received snapshots in dstDir from previous failed runs
+	tempSnapBase := fmt.Sprintf(".btrfs-csi-send-%s-*", filepath.Base(src))
+	dstMatches, _ := filepath.Glob(filepath.Join(dstDir, tempSnapBase))
+	for _, match := range dstMatches {
+		klog.V(4).InfoS("sendReceive: cleaning up stale received snapshot", "path", match)
+		if err := m.DeleteSubvolume(match); err != nil {
+			klog.V(2).InfoS("sendReceive: failed to clean up stale received snapshot", "path", match, "err", err)
+		}
+	}
+
+	// 5. btrfs send <temp> | btrfs receive <dst_dir>
+	if err := m.doSendReceive(tempSnap, dstDir, dst, readonly); err != nil {
+		return err
 	}
 
 	klog.V(4).InfoS("sendReceive: cross-filesystem snapshot created", "src", src, "dst", dst)
