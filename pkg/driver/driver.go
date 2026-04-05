@@ -70,13 +70,7 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) *Driver {
 
 	// Schedule initial qgroup cleanup 1 minute after startup.
 	time.AfterFunc(startupQgroupCleanup, func() {
-		for _, bp := range d.basePaths() {
-			if err := mgr.ClearStaleQgroups(bp); err != nil {
-				klog.V(4).InfoS("startup qgroup cleanup skipped", "basePath", bp, "err", err)
-			} else {
-				klog.V(4).InfoS("startup qgroup cleanup completed", "basePath", bp)
-			}
-		}
+		d.doQgroupCleanup()
 	})
 
 	return d
@@ -152,6 +146,17 @@ func (d *Driver) Run(endpoint string) error {
 	return d.grpcServer.Serve(listener)
 }
 
+// doQgroupCleanup runs ClearStaleQgroups for all base paths.
+func (d *Driver) doQgroupCleanup() {
+	for _, bp := range d.basePaths() {
+		if err := d.ClearStaleQgroups(bp); err != nil {
+			klog.V(4).InfoS("qgroup cleanup failed", "basePath", bp, "err", err)
+		} else {
+			klog.V(4).InfoS("qgroup cleanup completed", "basePath", bp)
+		}
+	}
+}
+
 // scheduleQgroupCleanup schedules a debounced call to ClearStaleQgroups. If a
 // cleanup is already pending, the timer is reset so the cleanup runs 10 minutes
 // after the last deletion rather than after every individual one.
@@ -163,13 +168,7 @@ func (d *Driver) scheduleQgroupCleanup() {
 		return
 	}
 	d.qgroupCleanupTimer = time.AfterFunc(qgroupCleanupDelay, func() {
-		for _, bp := range d.basePaths() {
-			if err := d.ClearStaleQgroups(bp); err != nil {
-				klog.V(4).InfoS("qgroup cleanup failed", "basePath", bp, "err", err)
-			} else {
-				klog.V(4).InfoS("qgroup cleanup completed", "basePath", bp)
-			}
-		}
+		d.doQgroupCleanup()
 		d.qgroupCleanupMu.Lock()
 		d.qgroupCleanupTimer = nil
 		d.qgroupCleanupMu.Unlock()
