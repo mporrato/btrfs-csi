@@ -107,6 +107,20 @@ func (s *memStore) DeleteSnapshot(id string) error {
 	return nil
 }
 
+// funcManager embeds MockManager and lets individual methods be overridden
+// with a closure, useful for recording calls with extra context (e.g. timestamps).
+type funcManager struct {
+	btrfs.MockManager
+	clearStaleQgroups func(path string) error
+}
+
+func (f *funcManager) ClearStaleQgroups(path string) error {
+	if f.clearStaleQgroups != nil {
+		return f.clearStaleQgroups(path)
+	}
+	return f.MockManager.ClearStaleQgroups(path)
+}
+
 // newTestMultiStore wraps a memStore in a MultiStore keyed by the given dir.
 // The returned MultiStore implements state.Store and routes by BasePath.
 func newTestMultiStore(dir string) (*state.MultiStore, *memStore) {

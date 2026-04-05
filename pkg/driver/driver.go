@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ const (
 	version              = "0.1.0"
 	qgroupCleanupDelay   = 10 * time.Minute
 	startupQgroupCleanup = 1 * time.Minute
+	startupQgroupStagger = 5 * time.Second
 )
 
 // Driver implements the CSI Identity, Controller, and Node services.
@@ -42,8 +44,8 @@ type Driver struct {
 	poolsMu sync.RWMutex
 	pools   map[string]string // pool name → base path
 
-	qgroupCleanupMu    sync.Mutex
-	qgroupCleanupTimer *time.Timer
+	qgroupCleanupMu     sync.Mutex
+	qgroupCleanupTimers map[string]*time.Timer // keyed by basePath
 }
 
 // NewDriver creates a new Driver with the given btrfs manager, state store, and node ID.
@@ -71,8 +73,8 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) *Driver {
 		Store:   store,
 	}
 
-	// Schedule initial qgroup cleanup 1 minute after startup.
-	d.scheduleQgroupCleanup(startupQgroupCleanup)
+	// Schedule initial qgroup cleanup for all known paths, staggered.
+	d.scheduleStartupQgroupCleanups(startupQgroupCleanup, startupQgroupStagger)
 
 	return d
 }
@@ -173,42 +175,50 @@ func (d *Driver) Run(endpoint string) error {
 	return d.grpcServer.Serve(listener)
 }
 
-// doQgroupCleanup runs ClearStaleQgroups for all base paths.
-func (d *Driver) doQgroupCleanup() {
-	for _, bp := range d.basePaths() {
-		if err := d.ClearStaleQgroups(bp); err != nil {
-			klog.V(4).InfoS("qgroup cleanup failed", "basePath", bp, "err", err)
-		} else {
-			klog.V(4).InfoS("qgroup cleanup completed", "basePath", bp)
-		}
-	}
-}
-
-// scheduleQgroupCleanup schedules a call to ClearStaleQgroups after the given delay.
-// If a cleanup is already pending, the timer is reset so the cleanup runs delay
-// after this call rather than at its original scheduled time (providing debouncing
-// when called repeatedly from volume deletions).
-func (d *Driver) scheduleQgroupCleanup(delay time.Duration) {
+// scheduleQgroupCleanup schedules a call to ClearStaleQgroups for the given
+// basePath after the given delay. Each basePath has its own independent timer.
+// If a cleanup for this path is already pending, the timer is reset so the
+// cleanup runs delay after this call (providing debouncing when called
+// repeatedly from volume deletions).
+func (d *Driver) scheduleQgroupCleanup(basePath string, delay time.Duration) {
 	d.qgroupCleanupMu.Lock()
 	defer d.qgroupCleanupMu.Unlock()
-	if d.qgroupCleanupTimer != nil {
-		d.qgroupCleanupTimer.Reset(delay)
+	if d.qgroupCleanupTimers == nil {
+		d.qgroupCleanupTimers = make(map[string]*time.Timer)
+	}
+	if t, ok := d.qgroupCleanupTimers[basePath]; ok {
+		t.Reset(delay)
 		return
 	}
-	d.qgroupCleanupTimer = time.AfterFunc(delay, func() {
-		d.doQgroupCleanup()
+	d.qgroupCleanupTimers[basePath] = time.AfterFunc(delay, func() {
+		if err := d.ClearStaleQgroups(basePath); err != nil {
+			klog.V(4).InfoS("qgroup cleanup failed", "basePath", basePath, "err", err)
+		} else {
+			klog.V(4).InfoS("qgroup cleanup completed", "basePath", basePath)
+		}
 		d.qgroupCleanupMu.Lock()
-		d.qgroupCleanupTimer = nil
+		delete(d.qgroupCleanupTimers, basePath)
 		d.qgroupCleanupMu.Unlock()
 	})
+}
+
+// scheduleStartupQgroupCleanups schedules a qgroup cleanup for each known base
+// path. Paths are sorted so the stagger order is deterministic. Each successive
+// path gets an additional stagger delay to avoid all cleanups firing at once.
+func (d *Driver) scheduleStartupQgroupCleanups(baseDelay, stagger time.Duration) {
+	paths := d.basePaths()
+	sort.Strings(paths)
+	for i, bp := range paths {
+		d.scheduleQgroupCleanup(bp, baseDelay+time.Duration(i)*stagger)
+	}
 }
 
 // Stop gracefully shuts down the gRPC server.
 func (d *Driver) Stop() {
 	d.qgroupCleanupMu.Lock()
-	if d.qgroupCleanupTimer != nil {
-		d.qgroupCleanupTimer.Stop()
-		d.qgroupCleanupTimer = nil
+	for bp, t := range d.qgroupCleanupTimers {
+		t.Stop()
+		delete(d.qgroupCleanupTimers, bp)
 	}
 	d.qgroupCleanupMu.Unlock()
 

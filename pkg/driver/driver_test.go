@@ -6,10 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/mporrato/btrfs-csi/pkg/btrfs"
+	"github.com/mporrato/btrfs-csi/pkg/state"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -18,6 +21,94 @@ func TestNewDriver_ClearsStaleQgroupsOnStartup(t *testing.T) {
 	_, mock, _ := newTestDriverWithMock()
 	if len(mock.ClearStaleQgroupsCalls) != 0 {
 		t.Fatalf("expected no ClearStaleQgroups call synchronously on startup, got %d", len(mock.ClearStaleQgroupsCalls))
+	}
+}
+
+func TestScheduleStartupQgroupCleanups_Staggered(t *testing.T) {
+	// Use sorted paths so stagger order is deterministic.
+	pathA := "/mnt/pool-a"
+	pathB := "/mnt/pool-b"
+
+	type stampedCall struct {
+		path string
+		at   time.Time
+	}
+	var mu sync.Mutex
+	var callLog []stampedCall
+
+	mgr := &funcManager{
+		clearStaleQgroups: func(path string) error {
+			mu.Lock()
+			callLog = append(callLog, stampedCall{path: path, at: time.Now()})
+			mu.Unlock()
+			return nil
+		},
+	}
+
+	ms := state.NewMultiStore()
+	ms.AddStoreForTest(pathA, newMemStore(pathA))
+	ms.AddStoreForTest(pathB, newMemStore(pathB))
+
+	d := NewDriver(mgr, ms, "test-node")
+	d.SetPools(map[string]string{"a": pathA, "b": pathB})
+
+	const base, stagger = 20 * time.Millisecond, 30 * time.Millisecond
+	d.scheduleStartupQgroupCleanups(base, stagger)
+
+	// After base+stagger/2: only pathA (index 0) should have fired.
+	time.Sleep(base + stagger/2)
+	mu.Lock()
+	midCount := len(callLog)
+	mu.Unlock()
+	if midCount != 1 {
+		t.Fatalf("after first stagger window: want 1 cleanup, got %d", midCount)
+	}
+	if callLog[0].path != pathA {
+		t.Errorf("first cleanup path = %q, want %q", callLog[0].path, pathA)
+	}
+
+	// Wait for pathB (index 1) to also fire.
+	time.Sleep(stagger + 10*time.Millisecond)
+	mu.Lock()
+	finalLog := append([]stampedCall(nil), callLog...)
+	mu.Unlock()
+	if len(finalLog) != 2 {
+		t.Fatalf("after all stagger windows: want 2 cleanups, got %d", len(finalLog))
+	}
+	if finalLog[1].path != pathB {
+		t.Errorf("second cleanup path = %q, want %q", finalLog[1].path, pathB)
+	}
+	if gap := finalLog[1].at.Sub(finalLog[0].at); gap < stagger/2 {
+		t.Errorf("cleanup gap = %v, want >= %v", gap, stagger/2)
+	}
+}
+
+func TestScheduleQgroupCleanup_OnlyTargetsSpecifiedPath(t *testing.T) {
+	mock := &btrfs.MockManager{}
+	pathA := "/mnt/pool-a"
+	pathB := "/mnt/pool-b"
+
+	ms := state.NewMultiStore()
+	memA := newMemStore(pathA)
+	memB := newMemStore(pathB)
+	ms.AddStoreForTest(pathA, memA)
+	ms.AddStoreForTest(pathB, memB)
+
+	d := NewDriver(mock, ms, "test-node")
+	d.SetPools(map[string]string{"a": pathA, "b": pathB})
+
+	// Schedule cleanup only for pathA with a very short delay.
+	d.scheduleQgroupCleanup(pathA, 10*time.Millisecond)
+
+	// Wait for the timer to fire.
+	time.Sleep(50 * time.Millisecond)
+
+	// Only pathA should have been cleaned.
+	if len(mock.ClearStaleQgroupsCalls) != 1 {
+		t.Fatalf("expected 1 ClearStaleQgroups call, got %d: %v", len(mock.ClearStaleQgroupsCalls), mock.ClearStaleQgroupsCalls)
+	}
+	if mock.ClearStaleQgroupsCalls[0] != pathA {
+		t.Errorf("ClearStaleQgroups called with %q, want %q", mock.ClearStaleQgroupsCalls[0], pathA)
 	}
 }
 

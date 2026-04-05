@@ -280,7 +280,7 @@ func (d *Driver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest)
 	}
 
 	klog.V(4).InfoS("DeleteVolume", "volumeID", req.VolumeId)
-	d.scheduleQgroupCleanup(qgroupCleanupDelay)
+	d.scheduleQgroupCleanup(vol.BasePath, qgroupCleanupDelay)
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
@@ -448,7 +448,7 @@ func (d *Driver) DeleteSnapshot(_ context.Context, req *csi.DeleteSnapshotReques
 	}
 
 	klog.V(4).InfoS("DeleteSnapshot", "snapshotID", req.SnapshotId)
-	d.scheduleQgroupCleanup(qgroupCleanupDelay)
+	d.scheduleQgroupCleanup(snap.BasePath, qgroupCleanupDelay)
 	return &csi.DeleteSnapshotResponse{}, nil
 }
 
