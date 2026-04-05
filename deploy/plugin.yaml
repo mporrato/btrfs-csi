@@ -32,6 +32,9 @@ spec:
           hostPath:
             path: /var/lib/btrfs-csi
             type: DirectoryOrCreate
+        - name: basepaths-config
+          configMap:
+            name: btrfs-csi-basepaths
       containers:
         - name: btrfs-csi-driver
           image: localhost/btrfs-csi-driver:latest
@@ -41,6 +44,7 @@ spec:
           args:
             - --endpoint=unix:///csi/csi.sock
             - --root-path=/var/lib/btrfs-csi
+            - --config=/etc/btrfs-csi/basepaths.txt
             - --nodeid=$(NODE_NAME)
           env:
             - name: NODE_NAME
@@ -55,6 +59,9 @@ spec:
             - name: kubelet-pods-dir
               mountPath: /var/lib/kubelet/pods
               mountPropagation: Bidirectional
+            - name: basepaths-config
+              mountPath: /etc/btrfs-csi
+              readOnly: true
 
         - name: node-driver-registrar
           image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.11.1

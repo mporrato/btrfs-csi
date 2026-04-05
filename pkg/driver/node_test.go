@@ -59,16 +59,6 @@ func (m *MockMounter) IsMountPoint(file string) (bool, error) {
 	return m.IsMountPointResult, m.IsMountPointErr
 }
 
-// newTestDriverWithMounter creates a Driver with mock btrfs, mock mounter, and in-memory store.
-func newTestDriverWithMounter() (*Driver, *btrfs.MockManager, *MockMounter, *memStore) {
-	mock := &btrfs.MockManager{}
-	mounter := &MockMounter{}
-	store := newMemStore()
-	d := NewDriver(mock, store, "test-node", "/tmp/btrfs-csi-test")
-	d.mounter = mounter
-	return d, mock, mounter, store
-}
-
 func TestNodePublishVolume_Success(t *testing.T) {
 	d, _, mounter, store := newTestDriverWithMounter()
 

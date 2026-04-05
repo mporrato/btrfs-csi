@@ -95,7 +95,7 @@ func TestProbeUnhealthy(t *testing.T) {
 }
 
 func TestNewDriverValidation(t *testing.T) {
-	store := newMemStore()
+	ms, _ := newTestMultiStore(testRootPath)
 
 	t.Run("nil manager", func(t *testing.T) {
 		defer func() {
@@ -103,7 +103,7 @@ func TestNewDriverValidation(t *testing.T) {
 				t.Error("NewDriver with nil manager should panic")
 			}
 		}()
-		NewDriver(nil, store, "node1", "/tmp")
+		NewDriver(nil, ms, "node1", "/tmp")
 	})
 
 	t.Run("nil store", func(t *testing.T) {
@@ -118,11 +118,11 @@ func TestNewDriverValidation(t *testing.T) {
 
 func TestNewDriverSetsFields(t *testing.T) {
 	mgr := &btrfs.MockManager{}
-	store := newMemStore()
+	ms, _ := newTestMultiStore(testRootPath)
 	nodeID := "test-node"
 	rootPath := "/var/lib/btrfs-csi"
 
-	d := NewDriver(mgr, store, nodeID, rootPath)
+	d := NewDriver(mgr, ms, nodeID, rootPath)
 
 	if d.nodeID != nodeID {
 		t.Errorf("nodeID = %q, want %q", d.nodeID, nodeID)

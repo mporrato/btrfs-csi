@@ -28,8 +28,9 @@ type Volume struct {
 	// CapacityBytes is the requested capacity in bytes.
 	CapacityBytes int64
 	// BasePath is the root directory under which this volume's subvolume lives.
-	// The actual subvolume path is derived via Path().
-	BasePath string
+	// It is NOT persisted to JSON — each FileStore re-derives it from its own
+	// location on load, so the state file remains portable across remounts.
+	BasePath string `json:"-"`
 	// SourceSnapID is the snapshot ID if this volume was created from a snapshot.
 	SourceSnapID string
 	// SourceVolID is the volume ID if this volume was cloned from another volume.
@@ -47,8 +48,8 @@ type Snapshot struct {
 	// SourceVolID is the volume ID that was snapshotted.
 	SourceVolID string
 	// BasePath is the root directory under which this snapshot lives.
-	// The actual snapshot path is derived via Path().
-	BasePath string
+	// It is NOT persisted to JSON — re-derived from the FileStore on load.
+	BasePath string `json:"-"`
 	// CreatedAt is the time the snapshot was created.
 	CreatedAt time.Time
 	// SizeBytes is the size of the snapshot in bytes.
@@ -244,11 +245,21 @@ func (fs *FileStore) persist() error {
 	return nil
 }
 
+// Dir returns the base directory this store manages — the parent of state.json.
+// All volume and snapshot paths are rooted here.
+func (fs *FileStore) Dir() string {
+	return filepath.Dir(fs.path)
+}
+
 func (fs *FileStore) GetVolume(id string) (*Volume, bool) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	v, ok := fs.data.Volumes[id]
-	return copyVolume(v), ok
+	cp := copyVolume(v)
+	if cp != nil {
+		cp.BasePath = fs.Dir()
+	}
+	return cp, ok
 }
 
 func (fs *FileStore) GetVolumeByName(name string) (*Volume, bool) {
@@ -256,7 +267,9 @@ func (fs *FileStore) GetVolumeByName(name string) (*Volume, bool) {
 	defer fs.mu.Unlock()
 	for _, v := range fs.data.Volumes {
 		if v.Name == name {
-			return copyVolume(v), true
+			cp := copyVolume(v)
+			cp.BasePath = fs.Dir()
+			return cp, true
 		}
 	}
 	return nil, false
@@ -265,9 +278,12 @@ func (fs *FileStore) GetVolumeByName(name string) (*Volume, bool) {
 func (fs *FileStore) ListVolumes() []*Volume {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
+	dir := fs.Dir()
 	result := make([]*Volume, 0, len(fs.data.Volumes))
 	for _, v := range fs.data.Volumes {
-		result = append(result, copyVolume(v))
+		cp := copyVolume(v)
+		cp.BasePath = dir
+		result = append(result, cp)
 	}
 	return result
 }
@@ -292,7 +308,11 @@ func (fs *FileStore) GetSnapshot(id string) (*Snapshot, bool) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	s, ok := fs.data.Snapshots[id]
-	return copySnapshot(s), ok
+	cp := copySnapshot(s)
+	if cp != nil {
+		cp.BasePath = fs.Dir()
+	}
+	return cp, ok
 }
 
 func (fs *FileStore) GetSnapshotByName(name string) (*Snapshot, bool) {
@@ -300,7 +320,9 @@ func (fs *FileStore) GetSnapshotByName(name string) (*Snapshot, bool) {
 	defer fs.mu.Unlock()
 	for _, s := range fs.data.Snapshots {
 		if s.Name == name {
-			return copySnapshot(s), true
+			cp := copySnapshot(s)
+			cp.BasePath = fs.Dir()
+			return cp, true
 		}
 	}
 	return nil, false
@@ -309,9 +331,12 @@ func (fs *FileStore) GetSnapshotByName(name string) (*Snapshot, bool) {
 func (fs *FileStore) ListSnapshots() []*Snapshot {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
+	dir := fs.Dir()
 	result := make([]*Snapshot, 0, len(fs.data.Snapshots))
 	for _, s := range fs.data.Snapshots {
-		result = append(result, copySnapshot(s))
+		cp := copySnapshot(s)
+		cp.BasePath = dir
+		result = append(result, cp)
 	}
 	return result
 }
@@ -331,3 +356,210 @@ func (fs *FileStore) DeleteSnapshot(id string) error {
 		delete(fs.data.Snapshots, id)
 	})
 }
+
+// MultiStore manages multiple stores — one per btrfs base path — and
+// implements Store by routing writes based on vol/snap.BasePath and
+// searching all stores for reads.
+type MultiStore struct {
+	mu     sync.RWMutex
+	stores map[string]Store // keyed by basePath; basePath == key, no Dir() needed
+}
+
+// NewMultiStore creates an empty MultiStore.
+func NewMultiStore() *MultiStore {
+	return &MultiStore{stores: make(map[string]Store)}
+}
+
+// AddPath opens (or creates) a FileStore at basePath/state.json and registers it.
+func (ms *MultiStore) AddPath(basePath string) error {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	if _, exists := ms.stores[basePath]; exists {
+		return nil // already registered — idempotent
+	}
+	fs, err := NewFileStore(filepath.Join(basePath, "state.json"))
+	if err != nil {
+		return fmt.Errorf("open store at %s: %w", basePath, err)
+	}
+	ms.stores[basePath] = fs
+	return nil
+}
+
+// AddStoreForTest registers an arbitrary Store implementation under basePath.
+// Intended for unit tests that supply in-memory stores; production code uses AddPath.
+func (ms *MultiStore) AddStoreForTest(basePath string, s Store) {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	ms.stores[basePath] = s
+}
+
+// RemovePath removes the store for basePath from the registry.
+// The state file on disk is not touched.
+func (ms *MultiStore) RemovePath(basePath string) {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	delete(ms.stores, basePath)
+}
+
+// ReloadPaths reconciles the registry against a new list of base paths:
+// new paths are opened via AddPath and paths no longer in the list are removed.
+// The default rootPath (added at startup) is preserved even if absent from newPaths.
+func (ms *MultiStore) ReloadPaths(newPaths []string) {
+	desired := make(map[string]struct{}, len(newPaths))
+	for _, p := range newPaths {
+		desired[p] = struct{}{}
+	}
+
+	// Add any new paths.
+	for p := range desired {
+		_ = ms.AddPath(p) // idempotent; logs errors internally
+	}
+
+	// Remove paths no longer in the config (but keep any not in desired that
+	// were added outside of config, e.g. the default rootPath).
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	for p := range ms.stores {
+		if _, keep := desired[p]; !keep {
+			// Only remove stores that were config-managed (FileStore), not
+			// test stores injected via AddStoreForTest.
+			if _, isFile := ms.stores[p].(*FileStore); isFile {
+				delete(ms.stores, p)
+			}
+		}
+	}
+}
+
+// StoreFor returns the Store registered for basePath.
+func (ms *MultiStore) StoreFor(basePath string) (Store, bool) {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	s, ok := ms.stores[basePath]
+	return s, ok
+}
+
+// Dirs returns the list of registered base paths.
+func (ms *MultiStore) Dirs() []string {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	dirs := make([]string, 0, len(ms.stores))
+	for d := range ms.stores {
+		dirs = append(dirs, d)
+	}
+	return dirs
+}
+
+func (ms *MultiStore) storeForBasePath(basePath string) (Store, error) {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	s, ok := ms.stores[basePath]
+	if !ok {
+		return nil, fmt.Errorf("no store registered for basePath %q", basePath)
+	}
+	return s, nil
+}
+
+func (ms *MultiStore) GetVolume(id string) (*Volume, bool) {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	for _, s := range ms.stores {
+		if v, ok := s.GetVolume(id); ok {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
+func (ms *MultiStore) GetVolumeByName(name string) (*Volume, bool) {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	for _, s := range ms.stores {
+		if v, ok := s.GetVolumeByName(name); ok {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
+func (ms *MultiStore) ListVolumes() []*Volume {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	var result []*Volume
+	for _, s := range ms.stores {
+		result = append(result, s.ListVolumes()...)
+	}
+	return result
+}
+
+func (ms *MultiStore) SaveVolume(volume *Volume) error {
+	s, err := ms.storeForBasePath(volume.BasePath)
+	if err != nil {
+		return err
+	}
+	return s.SaveVolume(volume)
+}
+
+func (ms *MultiStore) DeleteVolume(id string) error {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	for _, s := range ms.stores {
+		if _, ok := s.GetVolume(id); ok {
+			return s.DeleteVolume(id)
+		}
+	}
+	return nil // not found — idempotent
+}
+
+func (ms *MultiStore) GetSnapshot(id string) (*Snapshot, bool) {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	for _, s := range ms.stores {
+		if snap, ok := s.GetSnapshot(id); ok {
+			return snap, true
+		}
+	}
+	return nil, false
+}
+
+func (ms *MultiStore) GetSnapshotByName(name string) (*Snapshot, bool) {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	for _, s := range ms.stores {
+		if snap, ok := s.GetSnapshotByName(name); ok {
+			return snap, true
+		}
+	}
+	return nil, false
+}
+
+func (ms *MultiStore) ListSnapshots() []*Snapshot {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	var result []*Snapshot
+	for _, s := range ms.stores {
+		result = append(result, s.ListSnapshots()...)
+	}
+	return result
+}
+
+func (ms *MultiStore) SaveSnapshot(snapshot *Snapshot) error {
+	s, err := ms.storeForBasePath(snapshot.BasePath)
+	if err != nil {
+		return err
+	}
+	return s.SaveSnapshot(snapshot)
+}
+
+func (ms *MultiStore) DeleteSnapshot(id string) error {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	for _, s := range ms.stores {
+		if _, ok := s.GetSnapshot(id); ok {
+			return s.DeleteSnapshot(id)
+		}
+	}
+	return nil // not found — idempotent
+}
+
+// Compile-time check: MultiStore implements Store.
+var _ Store = (*MultiStore)(nil)

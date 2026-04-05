@@ -37,12 +37,13 @@ func TestSnapshotPath(t *testing.T) {
 
 func TestSaveAndGetVolume(t *testing.T) {
 	store := newTestStore(t)
+	dir := store.Dir()
 
 	vol := &Volume{
 		ID:            "vol-1",
 		Name:          "pvc-abc",
 		CapacityBytes: 1024 * 1024 * 100,
-		BasePath:      "/var/lib/btrfs-csi",
+		BasePath:      dir,
 		NodeID:        "node-1",
 	}
 
@@ -63,8 +64,8 @@ func TestSaveAndGetVolume(t *testing.T) {
 	if got.CapacityBytes != vol.CapacityBytes {
 		t.Errorf("CapacityBytes = %d, want %d", got.CapacityBytes, vol.CapacityBytes)
 	}
-	if got.BasePath != vol.BasePath {
-		t.Errorf("BasePath = %q, want %q", got.BasePath, vol.BasePath)
+	if got.BasePath != dir {
+		t.Errorf("BasePath = %q, want %q", got.BasePath, dir)
 	}
 	if got.Path() != vol.Path() {
 		t.Errorf("Path() = %q, want %q", got.Path(), vol.Path())
@@ -203,7 +204,7 @@ func TestSaveAndGetSnapshot(t *testing.T) {
 		ID:          "snap-1",
 		Name:        "backup-1",
 		SourceVolID: "vol-1",
-		BasePath:    "/var/lib/btrfs-csi",
+		BasePath:    store.Dir(),
 		CreatedAt:   time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC),
 		SizeBytes:   512,
 		ReadyToUse:  true,
@@ -226,8 +227,8 @@ func TestSaveAndGetSnapshot(t *testing.T) {
 	if got.SourceVolID != snap.SourceVolID {
 		t.Errorf("SourceVolID = %q, want %q", got.SourceVolID, snap.SourceVolID)
 	}
-	if got.BasePath != snap.BasePath {
-		t.Errorf("BasePath = %q, want %q", got.BasePath, snap.BasePath)
+	if got.BasePath != store.Dir() {
+		t.Errorf("BasePath = %q, want %q", got.BasePath, store.Dir())
 	}
 	if got.Path() != snap.Path() {
 		t.Errorf("Path() = %q, want %q", got.Path(), snap.Path())
@@ -624,6 +625,215 @@ func TestSaveVolume_CallerMutationIsolated(t *testing.T) {
 	}
 	if got.Name != "original" {
 		t.Errorf("store returned mutated name %q; SaveVolume must copy the input", got.Name)
+	}
+}
+
+// --- FileStore.Dir tests ---
+
+func TestFileStore_Dir(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFileStore(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	if got := store.Dir(); got != dir {
+		t.Errorf("Dir() = %q, want %q", got, dir)
+	}
+}
+
+func TestFileStore_HydratesBasePath_OnGet(t *testing.T) {
+	store := newTestStore(t)
+	dir := store.Dir()
+
+	if err := store.SaveVolume(&Volume{ID: "v1", Name: "pvc-1", BasePath: dir}); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+	got, ok := store.GetVolume("v1")
+	if !ok {
+		t.Fatal("GetVolume returned false")
+	}
+	if got.BasePath != dir {
+		t.Errorf("GetVolume BasePath = %q, want %q", got.BasePath, dir)
+	}
+}
+
+func TestFileStore_HydratesBasePath_OnList(t *testing.T) {
+	store := newTestStore(t)
+	dir := store.Dir()
+
+	if err := store.SaveVolume(&Volume{ID: "v1", Name: "pvc-1", BasePath: dir}); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+	vols := store.ListVolumes()
+	if len(vols) != 1 {
+		t.Fatalf("ListVolumes returned %d, want 1", len(vols))
+	}
+	if vols[0].BasePath != dir {
+		t.Errorf("ListVolumes BasePath = %q, want %q", vols[0].BasePath, dir)
+	}
+}
+
+func TestFileStore_BasePathNotInJSON(t *testing.T) {
+	store := newTestStore(t)
+	dir := store.Dir()
+
+	if err := store.SaveVolume(&Volume{ID: "v1", Name: "pvc-1", BasePath: dir}); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(raw), "BasePath") {
+		t.Errorf("state.json contains BasePath field; want json:\"-\" to suppress it")
+	}
+	if strings.Contains(string(raw), dir) {
+		t.Errorf("state.json contains the basePath value %q; it must not be persisted", dir)
+	}
+}
+
+func TestFileStore_BasePathRehydratedAfterReload(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	s1, err := NewFileStore(path)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	if err := s1.SaveVolume(&Volume{ID: "v1", Name: "pvc-1", BasePath: dir}); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	// Reload from disk — BasePath must be re-derived from the store's location.
+	s2, err := NewFileStore(path)
+	if err != nil {
+		t.Fatalf("NewFileStore reload: %v", err)
+	}
+	got, ok := s2.GetVolume("v1")
+	if !ok {
+		t.Fatal("GetVolume returned false after reload")
+	}
+	if got.BasePath != dir {
+		t.Errorf("reloaded BasePath = %q, want %q", got.BasePath, dir)
+	}
+}
+
+// --- MultiStore tests ---
+
+func TestMultiStore_SaveAndGetVolume_RoutesToCorrectStore(t *testing.T) {
+	dir1, dir2 := t.TempDir(), t.TempDir()
+	ms := NewMultiStore()
+	if err := ms.AddPath(dir1); err != nil {
+		t.Fatalf("AddPath %s: %v", dir1, err)
+	}
+	if err := ms.AddPath(dir2); err != nil {
+		t.Fatalf("AddPath %s: %v", dir2, err)
+	}
+
+	vol := &Volume{ID: "v1", Name: "pvc-1", BasePath: dir1}
+	if err := ms.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	// Must be found globally.
+	got, ok := ms.GetVolume("v1")
+	if !ok {
+		t.Fatal("GetVolume returned false")
+	}
+	if got.BasePath != dir1 {
+		t.Errorf("BasePath = %q, want %q", got.BasePath, dir1)
+	}
+
+	// Must NOT appear in the other store.
+	s2, ok := ms.StoreFor(dir2)
+	if !ok {
+		t.Fatal("StoreFor dir2 returned false")
+	}
+	if _, ok := s2.GetVolume("v1"); ok {
+		t.Error("volume leaked into wrong store")
+	}
+}
+
+func TestMultiStore_ListVolumes_UnionsAllStores(t *testing.T) {
+	dir1, dir2 := t.TempDir(), t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+	_ = ms.AddPath(dir2)
+
+	_ = ms.SaveVolume(&Volume{ID: "v1", Name: "pvc-1", BasePath: dir1})
+	_ = ms.SaveVolume(&Volume{ID: "v2", Name: "pvc-2", BasePath: dir2})
+
+	vols := ms.ListVolumes()
+	if len(vols) != 2 {
+		t.Errorf("ListVolumes returned %d, want 2", len(vols))
+	}
+}
+
+func TestMultiStore_DeleteVolume_FindsAcrossStores(t *testing.T) {
+	dir1, dir2 := t.TempDir(), t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+	_ = ms.AddPath(dir2)
+
+	_ = ms.SaveVolume(&Volume{ID: "v1", Name: "pvc-1", BasePath: dir1})
+	_ = ms.SaveVolume(&Volume{ID: "v2", Name: "pvc-2", BasePath: dir2})
+
+	if err := ms.DeleteVolume("v1"); err != nil {
+		t.Fatalf("DeleteVolume: %v", err)
+	}
+	if _, ok := ms.GetVolume("v1"); ok {
+		t.Error("deleted volume still found")
+	}
+	if _, ok := ms.GetVolume("v2"); !ok {
+		t.Error("unrelated volume was deleted")
+	}
+}
+
+func TestMultiStore_SaveVolume_UnknownBasePathReturnsError(t *testing.T) {
+	ms := NewMultiStore()
+	_ = ms.AddPath(t.TempDir())
+
+	err := ms.SaveVolume(&Volume{ID: "v1", BasePath: "/nonexistent/path"})
+	if err == nil {
+		t.Error("expected error for unknown basePath, got nil")
+	}
+}
+
+func TestMultiStore_RemovePath_DropsThatStore(t *testing.T) {
+	dir1, dir2 := t.TempDir(), t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+	_ = ms.AddPath(dir2)
+
+	_ = ms.SaveVolume(&Volume{ID: "v1", Name: "pvc-1", BasePath: dir1})
+
+	ms.RemovePath(dir1)
+
+	vols := ms.ListVolumes()
+	if len(vols) != 0 {
+		t.Errorf("ListVolumes after RemovePath returned %d, want 0", len(vols))
+	}
+	if _, ok := ms.StoreFor(dir1); ok {
+		t.Error("StoreFor still returns store after RemovePath")
+	}
+}
+
+func TestMultiStore_Dirs(t *testing.T) {
+	dir1, dir2 := t.TempDir(), t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+	_ = ms.AddPath(dir2)
+
+	dirs := ms.Dirs()
+	if len(dirs) != 2 {
+		t.Errorf("Dirs() returned %d, want 2", len(dirs))
+	}
+	seen := map[string]bool{}
+	for _, d := range dirs {
+		seen[d] = true
+	}
+	if !seen[dir1] || !seen[dir2] {
+		t.Errorf("Dirs() = %v, want both %q and %q", dirs, dir1, dir2)
 	}
 }
 

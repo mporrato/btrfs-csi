@@ -122,6 +122,8 @@ func TestCreateVolume_MissingCapabilities(t *testing.T) {
 func TestCreateVolume_WithBasePath(t *testing.T) {
 	basePath := t.TempDir()
 	d, mock, _ := newTestDriverWithMock()
+	// Register the extra basePath so the MultiStore can route saves there.
+	d.Store.(*state.MultiStore).AddStoreForTest(basePath, newMemStore(basePath))
 
 	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
 		Name:               "test-pvc",
@@ -397,17 +399,18 @@ func TestControllerGetVolume_AbnormalWhenPathMissing(t *testing.T) {
 
 func TestControllerGetVolume_NormalWhenPathExists(t *testing.T) {
 	d, _, store := newTestDriverWithMock()
-	basePath := t.TempDir()
+	// Use testRootPath so the memStore hydrates BasePath correctly on GetVolume.
 	vol := &state.Volume{
 		ID:       "vol-exists",
 		Name:     "test-pvc",
-		BasePath: basePath,
+		BasePath: testRootPath,
 		NodeID:   "test-node",
 	}
 	// Create the subvolume directory so os.Stat succeeds.
 	if err := os.MkdirAll(vol.Path(), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
+	t.Cleanup(func() { _ = os.RemoveAll(vol.Path()) })
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}

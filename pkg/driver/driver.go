@@ -70,14 +70,28 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID, rootPath string) *D
 		Store:    store,
 	}
 
-	// Clean up stale qgroups left by any previous driver run.
-	if err := mgr.ClearStaleQgroups(rootPath); err != nil {
-		klog.V(4).InfoS("startup qgroup cleanup skipped", "err", err)
-	} else {
-		klog.V(4).InfoS("startup qgroup cleanup completed")
+	// Clean up stale qgroups on all managed base paths from any previous run.
+	for _, bp := range d.basePaths() {
+		if err := mgr.ClearStaleQgroups(bp); err != nil {
+			klog.V(4).InfoS("startup qgroup cleanup skipped", "basePath", bp, "err", err)
+		} else {
+			klog.V(4).InfoS("startup qgroup cleanup completed", "basePath", bp)
+		}
 	}
 
 	return d
+}
+
+// basePaths returns all base paths managed by this driver.
+// When the store is a MultiStore it returns all registered dirs;
+// otherwise it falls back to rootPath.
+func (d *Driver) basePaths() []string {
+	if ms, ok := d.Store.(*state.MultiStore); ok {
+		if dirs := ms.Dirs(); len(dirs) > 0 {
+			return dirs
+		}
+	}
+	return []string{d.rootPath}
 }
 
 // parseEndpoint extracts the socket path from a CSI endpoint string.
@@ -150,10 +164,12 @@ func (d *Driver) scheduleQgroupCleanup() {
 		return
 	}
 	d.qgroupCleanupTimer = time.AfterFunc(qgroupCleanupDelay, func() {
-		if err := d.ClearStaleQgroups(d.rootPath); err != nil {
-			klog.V(4).InfoS("periodic qgroup cleanup failed", "err", err)
-		} else {
-			klog.V(4).InfoS("periodic qgroup cleanup completed")
+		for _, bp := range d.basePaths() {
+			if err := d.ClearStaleQgroups(bp); err != nil {
+				klog.V(4).InfoS("qgroup cleanup failed", "basePath", bp, "err", err)
+			} else {
+				klog.V(4).InfoS("qgroup cleanup completed", "basePath", bp)
+			}
 		}
 		d.qgroupCleanupMu.Lock()
 		d.qgroupCleanupTimer = nil

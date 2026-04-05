@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: btrfs-csi-basepaths
+  namespace: btrfs-csi
+data:
+  # List one btrfs base path per line.
+  # Each path must be the root of a StorageClass parameters.basePath value.
+  # The default root path (/var/lib/btrfs-csi) is always registered by the
+  # driver and does not need to appear here.
+  #
+  # Example (uncomment and adjust to add extra storage pools):
+  # basepaths.txt: |
+  #   /mnt/nvme
+  #   /mnt/hdd
+  basepaths.txt: ""

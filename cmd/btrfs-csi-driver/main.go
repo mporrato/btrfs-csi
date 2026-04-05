@@ -39,10 +39,11 @@ func runWithContext(ctx context.Context, args []string) error {
 	klog.InitFlags(fs)
 
 	var (
-		endpoint = fs.String("endpoint", "unix:///csi/csi.sock", "CSI endpoint")
-		nodeID   = fs.String("nodeid", "", "Node ID")
-		rootPath = fs.String("root-path", "/var/lib/btrfs-csi", "Root path for btrfs-csi")
-		version  = fs.Bool("version", false, "Print version and exit")
+		endpoint   = fs.String("endpoint", "unix:///csi/csi.sock", "CSI endpoint")
+		nodeID     = fs.String("nodeid", "", "Node ID")
+		rootPath   = fs.String("root-path", "/var/lib/btrfs-csi", "Default btrfs base path (used when --config is absent or as fallback)")
+		configFile = fs.String("config", "", "Path to config file listing btrfs base paths (one per line); mounted from a ConfigMap")
+		version    = fs.Bool("version", false, "Print version and exit")
 	)
 
 	if err := fs.Parse(args); err != nil {
@@ -70,15 +71,32 @@ func runWithContext(ctx context.Context, args []string) error {
 	// Create btrfs manager
 	mgr := &btrfs.RealManager{}
 
-	// Create state store
-	statePath := filepath.Join(*rootPath, "state.json")
-	store, err := state.NewFileStore(statePath)
-	if err != nil {
-		return fmt.Errorf("create state store: %w", err)
+	// Build the MultiStore from the config file (if provided) or the default root path.
+	ms := state.NewMultiStore()
+	var configStop chan<- struct{}
+	if *configFile != "" {
+		// Parse initial set of base paths from config file.
+		basePaths, err := driver.ParseConfigFile(*configFile)
+		if err != nil {
+			return fmt.Errorf("parse config file: %w", err)
+		}
+		for _, bp := range basePaths {
+			if err := ms.AddPath(bp); err != nil {
+				return fmt.Errorf("open store for %s: %w", bp, err)
+			}
+		}
+		// Watch for changes (ConfigMap kubelet updates) — 30 s poll interval.
+		configStop = driver.WatchConfigFile(*configFile, 30000, func(paths []string) {
+			ms.ReloadPaths(paths)
+		})
+	}
+	// Always ensure the default root path is available as a fallback.
+	if err := ms.AddPath(*rootPath); err != nil {
+		return fmt.Errorf("open default store at %s: %w", *rootPath, err)
 	}
 
 	// Create driver
-	drv := driver.NewDriver(mgr, store, *nodeID, *rootPath)
+	drv := driver.NewDriver(mgr, ms, *nodeID, *rootPath)
 
 	// Start driver in a goroutine
 	errCh := make(chan error, 1)
@@ -89,6 +107,9 @@ func runWithContext(ctx context.Context, args []string) error {
 	// Wait for context cancellation or driver error
 	select {
 	case <-ctx.Done():
+		if configStop != nil {
+			close(configStop)
+		}
 		klog.InfoS("Context cancelled, shutting down")
 		drv.Stop()
 		// Wait for Run() to return after Stop()
