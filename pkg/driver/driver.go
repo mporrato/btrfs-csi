@@ -69,9 +69,7 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) *Driver {
 	}
 
 	// Schedule initial qgroup cleanup 1 minute after startup.
-	time.AfterFunc(startupQgroupCleanup, func() {
-		d.doQgroupCleanup()
-	})
+	d.scheduleQgroupCleanup(startupQgroupCleanup)
 
 	return d
 }
@@ -157,17 +155,18 @@ func (d *Driver) doQgroupCleanup() {
 	}
 }
 
-// scheduleQgroupCleanup schedules a debounced call to ClearStaleQgroups. If a
-// cleanup is already pending, the timer is reset so the cleanup runs 10 minutes
-// after the last deletion rather than after every individual one.
-func (d *Driver) scheduleQgroupCleanup() {
+// scheduleQgroupCleanup schedules a call to ClearStaleQgroups after the given delay.
+// If a cleanup is already pending, the timer is reset so the cleanup runs delay
+// after this call rather than at its original scheduled time (providing debouncing
+// when called repeatedly from volume deletions).
+func (d *Driver) scheduleQgroupCleanup(delay time.Duration) {
 	d.qgroupCleanupMu.Lock()
 	defer d.qgroupCleanupMu.Unlock()
 	if d.qgroupCleanupTimer != nil {
-		d.qgroupCleanupTimer.Reset(qgroupCleanupDelay)
+		d.qgroupCleanupTimer.Reset(delay)
 		return
 	}
-	d.qgroupCleanupTimer = time.AfterFunc(qgroupCleanupDelay, func() {
+	d.qgroupCleanupTimer = time.AfterFunc(delay, func() {
 		d.doQgroupCleanup()
 		d.qgroupCleanupMu.Lock()
 		d.qgroupCleanupTimer = nil
