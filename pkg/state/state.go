@@ -35,8 +35,6 @@ type Volume struct {
 	SourceSnapID string
 	// SourceVolID is the volume ID if this volume was cloned from another volume.
 	SourceVolID string
-	// NodeID is the node where the volume was created.
-	NodeID string
 }
 
 // Snapshot represents a readonly btrfs snapshot of a volume.

@@ -297,8 +297,8 @@ func TestListVolumes_Empty(t *testing.T) {
 func TestListVolumes_ReturnsAll(t *testing.T) {
 	d, _, store := newTestDriverWithMock()
 	vols := []*state.Volume{
-		{ID: "vol-1", Name: "pvc-1", CapacityBytes: 1 << 30, BasePath: "/tmp/btrfs-csi-test", NodeID: "test-node"},
-		{ID: "vol-2", Name: "pvc-2", CapacityBytes: 2 << 30, BasePath: "/tmp/btrfs-csi-test", NodeID: "test-node"},
+		{ID: "vol-1", Name: "pvc-1", CapacityBytes: 1 << 30, BasePath: "/tmp/btrfs-csi-test"},
+		{ID: "vol-2", Name: "pvc-2", CapacityBytes: 2 << 30, BasePath: "/tmp/btrfs-csi-test"},
 	}
 	for _, v := range vols {
 		if err := store.SaveVolume(v); err != nil {
@@ -340,7 +340,6 @@ func TestControllerGetVolume_Success(t *testing.T) {
 		Name:          "test-pvc",
 		CapacityBytes: 1 << 30,
 		BasePath:      "/tmp/btrfs-csi-test",
-		NodeID:        "test-node",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -382,7 +381,6 @@ func TestControllerGetVolume_AbnormalWhenPathMissing(t *testing.T) {
 		ID:       "vol-missing",
 		Name:     "test-pvc",
 		BasePath: "/nonexistent/base",
-		NodeID:   "test-node",
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -404,7 +402,6 @@ func TestControllerGetVolume_NormalWhenPathExists(t *testing.T) {
 		ID:       "vol-exists",
 		Name:     "test-pvc",
 		BasePath: testRootPath,
-		NodeID:   "test-node",
 	}
 	// Create the subvolume directory so os.Stat succeeds.
 	if err := os.MkdirAll(vol.Path(), 0o755); err != nil {

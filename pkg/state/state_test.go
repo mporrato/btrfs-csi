@@ -44,7 +44,6 @@ func TestSaveAndGetVolume(t *testing.T) {
 		Name:          "pvc-abc",
 		CapacityBytes: 1024 * 1024 * 100,
 		BasePath:      dir,
-		NodeID:        "node-1",
 	}
 
 	if err := store.SaveVolume(vol); err != nil {
@@ -69,9 +68,6 @@ func TestSaveAndGetVolume(t *testing.T) {
 	}
 	if got.Path() != vol.Path() {
 		t.Errorf("Path() = %q, want %q", got.Path(), vol.Path())
-	}
-	if got.NodeID != vol.NodeID {
-		t.Errorf("NodeID = %q, want %q", got.NodeID, vol.NodeID)
 	}
 }
 

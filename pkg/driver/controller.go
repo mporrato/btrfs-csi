@@ -233,7 +233,6 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 		Name:          req.Name,
 		CapacityBytes: capacityBytes,
 		BasePath:      basePath,
-		NodeID:        d.nodeID,
 	}
 
 	if err := os.MkdirAll(filepath.Dir(vol.Path()), 0o755); err != nil {
