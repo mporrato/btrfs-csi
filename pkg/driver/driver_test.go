@@ -16,11 +16,8 @@ import (
 
 func TestNewDriver_ClearsStaleQgroupsOnStartup(t *testing.T) {
 	_, mock, _ := newTestDriverWithMock()
-	if len(mock.ClearStaleQgroupsCalls) != 1 {
-		t.Fatalf("expected 1 ClearStaleQgroups call on startup, got %d", len(mock.ClearStaleQgroupsCalls))
-	}
-	if mock.ClearStaleQgroupsCalls[0] != "/tmp/btrfs-csi-test" {
-		t.Errorf("ClearStaleQgroups mountpoint = %q, want /tmp/btrfs-csi-test", mock.ClearStaleQgroupsCalls[0])
+	if len(mock.ClearStaleQgroupsCalls) != 0 {
+		t.Fatalf("expected no ClearStaleQgroups call synchronously on startup, got %d", len(mock.ClearStaleQgroupsCalls))
 	}
 }
 

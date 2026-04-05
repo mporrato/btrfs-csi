@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	driverName         = "btrfs.csi.local"
-	version            = "0.1.0"
-	qgroupCleanupDelay = 10 * time.Minute
+	driverName           = "btrfs.csi.local"
+	version              = "0.1.0"
+	qgroupCleanupDelay   = 10 * time.Minute
+	startupQgroupCleanup = 1 * time.Minute
 )
 
 // Driver implements the CSI Identity, Controller, and Node services.
@@ -67,14 +68,16 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) *Driver {
 		Store:   store,
 	}
 
-	// Clean up stale qgroups on all managed base paths from any previous run.
-	for _, bp := range d.basePaths() {
-		if err := mgr.ClearStaleQgroups(bp); err != nil {
-			klog.V(4).InfoS("startup qgroup cleanup skipped", "basePath", bp, "err", err)
-		} else {
-			klog.V(4).InfoS("startup qgroup cleanup completed", "basePath", bp)
+	// Schedule initial qgroup cleanup 1 minute after startup.
+	time.AfterFunc(startupQgroupCleanup, func() {
+		for _, bp := range d.basePaths() {
+			if err := mgr.ClearStaleQgroups(bp); err != nil {
+				klog.V(4).InfoS("startup qgroup cleanup skipped", "basePath", bp, "err", err)
+			} else {
+				klog.V(4).InfoS("startup qgroup cleanup completed", "basePath", bp)
+			}
 		}
-	}
+	})
 
 	return d
 }
