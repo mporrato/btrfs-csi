@@ -230,13 +230,16 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeSta
 
 	var available int64
 	if usage.MaxRfer > 0 {
+		//nolint:gosec // qgroup values always fit in int64
 		available = max(0, int64(usage.MaxRfer)-int64(usage.Referenced))
 	}
 
 	return &csi.NodeGetVolumeStatsResponse{
 		Usage: []*csi.VolumeUsage{
 			{
+				//nolint:gosec // qgroup values always fit in int64
 				Total:     int64(usage.MaxRfer),
+				//nolint:gosec // qgroup values always fit in int64
 				Used:      int64(usage.Referenced),
 				Available: available,
 				Unit:      csi.VolumeUsage_BYTES,

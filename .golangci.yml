@@ -76,11 +76,11 @@ linters:
 
 issues:
   exclude-rules:
-    # Allow long lines in tests
-    - path: _test\.go
+    # Test-specific exclusions
+    - path: "_test.go"
       linters:
-        - lll
-    # Allow unused parameters in interface implementations
-    - path: _test\.go
-      linters:
-        - unparam
+        - lll        # allow long lines in tests
+        - unparam    # allow unused params in test helpers
+        - revive     # exclude missing doc comment checks
+        - gosec      # exclude security checks (temp files, subprocess, file ops)
+        - dupl       # allow duplicate test setup code

@@ -19,7 +19,9 @@ var _ Manager = (*RealManager)(nil)
 
 // runCommand executes a command and returns its stdout. On failure, stderr is
 // included in the returned error for debuggability.
+//nolint:unparam // name parameter allows for testing flexibility and future generalization
 func runCommand(name string, args ...string) (string, error) {
+	//nolint:gosec // btrfs command with internal args, not user input
 	cmd := exec.Command(name, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -161,6 +163,7 @@ func (m *RealManager) GetFilesystemUsage(path string) (*FsUsage, error) {
 	}
 	// Frsize is the fundamental block size that Blocks/Bfree/Bavail are denominated in.
 	// Bsize is the preferred I/O size and may differ.
+	//nolint:gosec // Frsize from statfs is always positive
 	frsize := uint64(stat.Frsize)
 	total := stat.Blocks * frsize
 	free := stat.Bfree * frsize

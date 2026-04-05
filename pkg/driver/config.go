@@ -30,6 +30,7 @@ func parsePoolConfig(dir string) (map[string]string, error) {
 		if e.IsDir() {
 			continue
 		}
+		//nolint:gosec // reading from mounted ConfigMap, not user input
 		raw, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			return nil, fmt.Errorf("read pool %q: %w", name, err)
