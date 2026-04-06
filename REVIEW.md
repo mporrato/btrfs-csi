@@ -1,6 +1,6 @@
 # Project Review: btrfs-csi
 
-Review date: 2026-04-06
+Review date: 2026-04-06 (updated)
 
 ## 1. Bugs
 
@@ -215,6 +215,53 @@ create-from-snapshot could race: a snapshot delete could remove the btrfs
 subvolume while a volume clone is reading from it. The CSI spec expects the CO
 to coordinate, but defensive serialization is safer.
 
+## 7. New Findings (second review pass)
+
+### `NodeGetVolumeStats` missing `VolumeCondition` in response
+
+`node.go:188-209,252-263`: The Node service advertises `VOLUME_CONDITION`
+capability in `NodeGetCapabilities`, but `NodeGetVolumeStats` never populates the
+`VolumeCondition` field in its response. Per the CSI spec, if `VOLUME_CONDITION`
+is advertised, the response must include condition info. `ControllerGetVolume`
+does this correctly (`controller.go:173`), but Node doesn't.
+
+### `CreateVolume` leaks subvolume on downstream failure
+
+`controller.go:269-285`: If `provisionVolume` succeeds (subvolume created on
+disk) but `SetQgroupLimit` or `SaveVolume` subsequently fails, the subvolume is
+left orphaned. On retry, CSI idempotency checks find no volume with that name in
+state, generates a new UUID, and creates another subvolume — leaving the old one
+behind. Add a deferred cleanup that deletes the subvolume if any subsequent step
+fails.
+
+### `ControllerExpandVolume` doesn't call `ensureQuotaEnabled`
+
+`controller.go:319-367`: `CreateVolume` calls `ensureQuotaEnabled` before
+`SetQgroupLimit` (line 276). `ControllerExpandVolume` calls `SetQgroupLimit`
+(line 352) without ensuring quotas are enabled first. If a volume was created
+with zero capacity (no quota set up), a later expand call to `SetQgroupLimit`
+may fail because quotas were never enabled on that pool.
+
+### Deprecated `grpc.DialContext` in tests
+
+`driver_test.go:214-217,341-344`: `grpc.DialContext` and `grpc.WithBlock` are
+deprecated (flagged by `staticcheck`). Replace with `grpc.NewClient` for forward
+compatibility. Test-only, low priority.
+
+### `WatchPoolConfig` does work before checking stop channel
+
+`config.go:56-62`: Each loop iteration calls `ParsePoolConfig` before checking
+`stop`. This means closing the stop channel doesn't take effect until after one
+more parse+compare cycle. Moving the `select` to the top of the loop would make
+shutdown more responsive and eliminate a wasted parse on first iteration (the
+seed already matched startup state).
+
+### `csi_test.go` blank import for dependency pinning
+
+`cmd/btrfs-csi-driver/csi_test.go`: Uses `_ "...csi-test/v5/pkg/sanity"` to
+keep the dependency in `go.mod`. The conventional Go pattern is a `tools.go`
+file with `//go:build tools` build tag.
+
 ## Summary Checklist
 
 ### High Priority
@@ -234,6 +281,9 @@ to coordinate, but defensive serialization is safer.
 - [x] Advertise `VOLUME_CONDITION` in `NodeGetCapabilities`
 - [x] Set `podInfoOnMount` and `fsGroupPolicy` in CSIDriver spec
 - [x] Add resource requests/limits to all containers in DaemonSet
+- [ ] Add `VolumeCondition` to `NodeGetVolumeStats` response
+- [ ] Add cleanup on `CreateVolume` failure after subvolume creation
+- [ ] Call `ensureQuotaEnabled` in `ControllerExpandVolume`
 
 ### Low Priority
 
@@ -249,3 +299,6 @@ to coordinate, but defensive serialization is safer.
 - [x] Cache `EnsureQuotaEnabled` result per basePath
 - [x] Serialize `DeleteVolume`/`DeleteSnapshot` under `controllerMu`
 - [x] Add `--leader-election` to controller sidecars
+- [ ] Replace deprecated `grpc.DialContext` with `grpc.NewClient` in tests
+- [ ] Move `WatchPoolConfig` select to top of loop for responsive shutdown
+- [ ] Move `csi_test.go` blank import to `tools.go` with build tag
