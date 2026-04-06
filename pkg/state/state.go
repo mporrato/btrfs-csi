@@ -227,10 +227,23 @@ func (fs *FileStore) persist() error {
 		return fmt.Errorf("create temp state file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
+
+	// Ensure restrictive permissions regardless of umask.
+	if err := tmpFile.Chmod(0o600); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("chmod temp state file: %w", err)
+	}
 	if _, err := tmpFile.Write(raw); err != nil {
 		_ = tmpFile.Close()
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write temp state file: %w", err)
+	}
+	// Flush data to disk before rename so the content is durable.
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("sync temp state file: %w", err)
 	}
 	if err := tmpFile.Close(); err != nil {
 		_ = os.Remove(tmpPath)
@@ -240,6 +253,12 @@ func (fs *FileStore) persist() error {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename state file: %w", err)
 	}
+	// NOTE: we intentionally skip fsync on the directory here. On btrfs,
+	// directory fsync triggers a full transaction commit that flushes ALL
+	// dirty data across the entire filesystem — unacceptable when the state
+	// file shares a pool with volume data. The rename is atomic; on crash
+	// the worst case is the old state.json is used, which is safe because
+	// all CSI operations are idempotent.
 	return nil
 }
 

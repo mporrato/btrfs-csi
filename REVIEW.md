@@ -98,13 +98,16 @@ recommends pagination via `max_entries`/`starting_token`. `ListSnapshots` has
 it, but `ListVolumes` doesn't. With many volumes, this could be a large
 response.
 
-### No `fsync` on state directory after rename
+### No `fsync` on state directory after rename (won't fix)
 
 `state.go:239`: The atomic write pattern does `Write` -> `Close` -> `Rename`
-but never calls `fsync` on the directory. On Linux (especially btrfs), the
-rename may not be durable after a crash without an explicit `fsync` on the
-parent directory. For a crash-safe state file, `fsync` the directory after
-rename.
+but never calls `fsync` on the directory. On most filesystems this would warrant
+a directory fsync for crash durability. However, on btrfs, directory fsync
+triggers a **full transaction commit** that flushes ALL dirty data across the
+entire filesystem. Since the state file shares a pool with volume data, this
+would cause every state write to sync all in-flight workload I/O. The file
+data is fsynced before rename, and CSI operations are idempotent, so the worst
+case on crash is replaying an operation — acceptable for this driver.
 
 ### Quota enable on every `CreateVolume` with capacity
 
@@ -221,8 +224,8 @@ to coordinate, but defensive serialization is safer.
 ### Medium Priority
 
 - [ ] Verify mount source in `NodePublishVolume` idempotency check
-- [ ] Set explicit permissions (`0o600`) on state temp file
-- [ ] `fsync` state directory after atomic rename
+- [x] Set explicit permissions (`0o600`) on state temp file
+- [x] ~~`fsync` state directory after atomic rename~~ won't fix: btrfs dir fsync flushes entire pool
 - [ ] Remove `hostNetwork: true` from DaemonSet
 - [ ] Replace `privileged: true` with specific capabilities (`SYS_ADMIN`)
 - [ ] Add `livenessprobe` sidecar to DaemonSet
