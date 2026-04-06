@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/mporrato/btrfs-csi/pkg/btrfs"
 	"github.com/mporrato/btrfs-csi/pkg/state"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -59,12 +58,16 @@ func TestScheduleStartupQgroupCleanups_Staggered(t *testing.T) {
 	time.Sleep(base + stagger/2)
 	mu.Lock()
 	midCount := len(callLog)
+	var firstPath string
+	if midCount > 0 {
+		firstPath = callLog[0].path
+	}
 	mu.Unlock()
 	if midCount != 1 {
 		t.Fatalf("after first stagger window: want 1 cleanup, got %d", midCount)
 	}
-	if callLog[0].path != pathA {
-		t.Errorf("first cleanup path = %q, want %q", callLog[0].path, pathA)
+	if firstPath != pathA {
+		t.Errorf("first cleanup path = %q, want %q", firstPath, pathA)
 	}
 
 	// Wait for pathB (index 1) to also fire.
@@ -84,9 +87,20 @@ func TestScheduleStartupQgroupCleanups_Staggered(t *testing.T) {
 }
 
 func TestScheduleQgroupCleanup_OnlyTargetsSpecifiedPath(t *testing.T) {
-	mock := &btrfs.MockManager{}
 	pathA := "/mnt/pool-a"
 	pathB := "/mnt/pool-b"
+
+	var mu sync.Mutex
+	var calls []string
+
+	mgr := &funcManager{
+		clearStaleQgroups: func(path string) error {
+			mu.Lock()
+			calls = append(calls, path)
+			mu.Unlock()
+			return nil
+		},
+	}
 
 	ms := state.NewMultiStore()
 	memA := newMemStore(pathA)
@@ -94,7 +108,7 @@ func TestScheduleQgroupCleanup_OnlyTargetsSpecifiedPath(t *testing.T) {
 	ms.AddStoreForTest(pathA, memA)
 	ms.AddStoreForTest(pathB, memB)
 
-	d := NewDriver(mock, ms, "test-node")
+	d := NewDriver(mgr, ms, "test-node")
 	d.SetPools(map[string]string{"a": pathA, "b": pathB})
 
 	// Schedule cleanup only for pathA with a very short delay.
@@ -104,12 +118,18 @@ func TestScheduleQgroupCleanup_OnlyTargetsSpecifiedPath(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Only pathA should have been cleaned.
-	if len(mock.ClearStaleQgroupsCalls) != 1 {
-		t.Fatalf("expected 1 ClearStaleQgroups call, got %d",
-			len(mock.ClearStaleQgroupsCalls))
+	mu.Lock()
+	callCount := len(calls)
+	var firstCall string
+	if callCount > 0 {
+		firstCall = calls[0]
 	}
-	if mock.ClearStaleQgroupsCalls[0] != pathA {
-		t.Errorf("ClearStaleQgroups called with %q, want %q", mock.ClearStaleQgroupsCalls[0], pathA)
+	mu.Unlock()
+	if callCount != 1 {
+		t.Fatalf("expected 1 ClearStaleQgroups call, got %d", callCount)
+	}
+	if firstCall != pathA {
+		t.Errorf("ClearStaleQgroups called with %q, want %q", firstCall, pathA)
 	}
 }
 

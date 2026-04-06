@@ -1,6 +1,8 @@
 package driver
 
 import (
+	"sync"
+
 	"github.com/mporrato/btrfs-csi/pkg/btrfs"
 	"github.com/mporrato/btrfs-csi/pkg/state"
 )
@@ -9,7 +11,9 @@ const testRootPath = "/tmp/btrfs-csi-test"
 
 // memStore is a simple in-memory implementation of state.Store for testing.
 // dir is the basePath this store represents; it is hydrated onto returned values.
+// All methods are safe for concurrent use.
 type memStore struct {
+	mu        sync.Mutex
 	dir       string
 	volumes   map[string]*state.Volume
 	snapshots map[string]*state.Snapshot
@@ -24,6 +28,8 @@ func newMemStore(dir string) *memStore {
 }
 
 func (s *memStore) GetVolume(id string) (*state.Volume, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	v, ok := s.volumes[id]
 	if !ok {
 		return nil, false
@@ -34,6 +40,8 @@ func (s *memStore) GetVolume(id string) (*state.Volume, bool) {
 }
 
 func (s *memStore) GetVolumeByName(name string) (*state.Volume, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, v := range s.volumes {
 		if v.Name == name {
 			cp := *v
@@ -45,6 +53,8 @@ func (s *memStore) GetVolumeByName(name string) (*state.Volume, bool) {
 }
 
 func (s *memStore) ListVolumes() []*state.Volume {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	out := make([]*state.Volume, 0, len(s.volumes))
 	for _, v := range s.volumes {
 		cp := *v
@@ -55,17 +65,23 @@ func (s *memStore) ListVolumes() []*state.Volume {
 }
 
 func (s *memStore) SaveVolume(volume *state.Volume) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	cp := *volume
 	s.volumes[volume.ID] = &cp
 	return nil
 }
 
 func (s *memStore) DeleteVolume(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	delete(s.volumes, id)
 	return nil
 }
 
 func (s *memStore) GetSnapshot(id string) (*state.Snapshot, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	sn, ok := s.snapshots[id]
 	if !ok {
 		return nil, false
@@ -76,6 +92,8 @@ func (s *memStore) GetSnapshot(id string) (*state.Snapshot, bool) {
 }
 
 func (s *memStore) GetSnapshotByName(name string) (*state.Snapshot, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, sn := range s.snapshots {
 		if sn.Name == name {
 			cp := *sn
@@ -87,6 +105,8 @@ func (s *memStore) GetSnapshotByName(name string) (*state.Snapshot, bool) {
 }
 
 func (s *memStore) ListSnapshots() []*state.Snapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	out := make([]*state.Snapshot, 0, len(s.snapshots))
 	for _, sn := range s.snapshots {
 		cp := *sn
@@ -97,12 +117,16 @@ func (s *memStore) ListSnapshots() []*state.Snapshot {
 }
 
 func (s *memStore) SaveSnapshot(snapshot *state.Snapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	cp := *snapshot
 	s.snapshots[snapshot.ID] = &cp
 	return nil
 }
 
 func (s *memStore) DeleteSnapshot(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	delete(s.snapshots, id)
 	return nil
 }
