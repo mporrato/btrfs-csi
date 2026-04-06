@@ -215,8 +215,8 @@ to coordinate, but defensive serialization is safer.
 
 ### High Priority
 
-- [ ] Fix data races in qgroup cleanup tests (confirmed by `go test -race`)
-- [ ] Make `memStore` test helper thread-safe
+- [x] Fix data races in qgroup cleanup tests (confirmed by `go test -race`)
+- [x] Make `memStore` test helper thread-safe
 
 ### Medium Priority
 
