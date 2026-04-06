@@ -487,9 +487,22 @@ func (d *Driver) CreateSnapshot(_ context.Context,
 	if err := d.manager.CreateSnapshot(srcVol.Path(), snap.Path(), true); err != nil {
 		return nil, status.Errorf(codes.Internal, "create snapshot: %v", err)
 	}
+
+	// Clean up the on-disk snapshot if SaveSnapshot fails, to prevent orphaned subvolumes.
+	cleanupNeeded := true
+	defer func() {
+		if cleanupNeeded {
+			if err := d.manager.DeleteSubvolume(snap.Path()); err != nil {
+				klog.ErrorS(err, "CreateSnapshot: failed to clean up snapshot after error", "path", snap.Path())
+			}
+		}
+	}()
+
 	if err := d.store.SaveSnapshot(snap); err != nil {
 		return nil, status.Errorf(codes.Internal, "save snapshot state: %v", err)
 	}
+
+	cleanupNeeded = false
 
 	klog.V(4).InfoS("CreateSnapshot", "snapshotID", id, "name", req.Name, "sourceVolID", req.SourceVolumeId)
 	return &csi.CreateSnapshotResponse{Snapshot: toCSISnapshot(snap)}, nil

@@ -13,10 +13,11 @@ const testRootPath = "/tmp/btrfs-csi-test"
 // dir is the basePath this store represents; it is hydrated onto returned values.
 // All methods are safe for concurrent use.
 type memStore struct {
-	mu        sync.Mutex
-	dir       string
-	volumes   map[string]*state.Volume
-	snapshots map[string]*state.Snapshot
+	mu              sync.Mutex
+	dir             string
+	volumes         map[string]*state.Volume
+	snapshots       map[string]*state.Snapshot
+	SaveSnapshotErr error // if set, SaveSnapshot returns this error
 }
 
 func newMemStore(dir string) *memStore {
@@ -119,6 +120,9 @@ func (s *memStore) ListSnapshots() []*state.Snapshot {
 func (s *memStore) SaveSnapshot(snapshot *state.Snapshot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.SaveSnapshotErr != nil {
+		return s.SaveSnapshotErr
+	}
 	cp := *snapshot
 	s.snapshots[snapshot.ID] = &cp
 	return nil

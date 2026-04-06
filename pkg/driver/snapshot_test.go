@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -772,5 +773,40 @@ func TestListSnapshots_MaxEntries(t *testing.T) {
 	}
 	if resp2.NextToken != "" {
 		t.Errorf("expected no NextToken on last page, got %q", resp2.NextToken)
+	}
+}
+
+func TestCreateSnapshot_CleansUpOnSaveSnapshotFailure(t *testing.T) {
+	d, mock, store := newTestDriverWithMock()
+
+	vol := &state.Volume{
+		ID:       "vol-src",
+		Name:     "source-pvc",
+		BasePath: testRootPath,
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	store.SaveSnapshotErr = fmt.Errorf("disk full")
+
+	_, err := d.CreateSnapshot(context.Background(), &csi.CreateSnapshotRequest{
+		SourceVolumeId: vol.ID,
+		Name:           "snap-leak",
+	})
+	if err == nil {
+		t.Fatal("expected error when SaveSnapshot fails")
+	}
+
+	// The btrfs snapshot must have been created, then cleaned up.
+	if len(mock.CreateSnapshotCalls) != 1 {
+		t.Fatalf("expected 1 CreateSnapshot call, got %d", len(mock.CreateSnapshotCalls))
+	}
+	if len(mock.DeleteSubvolumeCalls) != 1 {
+		t.Fatalf("expected 1 DeleteSubvolume call to clean up orphan, got %d", len(mock.DeleteSubvolumeCalls))
+	}
+	if mock.DeleteSubvolumeCalls[0] != mock.CreateSnapshotCalls[0].Dst {
+		t.Errorf("cleanup path %q != snapshot dst %q",
+			mock.DeleteSubvolumeCalls[0], mock.CreateSnapshotCalls[0].Dst)
 	}
 }
