@@ -131,6 +131,14 @@ func (s *memStore) DeleteSnapshot(id string) error {
 	return nil
 }
 
+func (s *memStore) Dirs() []string {
+	return []string{s.dir}
+}
+
+func (s *memStore) ReloadPaths(paths []string) {
+	// memStore is a single-directory store; reloading is a no-op for testing.
+}
+
 // funcManager embeds MockManager and lets individual methods be overridden
 // with a closure, useful for recording calls with extra context (e.g. timestamps).
 type funcManager struct {

@@ -243,8 +243,8 @@ to coordinate, but defensive serialization is safer.
 - [ ] Unexport embedded `Manager` field on `Driver` (use named field)
 - [ ] Unexport `Store` field on `Driver`
 - [ ] Remove redundant exported/unexported wrapper pairs in `config.go`
-- [ ] Eliminate type assertions against concrete store types in `basePaths()`
-- [ ] Eliminate type assertion in `reloadPoolConfig`
+- [x] Eliminate type assertions against concrete store types in `basePaths()`
+- [x] Eliminate type assertion in `reloadPoolConfig`
 - [ ] ~~Initialize `lastPools` in `watchPoolConfig`~~ skipped: low value, test complexity
 - [ ] Cache `EnsureQuotaEnabled` result per basePath
 - [ ] Serialize `DeleteVolume`/`DeleteSnapshot` under `controllerMu`

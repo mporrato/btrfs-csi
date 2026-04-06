@@ -92,6 +92,16 @@ type Store interface {
 	// DeleteSnapshot removes the snapshot with the given ID.
 	// It is not an error to delete a snapshot that does not exist.
 	DeleteSnapshot(id string) error
+
+	// Dirs returns the base directories managed by this store.
+	// For FileStore, this is a single directory.
+	// For MultiStore, this is the list of all registered directories.
+	Dirs() []string
+
+	// ReloadPaths reconciles the store against a new list of base paths.
+	// For FileStore, this is a no-op (single fixed path).
+	// For MultiStore, this adds/removes stores as needed.
+	ReloadPaths(paths []string)
 }
 
 // stateData is the JSON-serializable representation of the store's contents.
@@ -372,6 +382,14 @@ func (fs *FileStore) DeleteSnapshot(id string) error {
 	return fs.save(func() {
 		delete(fs.data.Snapshots, id)
 	})
+}
+
+func (fs *FileStore) Dirs() []string {
+	return []string{fs.Dir()}
+}
+
+func (fs *FileStore) ReloadPaths(paths []string) {
+	// FileStore is backed by a single fixed path; reloading is a no-op.
 }
 
 // MultiStore manages multiple stores — one per btrfs base path — and

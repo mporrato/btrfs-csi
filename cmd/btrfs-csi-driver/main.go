@@ -157,6 +157,6 @@ func reloadPoolConfig(newPools map[string]string, mgr btrfs.Manager, ms state.St
 		validPools[name] = p
 		validPaths = append(validPaths, p)
 	}
-	ms.(*state.MultiStore).ReloadPaths(validPaths)
+	ms.ReloadPaths(validPaths)
 	drv.SetPools(validPools)
 }

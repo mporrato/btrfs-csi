@@ -104,13 +104,7 @@ func (d *Driver) basePaths() []string {
 		}
 		return paths
 	}
-	if ms, ok := d.Store.(*state.MultiStore); ok {
-		return ms.Dirs()
-	}
-	if fs, ok := d.Store.(*state.FileStore); ok {
-		return []string{fs.Dir()}
-	}
-	return nil
+	return d.Store.Dirs()
 }
 
 // parseEndpoint extracts the socket path from a CSI endpoint string.
