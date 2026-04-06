@@ -53,14 +53,13 @@ UUID-based, but if a future change introduces user-controlled path components,
 this could be exploitable. Consider adding path validation in the `Manager`
 methods.
 
-### `privileged: true` in DaemonSet
+### `privileged: true` in DaemonSet (won't fix)
 
-`plugin.yaml`: The CSI driver container runs as `privileged: true`. This is
-common for CSI drivers that need mount access, but best practice is to use
-specific capabilities (`SYS_ADMIN` for mount operations, `DAC_OVERRIDE` if
-needed) instead of full privilege. Many production CSI drivers use
-`securityContext.capabilities.add: [SYS_ADMIN]` with
-`allowPrivilegeEscalation: true` instead.
+`plugin.yaml`: The CSI driver container runs as `privileged: true`. While best
+practice is to use specific capabilities, Kubernetes requires `privileged: true`
+for `mountPropagation: Bidirectional`, which this driver needs to make bind
+mounts visible to kubelet. This is a kubelet-enforced requirement and cannot be
+replaced with `SYS_ADMIN` alone.
 
 ### State file permissions
 
@@ -226,13 +225,13 @@ to coordinate, but defensive serialization is safer.
 - [ ] Verify mount source in `NodePublishVolume` idempotency check
 - [x] Set explicit permissions (`0o600`) on state temp file
 - [x] ~~`fsync` state directory after atomic rename~~ won't fix: btrfs dir fsync flushes entire pool
-- [ ] Remove `hostNetwork: true` from DaemonSet
-- [ ] Replace `privileged: true` with specific capabilities (`SYS_ADMIN`)
-- [ ] Add `livenessprobe` sidecar to DaemonSet
+- [x] Remove `hostNetwork: true` from DaemonSet
+- [x] ~~Replace `privileged: true` with specific capabilities~~ can't: kubelet requires `privileged` for Bidirectional mount propagation
+- [x] Add `livenessprobe` sidecar to DaemonSet
 - [ ] Support `SINGLE_NODE_SINGLE_WRITER` / `SINGLE_NODE_MULTI_WRITER` access modes
 - [ ] Advertise `VOLUME_CONDITION` in `NodeGetCapabilities`
 - [ ] Set `podInfoOnMount` and `fsGroupPolicy` in CSIDriver spec
-- [ ] Add resource requests/limits to all containers in DaemonSet
+- [x] Add resource requests/limits to all containers in DaemonSet
 
 ### Low Priority
 

@@ -14,7 +14,6 @@ spec:
         app: btrfs-csi-driver
     spec:
       serviceAccountName: btrfs-csi-driver
-      hostNetwork: true
       priorityClassName: system-node-critical
       volumes:
         - name: socket-dir
@@ -40,6 +39,7 @@ spec:
         - name: btrfs-csi-driver
           image: localhost/btrfs-csi-driver:latest
           imagePullPolicy: Never
+          # privileged is required by kubelet for mountPropagation: Bidirectional
           securityContext:
             privileged: true
           args:
@@ -51,6 +51,24 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+          ports:
+            - name: healthz
+              containerPort: 9808
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
@@ -63,11 +81,32 @@ spec:
               mountPath: /etc/btrfs-csi/pools
               readOnly: true
 
+        - name: liveness-probe
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.14.0
+          args:
+            - --csi-address=/csi/csi.sock
+            - --health-port=9808
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+
         - name: node-driver-registrar
           image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.11.1
           args:
             - --csi-address=/csi/csi.sock
             - --kubelet-registration-path=/var/lib/kubelet/plugins/btrfs.csi.local/csi.sock
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
@@ -79,6 +118,12 @@ spec:
           args:
             - --csi-address=/csi/csi.sock
             - --extra-create-metadata
+          resources:
+            requests:
+              cpu: 5m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
@@ -87,6 +132,12 @@ spec:
           image: registry.k8s.io/sig-storage/csi-snapshotter:v8.0.0
           args:
             - --csi-address=/csi/csi.sock
+          resources:
+            requests:
+              cpu: 5m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
@@ -95,6 +146,12 @@ spec:
           image: registry.k8s.io/sig-storage/csi-resizer:v1.14.0
           args:
             - --csi-address=/csi/csi.sock
+          resources:
+            requests:
+              cpu: 5m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
