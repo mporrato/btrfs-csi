@@ -64,19 +64,41 @@ func (d *Driver) GetCapacity(_ context.Context, req *csi.GetCapacityRequest) (*c
 	return &csi.GetCapacityResponse{AvailableCapacity: int64(usage.Available)}, nil
 }
 
-// ListVolumes returns all volumes known to this driver.
-// Pagination is not supported: if a starting_token is provided the request is
-// rejected. TODO: add pagination support if volume counts grow large.
+// ListVolumes returns volumes known to this driver. Supports max_entries and
+// starting_token for pagination; the token is a numeric offset into the
+// ID-sorted volume list.
 func (d *Driver) ListVolumes(_ context.Context, req *csi.ListVolumesRequest) (*csi.ListVolumesResponse, error) {
+	all := d.store.ListVolumes()
+
+	// Sort by ID for stable pagination.
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	// Apply starting token (numeric offset).
+	start := 0
 	if req.StartingToken != "" {
-		return nil, status.Error(codes.Aborted, "pagination not supported")
+		idx, err := strconv.Atoi(req.StartingToken)
+		if err != nil || idx < 0 {
+			return nil, status.Errorf(codes.Aborted, "invalid starting_token: %q", req.StartingToken)
+		}
+		start = idx
 	}
-	vols := d.store.ListVolumes()
-	entries := make([]*csi.ListVolumesResponse_Entry, 0, len(vols))
-	for _, v := range vols {
+	if start >= len(all) {
+		return &csi.ListVolumesResponse{}, nil
+	}
+	all = all[start:]
+
+	// Apply max_entries limit and set next token if more remain.
+	var nextToken string
+	if req.MaxEntries > 0 && int(req.MaxEntries) < len(all) {
+		all = all[:req.MaxEntries]
+		nextToken = strconv.Itoa(start + int(req.MaxEntries))
+	}
+
+	entries := make([]*csi.ListVolumesResponse_Entry, 0, len(all))
+	for _, v := range all {
 		entries = append(entries, &csi.ListVolumesResponse_Entry{Volume: toCSIVolume(v, d.nodeID)})
 	}
-	return &csi.ListVolumesResponse{Entries: entries}, nil
+	return &csi.ListVolumesResponse{Entries: entries, NextToken: nextToken}, nil
 }
 
 // ListSnapshots returns snapshots known to this driver, with optional filtering
@@ -250,7 +272,7 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 
 	if capacityBytes > 0 {
 		// Quotas must be enabled on the filesystem before setting per-subvolume limits.
-		if err := d.manager.EnsureQuotaEnabled(basePath); err != nil {
+		if err := d.ensureQuotaEnabled(basePath); err != nil {
 			return nil, status.Errorf(codes.Internal, "ensure quota enabled: %v", err)
 		}
 		if err := d.manager.SetQgroupLimit(vol.Path(), uint64(capacityBytes)); err != nil {
@@ -271,6 +293,9 @@ func (d *Driver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest)
 	if req.VolumeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
 	}
+
+	d.controllerMu.Lock()
+	defer d.controllerMu.Unlock()
 
 	vol, ok := d.store.GetVolume(req.VolumeId)
 	if !ok {
@@ -452,6 +477,9 @@ func (d *Driver) DeleteSnapshot(_ context.Context,
 	if req.SnapshotId == "" {
 		return nil, status.Error(codes.InvalidArgument, "snapshot ID is required")
 	}
+
+	d.controllerMu.Lock()
+	defer d.controllerMu.Unlock()
 
 	snap, ok := d.store.GetSnapshot(req.SnapshotId)
 	if !ok {

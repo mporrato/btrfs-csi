@@ -47,7 +47,9 @@ func ParsePoolConfig(dir string) (map[string]string, error) {
 func WatchPoolConfig(dir string, intervalMs int, reload func(map[string]string)) chan<- struct{} {
 	stop := make(chan struct{})
 	go func() {
-		var lastPools map[string]string
+		// Seed lastPools so the first tick doesn't redundantly fire reload
+		// for config that initializeStores already processed at startup.
+		lastPools, _ := ParsePoolConfig(dir)
 		tick := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
 		defer tick.Stop()
 		for {

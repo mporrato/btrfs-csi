@@ -116,17 +116,17 @@ func TestWatchPoolConfig_CallsReloadOnChange(t *testing.T) {
 	})
 	defer close(stop)
 
-	// Initial load fires on first tick.
+	// The initial config should NOT trigger a reload since it was already
+	// loaded by the caller at startup. Only changes should fire reload.
+	// Wait a few ticks to confirm no spurious reload fires.
 	select {
 	case pools := <-called:
-		if len(pools) != 1 || pools["default"] != "/mnt/a" {
-			t.Errorf("initial reload got %v, want map[default:/mnt/a]", pools)
-		}
-	case <-after(2000):
-		t.Fatal("timed out waiting for initial reload")
+		t.Fatalf("unexpected initial reload with unchanged config: %v", pools)
+	case <-after(100):
+		// Good — no reload for unchanged config.
 	}
 
-	// Add a second pool — watcher should call reload again.
+	// Add a second pool — watcher should call reload.
 	if err := os.WriteFile(filepath.Join(dir, "fast"), []byte("/mnt/fast"), 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -95,6 +95,52 @@ func TestGetVolumeByName(t *testing.T) {
 	}
 }
 
+func TestGetVolumeByName_AfterDelete(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.SaveVolume(&Volume{ID: "vol-1", Name: "pvc-abc"}); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+	if err := store.DeleteVolume("vol-1"); err != nil {
+		t.Fatalf("DeleteVolume: %v", err)
+	}
+	if _, ok := store.GetVolumeByName("pvc-abc"); ok {
+		t.Error("GetVolumeByName returned true after delete, want false")
+	}
+}
+
+func TestGetVolumeByName_AfterRename(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.SaveVolume(&Volume{ID: "vol-1", Name: "old-name"}); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+	if err := store.SaveVolume(&Volume{ID: "vol-1", Name: "new-name"}); err != nil {
+		t.Fatalf("SaveVolume (rename): %v", err)
+	}
+	if _, ok := store.GetVolumeByName("old-name"); ok {
+		t.Error("GetVolumeByName found old name after rename")
+	}
+	got, ok := store.GetVolumeByName("new-name")
+	if !ok {
+		t.Fatal("GetVolumeByName returned false for new name")
+	}
+	if got.ID != "vol-1" {
+		t.Errorf("ID = %q, want %q", got.ID, "vol-1")
+	}
+}
+
+func TestGetSnapshotByName_AfterDelete(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.SaveSnapshot(&Snapshot{ID: "snap-1", Name: "backup-1"}); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+	if err := store.DeleteSnapshot("snap-1"); err != nil {
+		t.Fatalf("DeleteSnapshot: %v", err)
+	}
+	if _, ok := store.GetSnapshotByName("backup-1"); ok {
+		t.Error("GetSnapshotByName returned true after delete, want false")
+	}
+}
+
 func TestGetVolume_NotFound(t *testing.T) {
 	store := newTestStore(t)
 

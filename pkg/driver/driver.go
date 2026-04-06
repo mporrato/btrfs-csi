@@ -38,8 +38,8 @@ type Driver struct {
 	manager    btrfs.Manager
 	store      state.Store
 
-	// controllerMu serializes mutating controller operations (Create/Expand)
-	// to enforce idempotency guarantees under concurrent requests.
+	// controllerMu serializes mutating controller operations (Create/Delete/Expand)
+	// to prevent races between concurrent modifications (e.g. delete + clone).
 	controllerMu sync.Mutex
 
 	poolsMu sync.RWMutex
@@ -47,6 +47,9 @@ type Driver struct {
 
 	qgroupCleanupMu     sync.Mutex
 	qgroupCleanupTimers map[string]*time.Timer // keyed by basePath
+
+	quotaEnabledMu sync.Mutex
+	quotaEnabled   map[string]bool // basePath → true if quota already enabled
 }
 
 // NewDriver creates a new Driver with the given btrfs manager, state store, and node ID.
@@ -203,6 +206,24 @@ func (d *Driver) scheduleStartupQgroupCleanups(baseDelay, stagger time.Duration)
 	for i, bp := range paths {
 		d.scheduleQgroupCleanup(bp, baseDelay+time.Duration(i)*stagger)
 	}
+}
+
+// ensureQuotaEnabled calls EnsureQuotaEnabled on the manager, caching the
+// result per basePath so repeated volume creations don't shell out each time.
+func (d *Driver) ensureQuotaEnabled(basePath string) error {
+	d.quotaEnabledMu.Lock()
+	defer d.quotaEnabledMu.Unlock()
+	if d.quotaEnabled[basePath] {
+		return nil
+	}
+	if err := d.manager.EnsureQuotaEnabled(basePath); err != nil {
+		return err
+	}
+	if d.quotaEnabled == nil {
+		d.quotaEnabled = make(map[string]bool)
+	}
+	d.quotaEnabled[basePath] = true
+	return nil
 }
 
 // Stop gracefully shuts down the gRPC server.

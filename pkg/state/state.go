@@ -152,9 +152,11 @@ func validateSnapshot(s *Snapshot) error {
 
 // FileStore implements Store backed by a JSON file on disk.
 type FileStore struct {
-	mu   sync.Mutex
-	path string
-	data stateData
+	mu          sync.Mutex
+	path        string
+	data        stateData
+	volNameIdx  map[string]string // volume name → volume ID
+	snapNameIdx map[string]string // snapshot name → snapshot ID
 }
 
 // maxStateFileSize is the maximum allowed size for the state file (10MB).
@@ -174,6 +176,8 @@ func NewFileStore(path string) (*FileStore, error) {
 			Volumes:   make(map[string]*Volume),
 			Snapshots: make(map[string]*Snapshot),
 		},
+		volNameIdx:  make(map[string]string),
+		snapNameIdx: make(map[string]string),
 	}
 
 	// Try to load existing state file.
@@ -206,7 +210,25 @@ func (fs *FileStore) load() error {
 	if fs.data.Snapshots == nil {
 		fs.data.Snapshots = make(map[string]*Snapshot)
 	}
+	fs.rebuildIndexes()
 	return nil
+}
+
+// rebuildIndexes reconstructs volNameIdx and snapNameIdx from the current data.
+// Caller must NOT hold fs.mu (called from load, which is also lock-free).
+func (fs *FileStore) rebuildIndexes() {
+	fs.volNameIdx = make(map[string]string, len(fs.data.Volumes))
+	for id, v := range fs.data.Volumes {
+		if v.Name != "" {
+			fs.volNameIdx[v.Name] = id
+		}
+	}
+	fs.snapNameIdx = make(map[string]string, len(fs.data.Snapshots))
+	for id, s := range fs.data.Snapshots {
+		if s.Name != "" {
+			fs.snapNameIdx[s.Name] = id
+		}
+	}
 }
 
 // save executes fn under the lock, then persists the state to disk.
@@ -292,14 +314,14 @@ func (fs *FileStore) GetVolume(id string) (*Volume, bool) {
 func (fs *FileStore) GetVolumeByName(name string) (*Volume, bool) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	for _, v := range fs.data.Volumes {
-		if v.Name == name {
-			cp := copyVolume(v)
-			cp.BasePath = fs.Dir()
-			return cp, true
-		}
+	id, ok := fs.volNameIdx[name]
+	if !ok {
+		return nil, false
 	}
-	return nil, false
+	v := fs.data.Volumes[id]
+	cp := copyVolume(v)
+	cp.BasePath = fs.Dir()
+	return cp, true
 }
 
 func (fs *FileStore) ListVolumes() []*Volume {
@@ -321,12 +343,22 @@ func (fs *FileStore) SaveVolume(volume *Volume) error {
 	}
 	cp := copyVolume(volume)
 	return fs.save(func() {
+		// Remove old name from index if the volume already exists with a different name.
+		if old, exists := fs.data.Volumes[cp.ID]; exists && old.Name != cp.Name {
+			delete(fs.volNameIdx, old.Name)
+		}
 		fs.data.Volumes[cp.ID] = cp
+		if cp.Name != "" {
+			fs.volNameIdx[cp.Name] = cp.ID
+		}
 	})
 }
 
 func (fs *FileStore) DeleteVolume(id string) error {
 	return fs.save(func() {
+		if v, ok := fs.data.Volumes[id]; ok {
+			delete(fs.volNameIdx, v.Name)
+		}
 		delete(fs.data.Volumes, id)
 	})
 }
@@ -345,14 +377,14 @@ func (fs *FileStore) GetSnapshot(id string) (*Snapshot, bool) {
 func (fs *FileStore) GetSnapshotByName(name string) (*Snapshot, bool) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	for _, s := range fs.data.Snapshots {
-		if s.Name == name {
-			cp := copySnapshot(s)
-			cp.BasePath = fs.Dir()
-			return cp, true
-		}
+	id, ok := fs.snapNameIdx[name]
+	if !ok {
+		return nil, false
 	}
-	return nil, false
+	s := fs.data.Snapshots[id]
+	cp := copySnapshot(s)
+	cp.BasePath = fs.Dir()
+	return cp, true
 }
 
 func (fs *FileStore) ListSnapshots() []*Snapshot {
@@ -374,12 +406,21 @@ func (fs *FileStore) SaveSnapshot(snapshot *Snapshot) error {
 	}
 	cp := copySnapshot(snapshot)
 	return fs.save(func() {
+		if old, exists := fs.data.Snapshots[cp.ID]; exists && old.Name != cp.Name {
+			delete(fs.snapNameIdx, old.Name)
+		}
 		fs.data.Snapshots[cp.ID] = cp
+		if cp.Name != "" {
+			fs.snapNameIdx[cp.Name] = cp.ID
+		}
 	})
 }
 
 func (fs *FileStore) DeleteSnapshot(id string) error {
 	return fs.save(func() {
+		if s, ok := fs.data.Snapshots[id]; ok {
+			delete(fs.snapNameIdx, s.Name)
+		}
 		delete(fs.data.Snapshots, id)
 	})
 }

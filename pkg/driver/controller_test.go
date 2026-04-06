@@ -152,6 +152,25 @@ func TestCreateVolume_WithPoolParam(t *testing.T) {
 	}
 }
 
+func TestCreateVolume_EnsureQuotaCachedPerBasePath(t *testing.T) {
+	d, mock, _ := newTestDriverWithMock()
+
+	for i, name := range []string{"pvc-a", "pvc-b"} {
+		_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+			Name:               name,
+			CapacityRange:      &csi.CapacityRange{RequiredBytes: 1 << 30},
+			VolumeCapabilities: singleNodeWriterCap(),
+		})
+		if err != nil {
+			t.Fatalf("CreateVolume[%d]: %v", i, err)
+		}
+	}
+
+	if got := len(mock.EnsureQuotaEnabledCalls); got != 1 {
+		t.Errorf("EnsureQuotaEnabled called %d times, want 1 (should be cached)", got)
+	}
+}
+
 func TestResolveBasePath_SinglePoolNoParam(t *testing.T) {
 	d := newTestDriver()
 	d.SetPools(map[string]string{"mypool": testRootPath})
@@ -412,12 +431,106 @@ func TestListVolumes_ReturnsAll(t *testing.T) {
 	}
 }
 
-func TestListVolumes_PaginationTokenRejected(t *testing.T) {
+func TestListVolumes_MaxEntries(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	for _, v := range []*state.Volume{
+		{ID: "vol-a", Name: "pvc-a", BasePath: testRootPath},
+		{ID: "vol-b", Name: "pvc-b", BasePath: testRootPath},
+		{ID: "vol-c", Name: "pvc-c", BasePath: testRootPath},
+	} {
+		if err := store.SaveVolume(v); err != nil {
+			t.Fatalf("SaveVolume: %v", err)
+		}
+	}
+
+	resp, err := d.ListVolumes(context.Background(), &csi.ListVolumesRequest{MaxEntries: 2})
+	if err != nil {
+		t.Fatalf("ListVolumes: %v", err)
+	}
+	if len(resp.Entries) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(resp.Entries))
+	}
+	if resp.NextToken == "" {
+		t.Error("expected non-empty NextToken when more entries remain")
+	}
+}
+
+func TestListVolumes_PaginationFullWalk(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	ids := []string{"vol-a", "vol-b", "vol-c", "vol-d", "vol-e"}
+	for _, id := range ids {
+		if err := store.SaveVolume(&state.Volume{ID: id, Name: id, BasePath: testRootPath}); err != nil {
+			t.Fatalf("SaveVolume: %v", err)
+		}
+	}
+
+	var collected []string
+	token := ""
+	for {
+		resp, err := d.ListVolumes(context.Background(), &csi.ListVolumesRequest{
+			MaxEntries:    2,
+			StartingToken: token,
+		})
+		if err != nil {
+			t.Fatalf("ListVolumes (token=%q): %v", token, err)
+		}
+		for _, e := range resp.Entries {
+			collected = append(collected, e.Volume.VolumeId)
+		}
+		if resp.NextToken == "" {
+			break
+		}
+		token = resp.NextToken
+	}
+	if len(collected) != len(ids) {
+		t.Fatalf("collected %d volumes, want %d", len(collected), len(ids))
+	}
+}
+
+func TestListVolumes_InvalidStartingToken(t *testing.T) {
 	d := newTestDriver()
 
-	_, err := d.ListVolumes(context.Background(), &csi.ListVolumesRequest{StartingToken: "some-token"})
+	_, err := d.ListVolumes(context.Background(), &csi.ListVolumesRequest{StartingToken: "not-a-number"})
 	if code := status.Code(err); code != codes.Aborted {
-		t.Errorf("expected Aborted for pagination token, got %v", code)
+		t.Errorf("expected Aborted for invalid starting_token, got %v", code)
+	}
+}
+
+func TestListVolumes_StartingTokenBeyondEnd(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	if err := store.SaveVolume(&state.Volume{ID: "vol-1", Name: "pvc-1", BasePath: testRootPath}); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	resp, err := d.ListVolumes(context.Background(), &csi.ListVolumesRequest{StartingToken: "100"})
+	if err != nil {
+		t.Fatalf("ListVolumes: %v", err)
+	}
+	if len(resp.Entries) != 0 {
+		t.Errorf("expected 0 entries for token past end, got %d", len(resp.Entries))
+	}
+}
+
+func TestListVolumes_NoMaxEntriesNoToken(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	for _, v := range []*state.Volume{
+		{ID: "vol-a", Name: "pvc-a", BasePath: testRootPath},
+		{ID: "vol-b", Name: "pvc-b", BasePath: testRootPath},
+	} {
+		if err := store.SaveVolume(v); err != nil {
+			t.Fatalf("SaveVolume: %v", err)
+		}
+	}
+
+	resp, err := d.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("ListVolumes: %v", err)
+	}
+	if len(resp.Entries) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(resp.Entries))
+	}
+	if resp.NextToken != "" {
+		t.Errorf("expected empty NextToken when no max_entries, got %q", resp.NextToken)
 	}
 }
 
@@ -603,5 +716,95 @@ func TestCreateSnapshot_ConcurrentSameNameIdempotent(t *testing.T) {
 	}
 	if got := len(mock.CreateSnapshotCalls); got != 1 {
 		t.Errorf("CreateSnapshot called %d times under concurrent requests, want exactly 1", got)
+	}
+}
+
+func TestDeleteVolumeAndCreateFromSnapshot_ConcurrentSafe(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+
+	srcVol := &state.Volume{ID: "vol-src", Name: "src-pvc", BasePath: testRootPath}
+	if err := store.SaveVolume(srcVol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+	snap := &state.Snapshot{ID: "snap-1", Name: "snap-1", SourceVolID: "vol-src", BasePath: testRootPath, ReadyToUse: true}
+	if err := store.SaveSnapshot(snap); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+	delVol := &state.Volume{ID: "vol-del", Name: "del-pvc", BasePath: testRootPath}
+	if err := store.SaveVolume(delVol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+
+	wg.Go(func() {
+		<-start
+		_, _ = d.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: "vol-del"})
+	})
+
+	wg.Go(func() {
+		<-start
+		_, _ = d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+			Name:               "clone-pvc",
+			VolumeCapabilities: singleNodeWriterCap(),
+			VolumeContentSource: &csi.VolumeContentSource{
+				Type: &csi.VolumeContentSource_Snapshot{
+					Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: "snap-1"},
+				},
+			},
+		})
+	})
+
+	close(start)
+	wg.Wait()
+
+	if _, ok := store.GetVolume("vol-del"); ok {
+		t.Error("vol-del should have been deleted")
+	}
+}
+
+func TestDeleteSnapshotAndCreateFromSnapshot_ConcurrentSafe(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+
+	srcVol := &state.Volume{ID: "vol-src", Name: "src-pvc", BasePath: testRootPath}
+	if err := store.SaveVolume(srcVol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+	delSnap := &state.Snapshot{ID: "snap-del", Name: "snap-del", SourceVolID: "vol-src", BasePath: testRootPath, ReadyToUse: true}
+	if err := store.SaveSnapshot(delSnap); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+	cloneSnap := &state.Snapshot{ID: "snap-clone", Name: "snap-clone", SourceVolID: "vol-src", BasePath: testRootPath, ReadyToUse: true}
+	if err := store.SaveSnapshot(cloneSnap); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+
+	wg.Go(func() {
+		<-start
+		_, _ = d.DeleteSnapshot(context.Background(), &csi.DeleteSnapshotRequest{SnapshotId: "snap-del"})
+	})
+
+	wg.Go(func() {
+		<-start
+		_, _ = d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+			Name:               "clone-pvc",
+			VolumeCapabilities: singleNodeWriterCap(),
+			VolumeContentSource: &csi.VolumeContentSource{
+				Type: &csi.VolumeContentSource_Snapshot{
+					Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: "snap-clone"},
+				},
+			},
+		})
+	})
+
+	close(start)
+	wg.Wait()
+
+	if _, ok := store.GetSnapshot("snap-del"); ok {
+		t.Error("snap-del should have been deleted")
 	}
 }
