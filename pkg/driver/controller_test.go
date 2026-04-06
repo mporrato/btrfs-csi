@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -716,6 +717,61 @@ func TestCreateSnapshot_ConcurrentSameNameIdempotent(t *testing.T) {
 	}
 	if got := len(mock.CreateSnapshotCalls); got != 1 {
 		t.Errorf("CreateSnapshot called %d times under concurrent requests, want exactly 1", got)
+	}
+}
+
+func TestCreateVolume_CleansUpSubvolumeOnSetQgroupLimitFailure(t *testing.T) {
+	d, mock, _ := newTestDriverWithMock()
+
+	mock.SetQgroupLimitErr = fmt.Errorf("quota not enabled")
+
+	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "pvc-leak",
+		CapacityRange:      &csi.CapacityRange{RequiredBytes: 1 << 30},
+		VolumeCapabilities: singleNodeWriterCap(),
+	})
+	if err == nil {
+		t.Fatal("expected error when SetQgroupLimit fails")
+	}
+
+	// The subvolume must have been created, then cleaned up.
+	if len(mock.CreateSubvolumeCalls) != 1 {
+		t.Fatalf("expected 1 CreateSubvolume call, got %d", len(mock.CreateSubvolumeCalls))
+	}
+	if len(mock.DeleteSubvolumeCalls) != 1 {
+		t.Fatalf("expected 1 DeleteSubvolume call to clean up orphan, got %d", len(mock.DeleteSubvolumeCalls))
+	}
+	if mock.DeleteSubvolumeCalls[0] != mock.CreateSubvolumeCalls[0] {
+		t.Errorf("cleanup path %q != create path %q", mock.DeleteSubvolumeCalls[0], mock.CreateSubvolumeCalls[0])
+	}
+}
+
+func TestControllerExpandVolume_CallsEnsureQuotaEnabled(t *testing.T) {
+	d, mock, store := newTestDriverWithMock()
+
+	vol := &state.Volume{
+		ID:            "vol-expand-quota",
+		Name:          "test-pvc",
+		CapacityBytes: 0, // created without a quota limit
+		BasePath:      testRootPath,
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	_, err := d.ControllerExpandVolume(context.Background(), &csi.ControllerExpandVolumeRequest{
+		VolumeId:      "vol-expand-quota",
+		CapacityRange: &csi.CapacityRange{RequiredBytes: 2 << 30},
+	})
+	if err != nil {
+		t.Fatalf("ControllerExpandVolume: %v", err)
+	}
+
+	if len(mock.EnsureQuotaEnabledCalls) != 1 {
+		t.Fatalf("expected 1 EnsureQuotaEnabled call, got %d", len(mock.EnsureQuotaEnabledCalls))
+	}
+	if got := mock.EnsureQuotaEnabledCalls[0]; got != testRootPath {
+		t.Errorf("EnsureQuotaEnabled called with %q, want %q", got, testRootPath)
 	}
 }
 

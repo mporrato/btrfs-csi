@@ -281,9 +281,9 @@ file with `//go:build tools` build tag.
 - [x] Advertise `VOLUME_CONDITION` in `NodeGetCapabilities`
 - [x] Set `podInfoOnMount` and `fsGroupPolicy` in CSIDriver spec
 - [x] Add resource requests/limits to all containers in DaemonSet
-- [ ] Add `VolumeCondition` to `NodeGetVolumeStats` response
-- [ ] Add cleanup on `CreateVolume` failure after subvolume creation
-- [ ] Call `ensureQuotaEnabled` in `ControllerExpandVolume`
+- [x] Add `VolumeCondition` to `NodeGetVolumeStats` response
+- [x] Add cleanup on `CreateVolume` failure after subvolume creation
+- [x] Call `ensureQuotaEnabled` in `ControllerExpandVolume`
 
 ### Low Priority
 

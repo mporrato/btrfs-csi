@@ -249,6 +249,12 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context,
 		available = max(0, int64(usage.MaxRfer)-int64(usage.Referenced))
 	}
 
+	condition := &csi.VolumeCondition{Message: "volume is healthy"}
+	if _, err := os.Stat(vol.Path()); err != nil {
+		condition.Abnormal = true
+		condition.Message = "subvolume path does not exist on disk"
+	}
+
 	return &csi.NodeGetVolumeStatsResponse{
 		Usage: []*csi.VolumeUsage{
 			{
@@ -260,6 +266,7 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context,
 				Unit:      csi.VolumeUsage_BYTES,
 			},
 		},
+		VolumeCondition: condition,
 	}, nil
 }
 

@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -220,6 +221,22 @@ func isSupportedCapabilities(caps []*csi.VolumeCapability) bool {
 	return true
 }
 
+// applyCapacityLimit enables quota on basePath (if not already enabled) and
+// sets a qgroup limit on volPath. It is a no-op when capacityBytes is zero.
+func (d *Driver) applyCapacityLimit(basePath, volPath string, capacityBytes int64) error {
+	if capacityBytes == 0 {
+		return nil
+	}
+	if err := d.ensureQuotaEnabled(basePath); err != nil {
+		return fmt.Errorf("ensure quota enabled: %w", err)
+	}
+	//nolint:gosec // capacity validated positive before conversion
+	if err := d.manager.SetQgroupLimit(volPath, uint64(capacityBytes)); err != nil {
+		return fmt.Errorf("set qgroup limit: %w", err)
+	}
+	return nil
+}
+
 func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume name is required")
@@ -270,19 +287,25 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 		return nil, err
 	}
 
-	if capacityBytes > 0 {
-		// Quotas must be enabled on the filesystem before setting per-subvolume limits.
-		if err := d.ensureQuotaEnabled(basePath); err != nil {
-			return nil, status.Errorf(codes.Internal, "ensure quota enabled: %v", err)
+	// Clean up the subvolume on disk if any subsequent step fails, to prevent orphaned subvolumes.
+	cleanupNeeded := true
+	defer func() {
+		if cleanupNeeded {
+			if err := d.manager.DeleteSubvolume(vol.Path()); err != nil {
+				klog.ErrorS(err, "CreateVolume: failed to clean up subvolume after error", "path", vol.Path())
+			}
 		}
-		if err := d.manager.SetQgroupLimit(vol.Path(), uint64(capacityBytes)); err != nil {
-			return nil, status.Errorf(codes.Internal, "set qgroup limit: %v", err)
-		}
+	}()
+
+	if err := d.applyCapacityLimit(basePath, vol.Path(), capacityBytes); err != nil {
+		return nil, status.Errorf(codes.Internal, "%v", err)
 	}
 
 	if err := d.store.SaveVolume(vol); err != nil {
 		return nil, status.Errorf(codes.Internal, "save volume state: %v", err)
 	}
+
+	cleanupNeeded = false
 
 	klog.V(4).InfoS("CreateVolume", "volumeID", vol.ID, "name", req.Name, "path", vol.Path())
 	return &csi.CreateVolumeResponse{Volume: toCSIVolume(vol, d.nodeID)}, nil
@@ -348,9 +371,10 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context,
 		}, nil
 	}
 
-	// Update qgroup limit.
-	if err := d.manager.SetQgroupLimit(vol.Path(), uint64(newCapacity)); err != nil {
-		return nil, status.Errorf(codes.Internal, "set qgroup limit: %v", err)
+	// Update qgroup limit (ensures quota is enabled first in case the volume
+	// was originally created with zero capacity and no quota set up).
+	if err := d.applyCapacityLimit(vol.BasePath, vol.Path(), newCapacity); err != nil {
+		return nil, status.Errorf(codes.Internal, "%v", err)
 	}
 
 	// Update state.
