@@ -21,8 +21,10 @@ const topologyKey = "topology.btrfs.csi.local/node"
 
 // supportedAccessModes is the set of access modes this single-node driver supports.
 var supportedAccessModes = map[csi.VolumeCapability_AccessMode_Mode]struct{}{
-	csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER:      {},
-	csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY: {},
+	csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER:        {},
+	csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY:   {},
+	csi.VolumeCapability_AccessMode_SINGLE_NODE_SINGLE_WRITER: {},
+	csi.VolumeCapability_AccessMode_SINGLE_NODE_MULTI_WRITER:  {},
 }
 
 func (d *Driver) ControllerGetCapabilities(_ context.Context,

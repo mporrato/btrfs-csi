@@ -222,15 +222,15 @@ to coordinate, but defensive serialization is safer.
 
 ### Medium Priority
 
-- [ ] Verify mount source in `NodePublishVolume` idempotency check
+- [x] Verify mount source in `NodePublishVolume` idempotency check
 - [x] Set explicit permissions (`0o600`) on state temp file
 - [x] ~~`fsync` state directory after atomic rename~~ won't fix: btrfs dir fsync flushes entire pool
 - [x] Remove `hostNetwork: true` from DaemonSet
 - [x] ~~Replace `privileged: true` with specific capabilities~~ can't: kubelet requires `privileged` for Bidirectional mount propagation
 - [x] Add `livenessprobe` sidecar to DaemonSet
-- [ ] Support `SINGLE_NODE_SINGLE_WRITER` / `SINGLE_NODE_MULTI_WRITER` access modes
-- [ ] Advertise `VOLUME_CONDITION` in `NodeGetCapabilities`
-- [ ] Set `podInfoOnMount` and `fsGroupPolicy` in CSIDriver spec
+- [x] Support `SINGLE_NODE_SINGLE_WRITER` / `SINGLE_NODE_MULTI_WRITER` access modes
+- [x] Advertise `VOLUME_CONDITION` in `NodeGetCapabilities`
+- [x] Set `podInfoOnMount` and `fsGroupPolicy` in CSIDriver spec
 - [x] Add resource requests/limits to all containers in DaemonSet
 
 ### Low Priority

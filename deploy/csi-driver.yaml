@@ -5,5 +5,7 @@ metadata:
   name: btrfs.csi.local
 spec:
   attachRequired: false
+  podInfoOnMount: true
+  fsGroupPolicy: File
   volumeLifecycleModes:
     - Persistent

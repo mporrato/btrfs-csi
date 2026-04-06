@@ -74,6 +74,58 @@ func TestValidateVolumeCapabilities_Supported(t *testing.T) {
 	}
 }
 
+func TestValidateVolumeCapabilities_SingleNodeSingleWriter(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	if err := store.SaveVolume(&state.Volume{ID: "vol-123", Name: "test-pvc"}); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	caps := []*csi.VolumeCapability{
+		{
+			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_SINGLE_WRITER,
+			},
+		},
+	}
+	resp, err := d.ValidateVolumeCapabilities(context.Background(), &csi.ValidateVolumeCapabilitiesRequest{
+		VolumeId:           "vol-123",
+		VolumeCapabilities: caps,
+	})
+	if err != nil {
+		t.Fatalf("ValidateVolumeCapabilities: %v", err)
+	}
+	if resp.Confirmed == nil {
+		t.Fatal("expected SINGLE_NODE_SINGLE_WRITER to be supported")
+	}
+}
+
+func TestValidateVolumeCapabilities_SingleNodeMultiWriter(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	if err := store.SaveVolume(&state.Volume{ID: "vol-123", Name: "test-pvc"}); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	caps := []*csi.VolumeCapability{
+		{
+			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_MULTI_WRITER,
+			},
+		},
+	}
+	resp, err := d.ValidateVolumeCapabilities(context.Background(), &csi.ValidateVolumeCapabilitiesRequest{
+		VolumeId:           "vol-123",
+		VolumeCapabilities: caps,
+	})
+	if err != nil {
+		t.Fatalf("ValidateVolumeCapabilities: %v", err)
+	}
+	if resp.Confirmed == nil {
+		t.Fatal("expected SINGLE_NODE_MULTI_WRITER to be supported")
+	}
+}
+
 func TestValidateVolumeCapabilities_Unsupported(t *testing.T) {
 	d, _, store := newTestDriverWithMock()
 	if err := store.SaveVolume(&state.Volume{ID: "vol-123", Name: "test-pvc"}); err != nil {
