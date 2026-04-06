@@ -214,8 +214,12 @@ func TestClearStaleQgroups(t *testing.T) {
 	}
 
 	// ClearStaleQgroups should remove it.
-	if err := m.ClearStaleQgroups(mnt); err != nil {
+	count, err := m.ClearStaleQgroups(mnt)
+	if err != nil {
 		t.Fatalf("ClearStaleQgroups: %v", err)
+	}
+	if count == 0 {
+		t.Error("expected ClearStaleQgroups to remove at least 1 qgroup")
 	}
 	out, err = runCommand("btrfs", "qgroup", "show", "--raw", mnt)
 	if err != nil {
@@ -234,8 +238,12 @@ func TestClearStaleQgroups_NoQuotas(t *testing.T) {
 
 	m := &RealManager{}
 	// ClearStaleQgroups should be a no-op when quotas are not enabled.
-	if err := m.ClearStaleQgroups(mnt); err != nil {
+	count, err := m.ClearStaleQgroups(mnt)
+	if err != nil {
 		t.Fatalf("ClearStaleQgroups without quotas should be no-op, got: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 qgroups removed when quotas disabled, got %d", count)
 	}
 }
 

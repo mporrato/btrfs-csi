@@ -143,10 +143,10 @@ func (s *memStore) ReloadPaths(paths []string) {
 // with a closure, useful for recording calls with extra context (e.g. timestamps).
 type funcManager struct {
 	btrfs.MockManager
-	clearStaleQgroups func(path string) error
+	clearStaleQgroups func(path string) (int, error)
 }
 
-func (f *funcManager) ClearStaleQgroups(path string) error {
+func (f *funcManager) ClearStaleQgroups(path string) (int, error) {
 	if f.clearStaleQgroups != nil {
 		return f.clearStaleQgroups(path)
 	}

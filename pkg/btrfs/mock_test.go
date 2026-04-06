@@ -170,9 +170,13 @@ func TestMockManagerRemoveQgroupLimitError(t *testing.T) {
 }
 
 func TestMockManagerClearStaleQgroups(t *testing.T) {
-	m := &MockManager{}
-	if err := m.ClearStaleQgroups("/mnt/btrfs"); err != nil {
+	m := &MockManager{ClearStaleQgroupsResult: 5}
+	count, err := m.ClearStaleQgroups("/mnt/btrfs")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 5 {
+		t.Errorf("expected count 5, got %d", count)
 	}
 	if len(m.ClearStaleQgroupsCalls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(m.ClearStaleQgroupsCalls))
@@ -184,7 +188,8 @@ func TestMockManagerClearStaleQgroups(t *testing.T) {
 
 func TestMockManagerClearStaleQgroupsError(t *testing.T) {
 	m := &MockManager{ClearStaleQgroupsErr: errTest}
-	if err := m.ClearStaleQgroups("/mnt/btrfs"); !errors.Is(err, errTest) {
+	_, err := m.ClearStaleQgroups("/mnt/btrfs")
+	if !errors.Is(err, errTest) {
 		t.Fatalf("expected errTest, got %v", err)
 	}
 }

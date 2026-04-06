@@ -50,15 +50,24 @@ func (m *RealManager) DeleteSubvolume(path string) error {
 	return nil
 }
 
-func (m *RealManager) ClearStaleQgroups(mountpoint string) error {
-	if _, err := runCommand("btrfs", "qgroup", "clear-stale", mountpoint); err != nil {
+func (m *RealManager) ClearStaleQgroups(mountpoint string) (int, error) {
+	output, err := runCommand("btrfs", "qgroup", "clear-stale", mountpoint)
+	if err != nil {
 		msg := strings.ToLower(err.Error())
 		if strings.Contains(msg, "quotas not enabled") {
-			return nil
+			return 0, nil
 		}
-		return fmt.Errorf("clear stale qgroups on %s: %w", mountpoint, err)
+		return 0, fmt.Errorf("clear stale qgroups on %s: %w", mountpoint, err)
 	}
-	return nil
+	// Count the number of removed qgroups by counting output lines.
+	// Each removed qgroup produces one line of output.
+	count := 0
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		if line != "" {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (m *RealManager) SubvolumeExists(path string) (bool, error) {

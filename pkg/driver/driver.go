@@ -182,10 +182,11 @@ func (d *Driver) scheduleQgroupCleanup(basePath string, delay time.Duration) {
 		return
 	}
 	d.qgroupCleanupTimers[basePath] = time.AfterFunc(delay, func() {
-		if err := d.manager.ClearStaleQgroups(basePath); err != nil {
+		count, err := d.manager.ClearStaleQgroups(basePath)
+		if err != nil {
 			klog.V(4).InfoS("qgroup cleanup failed", "basePath", basePath, "err", err)
 		} else {
-			klog.V(4).InfoS("qgroup cleanup completed", "basePath", basePath)
+			klog.V(4).InfoS("qgroup cleanup completed", "basePath", basePath, "removed", count)
 		}
 		d.qgroupCleanupMu.Lock()
 		delete(d.qgroupCleanupTimers, basePath)
