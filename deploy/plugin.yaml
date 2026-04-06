@@ -118,6 +118,7 @@ spec:
           args:
             - --csi-address=/csi/csi.sock
             - --extra-create-metadata
+            - --leader-election
           resources:
             requests:
               cpu: 5m
@@ -132,6 +133,7 @@ spec:
           image: registry.k8s.io/sig-storage/csi-snapshotter:v8.0.0
           args:
             - --csi-address=/csi/csi.sock
+            - --leader-election
           resources:
             requests:
               cpu: 5m
@@ -146,6 +148,7 @@ spec:
           image: registry.k8s.io/sig-storage/csi-resizer:v1.14.0
           args:
             - --csi-address=/csi/csi.sock
+            - --leader-election
           resources:
             requests:
               cpu: 5m

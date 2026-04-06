@@ -239,13 +239,13 @@ to coordinate, but defensive serialization is safer.
 
 - [ ] Add pagination to `ListVolumes`
 - [ ] Add `name -> id` index to `FileStore` for O(1) name lookups
-- [ ] Replace `poolsEqual` with `maps.Equal`
+- [x] Replace `poolsEqual` with `maps.Equal`
 - [ ] Unexport embedded `Manager` field on `Driver` (use named field)
 - [ ] Unexport `Store` field on `Driver`
 - [ ] Remove redundant exported/unexported wrapper pairs in `config.go`
 - [ ] Eliminate type assertions against concrete store types in `basePaths()`
 - [ ] Eliminate type assertion in `reloadPoolConfig`
-- [ ] Initialize `lastPools` in `watchPoolConfig` to avoid redundant first reload
+- [ ] ~~Initialize `lastPools` in `watchPoolConfig`~~ skipped: low value, test complexity
 - [ ] Cache `EnsureQuotaEnabled` result per basePath
 - [ ] Serialize `DeleteVolume`/`DeleteSnapshot` under `controllerMu`
-- [ ] Add `--leader-election` to controller sidecars
+- [x] Add `--leader-election` to controller sidecars

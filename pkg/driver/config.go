@@ -2,6 +2,7 @@ package driver
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,19 +50,6 @@ func WatchPoolConfig(dir string, intervalMs int, reload func(map[string]string))
 	return watchPoolConfig(dir, intervalMs, reload)
 }
 
-// poolsEqual returns true if both maps contain the same key-value pairs.
-func poolsEqual(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if b[k] != v {
-			return false
-		}
-	}
-	return true
-}
-
 // watchPoolConfig polls dir every intervalMs milliseconds. On each poll it
 // parses the pool config directory and compares the result to the last-seen
 // pool map; if it changed (or on first call), it calls reload with the new map.
@@ -73,7 +61,7 @@ func watchPoolConfig(dir string, intervalMs int, reload func(map[string]string))
 		defer tick.Stop()
 		for {
 			if pools, err := parsePoolConfig(dir); err == nil {
-				if !poolsEqual(pools, lastPools) {
+				if !maps.Equal(pools, lastPools) {
 					lastPools = pools
 					reload(pools)
 				}
