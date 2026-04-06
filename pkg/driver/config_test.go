@@ -116,7 +116,7 @@ func TestWatchPoolConfig_CallsReloadOnChange(t *testing.T) {
 	})
 	defer close(stop)
 
-	// Initial load fires immediately.
+	// Initial load fires on first tick.
 	select {
 	case pools := <-called:
 		if len(pools) != 1 || pools["default"] != "/mnt/a" {

@@ -166,7 +166,7 @@ func TestCreateSnapshot_WithPoolParam(t *testing.T) {
 	altPath := t.TempDir()
 	d, mock, _ := newTestDriverWithMock()
 	// Register the extra basePath so the MultiStore can route saves there.
-	d.Store.(*state.MultiStore).AddStoreForTest(altPath, newMemStore(altPath))
+	d.store.(*state.MultiStore).AddStoreForTest(altPath, newMemStore(altPath))
 	d.SetPools(map[string]string{"archive": altPath, "default": testRootPath})
 
 	// Seed source volume in default pool.
@@ -175,7 +175,7 @@ func TestCreateSnapshot_WithPoolParam(t *testing.T) {
 		Name:     "source-pvc",
 		BasePath: testRootPath,
 	}
-	defaultStore, ok := d.Store.(*state.MultiStore).StoreFor(testRootPath)
+	defaultStore, ok := d.store.(*state.MultiStore).StoreFor(testRootPath)
 	if !ok {
 		t.Fatal("default store not found")
 	}
@@ -203,7 +203,7 @@ func TestCreateSnapshot_WithPoolParam(t *testing.T) {
 	}
 
 	// Verify it's stored in the archive pool's store
-	archiveStore, ok := d.Store.(*state.MultiStore).StoreFor(altPath)
+	archiveStore, ok := d.store.(*state.MultiStore).StoreFor(altPath)
 	if !ok {
 		t.Fatal("archive store not found")
 	}
@@ -226,7 +226,7 @@ func TestCreateSnapshot_MultiplePoolsNoDefault(t *testing.T) {
 		Name:     "source-pvc",
 		BasePath: testRootPath,
 	}
-	defaultStore, ok := d.Store.(*state.MultiStore).StoreFor(testRootPath)
+	defaultStore, ok := d.store.(*state.MultiStore).StoreFor(testRootPath)
 	if !ok {
 		t.Fatal("default store not found")
 	}
@@ -254,7 +254,7 @@ func TestCreateSnapshot_UnknownPool(t *testing.T) {
 		Name:     "source-pvc",
 		BasePath: testRootPath,
 	}
-	defaultStore, ok := d.Store.(*state.MultiStore).StoreFor(testRootPath)
+	defaultStore, ok := d.store.(*state.MultiStore).StoreFor(testRootPath)
 	if !ok {
 		t.Fatal("default store not found")
 	}
@@ -282,7 +282,7 @@ func TestCreateSnapshot_SinglePoolNoParam(t *testing.T) {
 		Name:     "source-pvc",
 		BasePath: testRootPath,
 	}
-	defaultStore, ok := d.Store.(*state.MultiStore).StoreFor(testRootPath)
+	defaultStore, ok := d.store.(*state.MultiStore).StoreFor(testRootPath)
 	if !ok {
 		t.Fatal("default store not found")
 	}
@@ -311,7 +311,7 @@ func TestCreateSnapshot_SinglePoolNoParam(t *testing.T) {
 func TestCreateSnapshot_Idempotent_DifferentPool(t *testing.T) {
 	altPath := t.TempDir()
 	d, _, _ := newTestDriverWithMock()
-	d.Store.(*state.MultiStore).AddStoreForTest(altPath, newMemStore(altPath))
+	d.store.(*state.MultiStore).AddStoreForTest(altPath, newMemStore(altPath))
 	d.SetPools(map[string]string{"default": testRootPath, "archive": altPath})
 
 	// Seed source volume in default pool
@@ -320,7 +320,7 @@ func TestCreateSnapshot_Idempotent_DifferentPool(t *testing.T) {
 		Name:     "source-pvc",
 		BasePath: testRootPath,
 	}
-	defaultStore, ok := d.Store.(*state.MultiStore).StoreFor(testRootPath)
+	defaultStore, ok := d.store.(*state.MultiStore).StoreFor(testRootPath)
 	if !ok {
 		t.Fatal("default store not found")
 	}

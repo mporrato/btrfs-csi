@@ -56,7 +56,7 @@ func (d *Driver) GetCapacity(_ context.Context, req *csi.GetCapacityRequest) (*c
 	if err != nil {
 		return nil, err
 	}
-	usage, err := d.GetFilesystemUsage(basePath)
+	usage, err := d.manager.GetFilesystemUsage(basePath)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get filesystem usage: %v", err)
 	}
@@ -71,7 +71,7 @@ func (d *Driver) ListVolumes(_ context.Context, req *csi.ListVolumesRequest) (*c
 	if req.StartingToken != "" {
 		return nil, status.Error(codes.Aborted, "pagination not supported")
 	}
-	vols := d.Store.ListVolumes()
+	vols := d.store.ListVolumes()
 	entries := make([]*csi.ListVolumesResponse_Entry, 0, len(vols))
 	for _, v := range vols {
 		entries = append(entries, &csi.ListVolumesResponse_Entry{Volume: toCSIVolume(v, d.nodeID)})
@@ -86,7 +86,7 @@ func (d *Driver) ListVolumes(_ context.Context, req *csi.ListVolumesRequest) (*c
 func (d *Driver) ListSnapshots(_ context.Context, req *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
 	// Fast path: single snapshot lookup by ID.
 	if req.SnapshotId != "" {
-		snap, ok := d.Store.GetSnapshot(req.SnapshotId)
+		snap, ok := d.store.GetSnapshot(req.SnapshotId)
 		if !ok {
 			return &csi.ListSnapshotsResponse{}, nil
 		}
@@ -95,7 +95,7 @@ func (d *Driver) ListSnapshots(_ context.Context, req *csi.ListSnapshotsRequest)
 		}, nil
 	}
 
-	all := d.Store.ListSnapshots()
+	all := d.store.ListSnapshots()
 
 	// Filter by source volume ID if requested.
 	if req.SourceVolumeId != "" {
@@ -144,7 +144,7 @@ func (d *Driver) ControllerGetVolume(_ context.Context,
 	if req.VolumeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
 	}
-	vol, ok := d.Store.GetVolume(req.VolumeId)
+	vol, ok := d.store.GetVolume(req.VolumeId)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.VolumeId)
 	}
@@ -170,7 +170,7 @@ func (d *Driver) ValidateVolumeCapabilities(_ context.Context,
 		return nil, status.Error(codes.InvalidArgument, "volume capabilities are required")
 	}
 
-	if _, ok := d.Store.GetVolume(req.VolumeId); !ok {
+	if _, ok := d.store.GetVolume(req.VolumeId); !ok {
 		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.VolumeId)
 	}
 
@@ -210,7 +210,7 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 	defer d.controllerMu.Unlock()
 
 	// Idempotency: return existing volume if one with the same name exists.
-	if existing, ok := d.Store.GetVolumeByName(req.Name); ok {
+	if existing, ok := d.store.GetVolumeByName(req.Name); ok {
 		if err := validateContentSourceMatch(existing, req.VolumeContentSource); err != nil {
 			return nil, err
 		}
@@ -250,15 +250,15 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 
 	if capacityBytes > 0 {
 		// Quotas must be enabled on the filesystem before setting per-subvolume limits.
-		if err := d.EnsureQuotaEnabled(basePath); err != nil {
+		if err := d.manager.EnsureQuotaEnabled(basePath); err != nil {
 			return nil, status.Errorf(codes.Internal, "ensure quota enabled: %v", err)
 		}
-		if err := d.SetQgroupLimit(vol.Path(), uint64(capacityBytes)); err != nil {
+		if err := d.manager.SetQgroupLimit(vol.Path(), uint64(capacityBytes)); err != nil {
 			return nil, status.Errorf(codes.Internal, "set qgroup limit: %v", err)
 		}
 	}
 
-	if err := d.Store.SaveVolume(vol); err != nil {
+	if err := d.store.SaveVolume(vol); err != nil {
 		return nil, status.Errorf(codes.Internal, "save volume state: %v", err)
 	}
 
@@ -272,17 +272,17 @@ func (d *Driver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest)
 		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
 	}
 
-	vol, ok := d.Store.GetVolume(req.VolumeId)
+	vol, ok := d.store.GetVolume(req.VolumeId)
 	if !ok {
 		// Already deleted — idempotent.
 		return &csi.DeleteVolumeResponse{}, nil
 	}
 
-	if err := d.DeleteSubvolume(vol.Path()); err != nil {
+	if err := d.manager.DeleteSubvolume(vol.Path()); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete subvolume: %v", err)
 	}
 
-	if err := d.Store.DeleteVolume(req.VolumeId); err != nil {
+	if err := d.store.DeleteVolume(req.VolumeId); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete volume state: %v", err)
 	}
 
@@ -300,7 +300,7 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context,
 	d.controllerMu.Lock()
 	defer d.controllerMu.Unlock()
 
-	vol, ok := d.Store.GetVolume(req.VolumeId)
+	vol, ok := d.store.GetVolume(req.VolumeId)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.VolumeId)
 	}
@@ -324,13 +324,13 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context,
 	}
 
 	// Update qgroup limit.
-	if err := d.SetQgroupLimit(vol.Path(), uint64(newCapacity)); err != nil {
+	if err := d.manager.SetQgroupLimit(vol.Path(), uint64(newCapacity)); err != nil {
 		return nil, status.Errorf(codes.Internal, "set qgroup limit: %v", err)
 	}
 
 	// Update state.
 	vol.CapacityBytes = newCapacity
-	if err := d.Store.SaveVolume(vol); err != nil {
+	if err := d.store.SaveVolume(vol); err != nil {
 		return nil, status.Errorf(codes.Internal, "save volume state: %v", err)
 	}
 
@@ -346,7 +346,7 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context,
 func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource, vol *state.Volume) error {
 	if src == nil {
 		// Fresh empty subvolume.
-		if err := d.CreateSubvolume(subvolPath); err != nil {
+		if err := d.manager.CreateSubvolume(subvolPath); err != nil {
 			return status.Errorf(codes.Internal, "create subvolume: %v", err)
 		}
 		return nil
@@ -355,22 +355,22 @@ func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource
 	switch t := src.Type.(type) {
 	case *csi.VolumeContentSource_Snapshot:
 		snapID := t.Snapshot.GetSnapshotId()
-		snap, ok := d.Store.GetSnapshot(snapID)
+		snap, ok := d.store.GetSnapshot(snapID)
 		if !ok {
 			return status.Errorf(codes.NotFound, "snapshot %s not found", snapID)
 		}
-		if err := d.Manager.CreateSnapshot(snap.Path(), subvolPath, false); err != nil {
+		if err := d.manager.CreateSnapshot(snap.Path(), subvolPath, false); err != nil {
 			return status.Errorf(codes.Internal, "clone from snapshot: %v", err)
 		}
 		vol.SourceSnapID = snapID
 
 	case *csi.VolumeContentSource_Volume:
 		srcVolID := t.Volume.GetVolumeId()
-		srcVol, ok := d.Store.GetVolume(srcVolID)
+		srcVol, ok := d.store.GetVolume(srcVolID)
 		if !ok {
 			return status.Errorf(codes.NotFound, "source volume %s not found", srcVolID)
 		}
-		if err := d.Manager.CreateSnapshot(srcVol.Path(), subvolPath, false); err != nil {
+		if err := d.manager.CreateSnapshot(srcVol.Path(), subvolPath, false); err != nil {
 			return status.Errorf(codes.Internal, "clone volume: %v", err)
 		}
 		vol.SourceVolID = srcVolID
@@ -403,7 +403,7 @@ func (d *Driver) CreateSnapshot(_ context.Context,
 	}
 
 	// Idempotency: return existing snapshot if one with the same name exists.
-	if existing, ok := d.Store.GetSnapshotByName(req.Name); ok {
+	if existing, ok := d.store.GetSnapshotByName(req.Name); ok {
 		if existing.SourceVolID != req.SourceVolumeId {
 			return nil, status.Errorf(codes.AlreadyExists,
 				"snapshot %q already exists with different source volume", req.Name)
@@ -417,7 +417,7 @@ func (d *Driver) CreateSnapshot(_ context.Context,
 		return &csi.CreateSnapshotResponse{Snapshot: toCSISnapshot(existing)}, nil
 	}
 
-	srcVol, ok := d.Store.GetVolume(req.SourceVolumeId)
+	srcVol, ok := d.store.GetVolume(req.SourceVolumeId)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "source volume %s not found", req.SourceVolumeId)
 	}
@@ -435,10 +435,10 @@ func (d *Driver) CreateSnapshot(_ context.Context,
 		return nil, status.Errorf(codes.Internal, "create snapshots directory: %v", err)
 	}
 
-	if err := d.Manager.CreateSnapshot(srcVol.Path(), snap.Path(), true); err != nil {
+	if err := d.manager.CreateSnapshot(srcVol.Path(), snap.Path(), true); err != nil {
 		return nil, status.Errorf(codes.Internal, "create snapshot: %v", err)
 	}
-	if err := d.Store.SaveSnapshot(snap); err != nil {
+	if err := d.store.SaveSnapshot(snap); err != nil {
 		return nil, status.Errorf(codes.Internal, "save snapshot state: %v", err)
 	}
 
@@ -453,17 +453,17 @@ func (d *Driver) DeleteSnapshot(_ context.Context,
 		return nil, status.Error(codes.InvalidArgument, "snapshot ID is required")
 	}
 
-	snap, ok := d.Store.GetSnapshot(req.SnapshotId)
+	snap, ok := d.store.GetSnapshot(req.SnapshotId)
 	if !ok {
 		// Already deleted — idempotent.
 		return &csi.DeleteSnapshotResponse{}, nil
 	}
 
-	if err := d.DeleteSubvolume(snap.Path()); err != nil {
+	if err := d.manager.DeleteSubvolume(snap.Path()); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete snapshot subvolume: %v", err)
 	}
 
-	if err := d.Store.DeleteSnapshot(req.SnapshotId); err != nil {
+	if err := d.store.DeleteSnapshot(req.SnapshotId); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete snapshot state: %v", err)
 	}
 

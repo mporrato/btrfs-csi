@@ -123,7 +123,7 @@ func TestCreateVolume_WithPoolParam(t *testing.T) {
 	basePath := t.TempDir()
 	d, mock, _ := newTestDriverWithMock()
 	// Register the extra basePath so the MultiStore can route saves there.
-	d.Store.(*state.MultiStore).AddStoreForTest(basePath, newMemStore(basePath))
+	d.store.(*state.MultiStore).AddStoreForTest(basePath, newMemStore(basePath))
 	d.SetPools(map[string]string{"fast": basePath})
 
 	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{

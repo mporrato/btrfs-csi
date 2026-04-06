@@ -83,7 +83,7 @@ func (d *Driver) NodePublishVolume(_ context.Context,
 		return nil, status.Error(codes.InvalidArgument, "volume capability is required")
 	}
 
-	vol, ok := d.Store.GetVolume(req.GetVolumeId())
+	vol, ok := d.store.GetVolume(req.GetVolumeId())
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.GetVolumeId())
 	}
@@ -222,7 +222,7 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context,
 		return nil, status.Error(codes.InvalidArgument, "volume path is required")
 	}
 
-	vol, ok := d.Store.GetVolume(req.GetVolumeId())
+	vol, ok := d.store.GetVolume(req.GetVolumeId())
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.GetVolumeId())
 	}
@@ -238,7 +238,7 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context,
 		return nil, status.Errorf(codes.NotFound, "volume %s is not mounted at %s", req.GetVolumeId(), req.GetVolumePath())
 	}
 
-	usage, err := d.GetQgroupUsage(vol.Path())
+	usage, err := d.manager.GetQgroupUsage(vol.Path())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get qgroup usage for %s: %v", vol.Path(), err)
 	}

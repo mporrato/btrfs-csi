@@ -35,8 +35,8 @@ type Driver struct {
 	nodeID     string
 	mounter    Mounter
 	grpcServer *grpc.Server
-	btrfs.Manager
-	Store state.Store
+	manager    btrfs.Manager
+	store      state.Store
 
 	// controllerMu serializes mutating controller operations (Create/Expand)
 	// to enforce idempotency guarantees under concurrent requests.
@@ -70,8 +70,8 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) *Driver {
 		version: version,
 		nodeID:  nodeID,
 		mounter: newRealMounter(),
-		Manager: mgr,
-		Store:   store,
+		manager: mgr,
+		store:   store,
 	}
 
 	// Schedule initial qgroup cleanup for all known paths, staggered.
@@ -104,7 +104,7 @@ func (d *Driver) basePaths() []string {
 		}
 		return paths
 	}
-	return d.Store.Dirs()
+	return d.store.Dirs()
 }
 
 // parseEndpoint extracts the socket path from a CSI endpoint string.
@@ -182,7 +182,7 @@ func (d *Driver) scheduleQgroupCleanup(basePath string, delay time.Duration) {
 		return
 	}
 	d.qgroupCleanupTimers[basePath] = time.AfterFunc(delay, func() {
-		if err := d.ClearStaleQgroups(basePath); err != nil {
+		if err := d.manager.ClearStaleQgroups(basePath); err != nil {
 			klog.V(4).InfoS("qgroup cleanup failed", "basePath", basePath, "err", err)
 		} else {
 			klog.V(4).InfoS("qgroup cleanup completed", "basePath", basePath)
