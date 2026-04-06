@@ -34,12 +34,14 @@ reload callback fires immediately on the first tick even though
 `reloadPoolConfig` redundantly ~30s after startup. Not harmful but wastes work
 (re-validates all pools).
 
-### `NodePublishVolume` idempotency check doesn't verify the source
+### `NodePublishVolume` idempotency check doesn't verify the source (won't fix)
 
 `node.go:98-105`: If the target is already a mount point, the method returns
-success without verifying it's the *same volume* mounted there. If a different
-volume was mounted at that path (e.g., stale state), the driver silently returns
-success. CSI spec recommends verifying the mount matches.
+success without verifying it's the *same volume* mounted there. However, for
+bind mounts on btrfs the kernel reports the block device (e.g. `/dev/vda`) as
+the mount source in `/proc/self/mountinfo`, not the directory path. This makes
+reliable source comparison impossible. The CSI spec guarantees the CO will not
+issue conflicting publish requests for the same target path.
 
 ## 2. Security Issues
 
@@ -222,7 +224,7 @@ to coordinate, but defensive serialization is safer.
 
 ### Medium Priority
 
-- [x] Verify mount source in `NodePublishVolume` idempotency check
+- [x] ~~Verify mount source in `NodePublishVolume` idempotency check~~ won't fix: bind mounts on btrfs report block device, not source path
 - [x] Set explicit permissions (`0o600`) on state temp file
 - [x] ~~`fsync` state directory after atomic rename~~ won't fix: btrfs dir fsync flushes entire pool
 - [x] Remove `hostNetwork: true` from DaemonSet

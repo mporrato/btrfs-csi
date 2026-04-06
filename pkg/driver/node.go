@@ -36,9 +36,6 @@ type Mounter interface {
 	Unmount(target string) error
 	// IsMountPoint returns true if file is a mount point.
 	IsMountPoint(file string) (bool, error)
-	// GetMountSource returns the source device/path for a mount point.
-	// Returns ("", nil) if the target is not mounted.
-	GetMountSource(target string) (string, error)
 }
 
 // realMounter implements Mounter using k8s.io/mount-utils.
@@ -63,19 +60,6 @@ func (m *realMounter) Unmount(target string) error {
 
 func (m *realMounter) IsMountPoint(file string) (bool, error) {
 	return m.mounter.IsMountPoint(file)
-}
-
-func (m *realMounter) GetMountSource(target string) (string, error) {
-	mounts, err := m.mounter.List()
-	if err != nil {
-		return "", err
-	}
-	for i := range mounts {
-		if mounts[i].Path == target {
-			return mounts[i].Device, nil
-		}
-	}
-	return "", nil
 }
 
 func (d *Driver) NodePublishVolume(_ context.Context,
@@ -110,18 +94,13 @@ func (d *Driver) NodePublishVolume(_ context.Context,
 		return nil, status.Errorf(codes.Internal, "create target directory: %v", err)
 	}
 
-	// Idempotency check: if target is already mounted, verify it's the same volume.
+	// Idempotency check: if target is already mounted, return success.
+	// We do not verify the mount source because bind mounts on btrfs report
+	// the block device (e.g. /dev/vda) rather than the source directory path,
+	// making reliable source comparison impossible. The CSI spec guarantees
+	// the CO will not issue conflicting publish requests for the same target.
 	isMount, err := d.mounter.IsMountPoint(targetPath)
 	if err == nil && isMount {
-		source, srcErr := d.mounter.GetMountSource(targetPath)
-		if srcErr != nil {
-			return nil, status.Errorf(codes.Internal, "get mount source for %s: %v", targetPath, srcErr)
-		}
-		if source != "" && source != vol.Path() {
-			return nil, status.Errorf(codes.AlreadyExists,
-				"target %s is already mounted from %s, expected %s",
-				targetPath, source, vol.Path())
-		}
 		klog.V(4).InfoS("NodePublishVolume: target already mounted, returning success",
 			"volumeID", req.GetVolumeId(),
 			"target", targetPath,

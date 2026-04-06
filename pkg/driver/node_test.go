@@ -38,11 +38,6 @@ type MockMounter struct {
 	IsMountPointCalls  []string
 	IsMountPointResult bool
 	IsMountPointErr    error
-
-	// GetMountSource
-	GetMountSourceCalls  []string
-	GetMountSourceResult string
-	GetMountSourceErr    error
 }
 
 func (m *MockMounter) Mount(source, target, fsType string, options ...string) error {
@@ -63,11 +58,6 @@ func (m *MockMounter) Unmount(target string) error {
 func (m *MockMounter) IsMountPoint(file string) (bool, error) {
 	m.IsMountPointCalls = append(m.IsMountPointCalls, file)
 	return m.IsMountPointResult, m.IsMountPointErr
-}
-
-func (m *MockMounter) GetMountSource(target string) (string, error) {
-	m.GetMountSourceCalls = append(m.GetMountSourceCalls, target)
-	return m.GetMountSourceResult, m.GetMountSourceErr
 }
 
 func TestNodePublishVolume_Success(t *testing.T) {
@@ -483,44 +473,6 @@ func TestNodePublishVolume_AlreadyMounted(t *testing.T) {
 	// Assert mount was NOT called (already mounted)
 	if len(mounter.MountCalls) != 0 {
 		t.Errorf("expected 0 Mount calls (already mounted), got %d", len(mounter.MountCalls))
-	}
-}
-
-func TestNodePublishVolume_AlreadyMountedWrongSource(t *testing.T) {
-	d, _, mounter, store := newTestDriverWithMounter()
-
-	vol := &state.Volume{
-		ID:       "vol-wrong-src",
-		Name:     "test-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
-	}
-	if err := store.SaveVolume(vol); err != nil {
-		t.Fatalf("SaveVolume: %v", err)
-	}
-
-	targetPath := filepath.Join(t.TempDir(), "target")
-	if err := os.MkdirAll(targetPath, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-
-	// Simulate: target is already mounted from a different source
-	mounter.IsMountPointResult = true
-	mounter.GetMountSourceResult = "/some/other/volume"
-
-	_, err := d.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
-		VolumeId:   "vol-wrong-src",
-		TargetPath: targetPath,
-		VolumeCapability: &csi.VolumeCapability{
-			AccessType: &csi.VolumeCapability_Mount{
-				Mount: &csi.VolumeCapability_MountVolume{},
-			},
-			AccessMode: &csi.VolumeCapability_AccessMode{
-				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
-			},
-		},
-	})
-	if code := status.Code(err); code != codes.AlreadyExists {
-		t.Errorf("expected AlreadyExists for wrong mount source, got %v: %v", code, err)
 	}
 }
 
