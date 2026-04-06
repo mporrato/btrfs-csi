@@ -63,9 +63,10 @@ echo "==> Patching ConfigMap to add secondary pool..."
 ${K} patch configmap btrfs-csi-pools -n "${NS}" --type merge -p \
   "{\"data\": {\"secondary\": \"${BTRFS_MOUNT_2}\"}}"
 
-echo "==> Patching DaemonSet to mount secondary btrfs filesystem..."
+echo "==> Patching DaemonSet to prepare for testing..."
 ${K} patch daemonset btrfs-csi-driver -n "${NS}" --type json -p \
   '[
+    {"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--v=4"},
     {"op": "add", "path": "/spec/template/spec/volumes/1", "value": {"name": "btrfs-data-dir-secondary", "hostPath": {"path": "'${BTRFS_MOUNT_2}'", "type": "DirectoryOrCreate"}}},
     {"op": "add", "path": "/spec/template/spec/containers/0/volumeMounts/1", "value": {"name": "btrfs-data-dir-secondary", "mountPath": "'${BTRFS_MOUNT_2}'"}}
   ]'
