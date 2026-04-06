@@ -242,7 +242,7 @@ to coordinate, but defensive serialization is safer.
 - [x] Replace `poolsEqual` with `maps.Equal`
 - [x] Unexport embedded `Manager` field on `Driver` (use named field)
 - [x] Unexport `Store` field on `Driver`
-- [ ] Remove redundant exported/unexported wrapper pairs in `config.go`
+- [x] Remove redundant exported/unexported wrapper pairs in `config.go`
 - [x] Eliminate type assertions against concrete store types in `basePaths()`
 - [x] Eliminate type assertion in `reloadPoolConfig`
 - [ ] ~~Initialize `lastPools` in `watchPoolConfig`~~ skipped: low value, test complexity

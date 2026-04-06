@@ -17,9 +17,9 @@ func TestParsePoolConfig_SinglePool(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "default"), []byte("/var/lib/btrfs-csi\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := parsePoolConfig(dir)
+	got, err := ParsePoolConfig(dir)
 	if err != nil {
-		t.Fatalf("parsePoolConfig: %v", err)
+		t.Fatalf("ParsePoolConfig: %v", err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("got %d pools, want 1", len(got))
@@ -38,9 +38,9 @@ func TestParsePoolConfig_MultiplePools(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := parsePoolConfig(dir)
+	got, err := ParsePoolConfig(dir)
 	if err != nil {
-		t.Fatalf("parsePoolConfig: %v", err)
+		t.Fatalf("ParsePoolConfig: %v", err)
 	}
 	if len(got) != 2 {
 		t.Fatalf("got %d pools, want 2", len(got))
@@ -65,9 +65,9 @@ func TestParsePoolConfig_SkipsHiddenAndDotDot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := parsePoolConfig(dir)
+	got, err := ParsePoolConfig(dir)
 	if err != nil {
-		t.Fatalf("parsePoolConfig: %v", err)
+		t.Fatalf("ParsePoolConfig: %v", err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("got %v, want only 'default'", got)
@@ -80,7 +80,7 @@ func TestParsePoolConfig_RelativePathRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := parsePoolConfig(dir)
+	_, err := ParsePoolConfig(dir)
 	if err == nil {
 		t.Error("expected error for relative path, got nil")
 	}
@@ -88,9 +88,9 @@ func TestParsePoolConfig_RelativePathRejected(t *testing.T) {
 
 func TestParsePoolConfig_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
-	got, err := parsePoolConfig(dir)
+	got, err := ParsePoolConfig(dir)
 	if err != nil {
-		t.Fatalf("parsePoolConfig: %v", err)
+		t.Fatalf("ParsePoolConfig: %v", err)
 	}
 	if len(got) != 0 {
 		t.Errorf("got %v, want empty", got)
@@ -98,7 +98,7 @@ func TestParsePoolConfig_EmptyDir(t *testing.T) {
 }
 
 func TestParsePoolConfig_MissingDir(t *testing.T) {
-	_, err := parsePoolConfig("/nonexistent/dir")
+	_, err := ParsePoolConfig("/nonexistent/dir")
 	if err == nil {
 		t.Error("expected error for missing dir, got nil")
 	}
@@ -111,7 +111,7 @@ func TestWatchPoolConfig_CallsReloadOnChange(t *testing.T) {
 	}
 
 	called := make(chan map[string]string, 2)
-	stop := watchPoolConfig(dir, 20, func(pools map[string]string) {
+	stop := WatchPoolConfig(dir, 20, func(pools map[string]string) {
 		called <- pools
 	})
 	defer close(stop)

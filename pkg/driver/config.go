@@ -14,10 +14,6 @@ import (
 // file content (trimmed) is the absolute path. Hidden files (starting with '.')
 // and directories are skipped. Returns an error if any path is not absolute.
 func ParsePoolConfig(dir string) (map[string]string, error) {
-	return parsePoolConfig(dir)
-}
-
-func parsePoolConfig(dir string) (map[string]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("read pool config dir: %w", err)
@@ -45,22 +41,17 @@ func parsePoolConfig(dir string) (map[string]string, error) {
 	return pools, nil
 }
 
-// WatchPoolConfig is the exported wrapper around watchPoolConfig for use by main.
-func WatchPoolConfig(dir string, intervalMs int, reload func(map[string]string)) chan<- struct{} {
-	return watchPoolConfig(dir, intervalMs, reload)
-}
-
-// watchPoolConfig polls dir every intervalMs milliseconds. On each poll it
+// WatchPoolConfig polls dir every intervalMs milliseconds. On each poll it
 // parses the pool config directory and compares the result to the last-seen
 // pool map; if it changed (or on first call), it calls reload with the new map.
-func watchPoolConfig(dir string, intervalMs int, reload func(map[string]string)) chan<- struct{} {
+func WatchPoolConfig(dir string, intervalMs int, reload func(map[string]string)) chan<- struct{} {
 	stop := make(chan struct{})
 	go func() {
 		var lastPools map[string]string
 		tick := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
 		defer tick.Stop()
 		for {
-			if pools, err := parsePoolConfig(dir); err == nil {
+			if pools, err := ParsePoolConfig(dir); err == nil {
 				if !maps.Equal(pools, lastPools) {
 					lastPools = pools
 					reload(pools)
