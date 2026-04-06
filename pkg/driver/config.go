@@ -53,16 +53,16 @@ func WatchPoolConfig(dir string, intervalMs int, reload func(map[string]string))
 		tick := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
 		defer tick.Stop()
 		for {
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+			}
 			if pools, err := ParsePoolConfig(dir); err == nil {
 				if !maps.Equal(pools, lastPools) {
 					lastPools = pools
 					reload(pools)
 				}
-			}
-			select {
-			case <-stop:
-				return
-			case <-tick.C:
 			}
 		}
 	}()

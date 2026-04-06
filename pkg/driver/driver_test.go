@@ -200,32 +200,24 @@ func TestDriverStartsAndStops(t *testing.T) {
 		errCh <- d.Run(endpoint)
 	}()
 
-	// Wait for the socket to appear (driver is listening)
+	// Wait for the socket to be accepting connections.
 	deadline := time.Now().Add(5 * time.Second)
-	var conn *grpc.ClientConn
 	for {
 		if time.Now().After(deadline) {
 			t.Fatal("timed out waiting for driver to start listening")
 		}
-		// Try to connect with blocking to ensure connection is established
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		var dialErr error
-		//nolint:staticcheck // SA1019: using deprecated API for test compatibility
-		conn, dialErr = grpc.DialContext(ctx, "unix:"+sockPath,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithBlock(),
-		)
-		cancel()
-		if dialErr == nil {
+		c, err := net.DialTimeout("unix", sockPath, 100*time.Millisecond)
+		if err == nil {
+			_ = c.Close()
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	defer func() {
-		if conn != nil {
-			_ = conn.Close()
-		}
-	}()
+	conn, err := grpc.NewClient("unix:"+sockPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("grpc.NewClient: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
 
 	// Act: call Probe via gRPC
 	client := csi.NewIdentityClient(conn)
@@ -328,31 +320,24 @@ func TestRunRemovesStaleSocket(t *testing.T) {
 		errCh <- d.Run(endpoint)
 	}()
 
-	// Wait for the driver to start listening (proper readiness probe)
+	// Wait for the driver to start listening (proper readiness probe).
 	deadline := time.Now().Add(5 * time.Second)
-	var conn *grpc.ClientConn
 	for {
 		if time.Now().After(deadline) {
 			t.Fatal("timed out waiting for driver to start after stale socket removal")
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		var dialErr error
-		//nolint:staticcheck // SA1019: using deprecated API for test compatibility
-		conn, dialErr = grpc.DialContext(ctx, "unix:"+sockPath,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithBlock(),
-		)
-		cancel()
-		if dialErr == nil {
+		c, err := net.DialTimeout("unix", sockPath, 100*time.Millisecond)
+		if err == nil {
+			_ = c.Close()
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	defer func() {
-		if conn != nil {
-			_ = conn.Close()
-		}
-	}()
+	conn, err := grpc.NewClient("unix:"+sockPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("grpc.NewClient: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
 
 	// Stop cleanly
 	d.Stop()

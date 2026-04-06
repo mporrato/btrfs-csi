@@ -299,6 +299,6 @@ file with `//go:build tools` build tag.
 - [x] Cache `EnsureQuotaEnabled` result per basePath
 - [x] Serialize `DeleteVolume`/`DeleteSnapshot` under `controllerMu`
 - [x] Add `--leader-election` to controller sidecars
-- [ ] Replace deprecated `grpc.DialContext` with `grpc.NewClient` in tests
-- [ ] Move `WatchPoolConfig` select to top of loop for responsive shutdown
-- [ ] Move `csi_test.go` blank import to `tools.go` with build tag
+- [x] Replace deprecated `grpc.DialContext` with `grpc.NewClient` in tests
+- [x] Move `WatchPoolConfig` select to top of loop for responsive shutdown
+- [x] Move `csi_test.go` blank import to `tools.go` with build tag
