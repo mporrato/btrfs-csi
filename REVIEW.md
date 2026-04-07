@@ -260,7 +260,7 @@ long-running operations (like `CreateSnapshot` with send/receive).
 - [ ] Make `provisionVolume` mutation of `vol` explicit (return source IDs)
 - [ ] Use full UUID (or at least 16 chars) instead of `[:8]` truncation in temp snapshot names
 - [ ] Log errors in deferred cleanup instead of silently discarding
-- [ ] Advertise `EXPAND_VOLUME` in `NodeGetCapabilities`
+- [x] Advertise `EXPAND_VOLUME` in `NodeGetCapabilities`
 - [x] Set `MaxVolumesPerNode: 0` explicitly in `NodeGetInfo` response
 - [ ] Return error from `NewDriver` instead of panicking on nil arguments
 - [ ] Check `ctx.Err()` at start of long-running CSI RPCs

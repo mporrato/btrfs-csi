@@ -303,6 +303,7 @@ func TestNodeGetCapabilities(t *testing.T) {
 	want := map[csi.NodeServiceCapability_RPC_Type]bool{
 		csi.NodeServiceCapability_RPC_GET_VOLUME_STATS: false,
 		csi.NodeServiceCapability_RPC_VOLUME_CONDITION: false,
+		csi.NodeServiceCapability_RPC_EXPAND_VOLUME:    false,
 	}
 
 	for _, cap := range resp.GetCapabilities() {
