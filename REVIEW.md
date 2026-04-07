@@ -231,7 +231,7 @@ long-running operations (like `CreateSnapshot` with send/receive).
 - [x] Populate `Snapshot.SizeBytes` when `ReadyToUse` is true
 - [ ] Call `validatePath` on `NodeGetVolumeStats.VolumePath`
 - [ ] Pin sidecar images by SHA256 digest in `plugin.yaml`
-- [ ] Add `seccompProfile` and `capabilities: drop: ["ALL"]` to security context
+- [x] Add `seccompProfile` and `capabilities: drop: ["ALL"]` to security context
 - [ ] Add `storageCapacity: true` to CSIDriver spec
 - [ ] Improve `Probe` to check btrfs filesystem health (not just path existence)
 

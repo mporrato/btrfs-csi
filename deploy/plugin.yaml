@@ -42,6 +42,10 @@ spec:
           # privileged is required by kubelet for mountPropagation: Bidirectional
           securityContext:
             privileged: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           args:
             - --endpoint=unix:///csi/csi.sock
             - --config=/etc/btrfs-csi/pools
