@@ -98,6 +98,21 @@ func TestCreateVolume_Idempotent(t *testing.T) {
 	}
 }
 
+func TestCreateVolume_CancelledContext(t *testing.T) {
+	d, _, _ := newTestDriverWithMock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := d.CreateVolume(ctx, &csi.CreateVolumeRequest{
+		Name:               "test-pvc",
+		VolumeCapabilities: singleNodeWriterCap(),
+	})
+	if code := status.Code(err); code != codes.Canceled {
+		t.Errorf("expected Canceled for canceled context, got %v", code)
+	}
+}
+
 func TestCreateVolume_MissingName(t *testing.T) {
 	d, _, _ := newTestDriverWithMock()
 

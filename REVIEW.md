@@ -263,4 +263,4 @@ long-running operations (like `CreateSnapshot` with send/receive).
 - [x] Advertise `EXPAND_VOLUME` in `NodeGetCapabilities`
 - [x] Set `MaxVolumesPerNode: 0` explicitly in `NodeGetInfo` response
 - [x] Return error from `NewDriver` instead of panicking on nil arguments
-- [ ] Check `ctx.Err()` at start of long-running CSI RPCs
+- [x] Check `ctx.Err()` at start of long-running CSI RPCs

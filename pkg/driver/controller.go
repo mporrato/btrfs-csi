@@ -238,6 +238,9 @@ func (d *Driver) applyCapacityLimit(basePath, volPath string, capacityBytes int6
 }
 
 func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, status.FromContextError(err).Err()
+	}
 	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume name is required")
 	}
@@ -438,10 +441,32 @@ func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource
 	}
 }
 
-func (d *Driver) CreateSnapshot(_ context.Context,
+// findExistingSnapshot returns an idempotent response if a snapshot with the given name already
+// exists in the store, or an error if it conflicts. Returns (nil, nil) if no snapshot exists.
+func (d *Driver) findExistingSnapshot(name, sourceVolID, basePath string) (*csi.CreateSnapshotResponse, error) {
+	existing, ok := d.store.GetSnapshotByName(name)
+	if !ok {
+		return nil, nil
+	}
+	if existing.SourceVolID != sourceVolID {
+		return nil, status.Errorf(codes.AlreadyExists,
+			"snapshot %q already exists with different source volume", name)
+	}
+	if existing.BasePath != basePath {
+		return nil, status.Errorf(codes.AlreadyExists,
+			"snapshot %q already exists in a different pool", name)
+	}
+	klog.V(4).InfoS("CreateSnapshot idempotent", "name", name, "snapshotID", existing.ID)
+	return &csi.CreateSnapshotResponse{Snapshot: toCSISnapshot(existing)}, nil
+}
+
+func (d *Driver) CreateSnapshot(ctx context.Context,
 	req *csi.CreateSnapshotRequest) (*csi.CreateSnapshotResponse, error) {
 	klog.V(2).InfoS("CreateSnapshot called", "name", req.Name, "sourceVolumeId", req.SourceVolumeId)
 
+	if err := ctx.Err(); err != nil {
+		return nil, status.FromContextError(err).Err()
+	}
 	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "snapshot name is required")
 	}
@@ -459,18 +484,8 @@ func (d *Driver) CreateSnapshot(_ context.Context,
 	}
 
 	// Idempotency: return existing snapshot if one with the same name exists.
-	if existing, ok := d.store.GetSnapshotByName(req.Name); ok {
-		if existing.SourceVolID != req.SourceVolumeId {
-			return nil, status.Errorf(codes.AlreadyExists,
-				"snapshot %q already exists with different source volume", req.Name)
-		}
-		// Also verify the existing snapshot is in the same pool as the current request.
-		if existing.BasePath != basePath {
-			return nil, status.Errorf(codes.AlreadyExists,
-				"snapshot %q already exists in a different pool", req.Name)
-		}
-		klog.V(4).InfoS("CreateSnapshot idempotent", "name", req.Name, "snapshotID", existing.ID)
-		return &csi.CreateSnapshotResponse{Snapshot: toCSISnapshot(existing)}, nil
+	if resp, err := d.findExistingSnapshot(req.Name, req.SourceVolumeId, basePath); resp != nil || err != nil {
+		return resp, err
 	}
 
 	srcVol, ok := d.store.GetVolume(req.SourceVolumeId)

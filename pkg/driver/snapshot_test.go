@@ -190,6 +190,21 @@ func TestCreateSnapshot_SourceNotFound(t *testing.T) {
 	}
 }
 
+func TestCreateSnapshot_CancelledContext(t *testing.T) {
+	d, _, _ := newTestDriverWithMock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := d.CreateSnapshot(ctx, &csi.CreateSnapshotRequest{
+		SourceVolumeId: "vol-src",
+		Name:           "snap-1",
+	})
+	if code := status.Code(err); code != codes.Canceled {
+		t.Errorf("expected Canceled for canceled context, got %v", code)
+	}
+}
+
 func TestCreateSnapshot_MissingName(t *testing.T) {
 	d, _, _ := newTestDriverWithMock()
 
