@@ -182,6 +182,9 @@ func (d *Driver) NodeGetInfo(_ context.Context, _ *csi.NodeGetInfoRequest) (*csi
 		AccessibleTopology: &csi.Topology{
 			Segments: map[string]string{topologyKey: d.nodeID},
 		},
+		// btrfs subvolumes are limited only by filesystem capacity, so there
+		// is no fixed per-node volume limit. 0 explicitly means "unlimited".
+		MaxVolumesPerNode: 0,
 	}, nil
 }
 

@@ -284,6 +284,12 @@ func TestNodeGetInfo(t *testing.T) {
 	} else {
 		t.Error("AccessibleTopology is nil")
 	}
+
+	// btrfs subvolumes are limited only by filesystem capacity, so MaxVolumesPerNode
+	// should be explicitly 0 (meaning unlimited) rather than omitted.
+	if resp.MaxVolumesPerNode != 0 {
+		t.Errorf("MaxVolumesPerNode = %d, want 0 (unlimited)", resp.MaxVolumesPerNode)
+	}
 }
 
 func TestNodeGetCapabilities(t *testing.T) {
