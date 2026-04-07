@@ -202,7 +202,11 @@ func (m *RealManager) sendReceive(src, dst string, readonly bool) error {
 	if _, err := runCommand("btrfs", "subvolume", "snapshot", "-r", src, tempSnap); err != nil {
 		return fmt.Errorf("create temp snapshot: %w", err)
 	}
-	defer func() { _ = m.DeleteSubvolume(tempSnap) }()
+	defer func() {
+		if err := m.DeleteSubvolume(tempSnap); err != nil {
+			klog.V(2).InfoS("sendReceive: failed to delete temp snapshot", "path", tempSnap, "err", err)
+		}
+	}()
 
 	// 4. Ensure destination parent directory exists
 	dstDir := filepath.Dir(dst)

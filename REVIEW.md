@@ -259,7 +259,7 @@ long-running operations (like `CreateSnapshot` with send/receive).
 - [ ] Use consistent error wrapping (descriptive messages instead of bare `"%v"`)
 - [ ] Make `provisionVolume` mutation of `vol` explicit (return source IDs)
 - [ ] Use full UUID (or at least 16 chars) instead of `[:8]` truncation in temp snapshot names
-- [ ] Log errors in deferred cleanup instead of silently discarding
+- [x] Log errors in deferred cleanup instead of silently discarding
 - [x] Advertise `EXPAND_VOLUME` in `NodeGetCapabilities`
 - [x] Set `MaxVolumesPerNode: 0` explicitly in `NodeGetInfo` response
 - [ ] Return error from `NewDriver` instead of panicking on nil arguments
