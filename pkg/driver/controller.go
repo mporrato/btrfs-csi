@@ -490,6 +490,11 @@ func (d *Driver) CreateSnapshot(_ context.Context,
 		return nil, status.Errorf(codes.Internal, "create snapshots directory: %v", err)
 	}
 
+	// Snapshots are always created read-only. This is intentional: btrfs
+	// read-only snapshots are crash-consistent and cannot be accidentally
+	// modified. To use snapshot data read-write, create a volume from the
+	// snapshot (CreateVolume with a snapshot content source), which clones it
+	// into a writable subvolume.
 	if err := d.manager.CreateSnapshot(srcVol.Path(), snap.Path(), true); err != nil {
 		return nil, status.Errorf(codes.Internal, "create snapshot: %v", err)
 	}

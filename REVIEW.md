@@ -89,7 +89,7 @@ size.
 snapshots. This means snapshots can never be directly mounted read-write. If a
 user wants to restore from a snapshot by mounting it, they must create a volume
 from the snapshot first. This is a design choice, not a bug, but it should be
-documented.
+documented. **Fixed**: added an explanatory comment at the call site.
 
 ### `NodeGetInfo` doesn't report `MaxVolumesPerNode`
 
