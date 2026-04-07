@@ -494,6 +494,13 @@ func (d *Driver) CreateSnapshot(_ context.Context,
 		return nil, status.Errorf(codes.Internal, "create snapshot: %v", err)
 	}
 
+	// Populate SizeBytes from the snapshot's referenced data size. Best-effort:
+	// a failure here is non-fatal; SizeBytes stays 0.
+	if usage, err := d.manager.GetQgroupUsage(snap.Path()); err == nil && usage != nil {
+		//nolint:gosec // qgroup values always fit in int64
+		snap.SizeBytes = int64(usage.Referenced)
+	}
+
 	// Clean up the on-disk snapshot if SaveSnapshot fails, to prevent orphaned subvolumes.
 	cleanupNeeded := true
 	defer func() {

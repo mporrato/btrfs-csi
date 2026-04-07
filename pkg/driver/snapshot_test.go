@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/mporrato/btrfs-csi/pkg/btrfs"
 	"github.com/mporrato/btrfs-csi/pkg/state"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -72,6 +73,43 @@ func TestCreateSnapshot_Success(t *testing.T) {
 	}
 	if snap.CreatedAt.IsZero() {
 		t.Error("snapshot CreatedAt should be set in state")
+	}
+}
+
+func TestCreateSnapshot_PopulatesSizeBytes(t *testing.T) {
+	d, mock, store := newTestDriverWithMock()
+
+	vol := &state.Volume{
+		ID:       "vol-src",
+		Name:     "source-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	mock.GetQgroupUsageResult = &btrfs.QgroupUsage{
+		Referenced: 512 * 1024 * 1024, // 512 MiB
+	}
+
+	resp, err := d.CreateSnapshot(context.Background(), &csi.CreateSnapshotRequest{
+		SourceVolumeId: "vol-src",
+		Name:           "snap-sized",
+	})
+	if err != nil {
+		t.Fatalf("CreateSnapshot: %v", err)
+	}
+
+	if resp.Snapshot.SizeBytes != 512*1024*1024 {
+		t.Errorf("SizeBytes = %d, want %d", resp.Snapshot.SizeBytes, 512*1024*1024)
+	}
+
+	snap, ok := store.GetSnapshot(resp.Snapshot.SnapshotId)
+	if !ok {
+		t.Fatal("snapshot not found in state")
+	}
+	if snap.SizeBytes != 512*1024*1024 {
+		t.Errorf("stored SizeBytes = %d, want %d", snap.SizeBytes, 512*1024*1024)
 	}
 }
 

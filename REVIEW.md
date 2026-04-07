@@ -228,7 +228,7 @@ long-running operations (like `CreateSnapshot` with send/receive).
 - [x] Add `VolumeCondition` to `NodeGetVolumeStats` response
 - [x] Add cleanup on `CreateVolume` failure after subvolume creation
 - [x] Call `ensureQuotaEnabled` in `ControllerExpandVolume`
-- [ ] Populate `Snapshot.SizeBytes` when `ReadyToUse` is true
+- [x] Populate `Snapshot.SizeBytes` when `ReadyToUse` is true
 - [ ] Call `validatePath` on `NodeGetVolumeStats.VolumePath`
 - [ ] Pin sidecar images by SHA256 digest in `plugin.yaml`
 - [ ] Add `seccompProfile` and `capabilities: drop: ["ALL"]` to security context
