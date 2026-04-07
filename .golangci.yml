@@ -18,6 +18,8 @@ linters:
         - style
         - opinionated
         - performance
+      disabled-checks:
+        - unnamedResult # conflicts with nonamedreturns when multiple returns share a type
     lll:
       line-length: 120
     misspell:

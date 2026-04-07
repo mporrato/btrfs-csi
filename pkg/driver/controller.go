@@ -283,9 +283,12 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 		return nil, status.Errorf(codes.Internal, "create volumes directory: %v", err)
 	}
 
-	if err := d.provisionVolume(vol.Path(), req.VolumeContentSource, vol); err != nil {
+	sourceSnapID, sourceVolID, err := d.provisionVolume(vol.Path(), req.VolumeContentSource)
+	if err != nil {
 		return nil, err
 	}
+	vol.SourceSnapID = sourceSnapID
+	vol.SourceVolID = sourceVolID
 
 	// Clean up the subvolume on disk if any subsequent step fails, to prevent orphaned subvolumes.
 	cleanupNeeded := true
@@ -397,14 +400,14 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context,
 }
 
 // provisionVolume creates the subvolume at subvolPath, handling content sources for cloning.
-// It sets SourceSnapID or SourceVolID on vol when cloning. On success the subvolume exists on disk.
-func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource, vol *state.Volume) error {
+// On success the subvolume exists on disk. Returns the source snapshot and volume IDs when cloning.
+func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource) (string, string, error) {
 	if src == nil {
 		// Fresh empty subvolume.
 		if err := d.manager.CreateSubvolume(subvolPath); err != nil {
-			return status.Errorf(codes.Internal, "create subvolume: %v", err)
+			return "", "", status.Errorf(codes.Internal, "create subvolume: %v", err)
 		}
-		return nil
+		return "", "", nil
 	}
 
 	switch t := src.Type.(type) {
@@ -412,29 +415,27 @@ func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource
 		snapID := t.Snapshot.GetSnapshotId()
 		snap, ok := d.store.GetSnapshot(snapID)
 		if !ok {
-			return status.Errorf(codes.NotFound, "snapshot %s not found", snapID)
+			return "", "", status.Errorf(codes.NotFound, "snapshot %s not found", snapID)
 		}
 		if err := d.manager.CreateSnapshot(snap.Path(), subvolPath, false); err != nil {
-			return status.Errorf(codes.Internal, "clone from snapshot: %v", err)
+			return "", "", status.Errorf(codes.Internal, "clone from snapshot: %v", err)
 		}
-		vol.SourceSnapID = snapID
+		return snapID, "", nil
 
 	case *csi.VolumeContentSource_Volume:
 		srcVolID := t.Volume.GetVolumeId()
 		srcVol, ok := d.store.GetVolume(srcVolID)
 		if !ok {
-			return status.Errorf(codes.NotFound, "source volume %s not found", srcVolID)
+			return "", "", status.Errorf(codes.NotFound, "source volume %s not found", srcVolID)
 		}
 		if err := d.manager.CreateSnapshot(srcVol.Path(), subvolPath, false); err != nil {
-			return status.Errorf(codes.Internal, "clone volume: %v", err)
+			return "", "", status.Errorf(codes.Internal, "clone volume: %v", err)
 		}
-		vol.SourceVolID = srcVolID
+		return "", srcVolID, nil
 
 	default:
-		return status.Errorf(codes.InvalidArgument, "unsupported volume content source type")
+		return "", "", status.Errorf(codes.InvalidArgument, "unsupported volume content source type")
 	}
-
-	return nil
 }
 
 func (d *Driver) CreateSnapshot(_ context.Context,
@@ -611,8 +612,6 @@ func validateContentSourceMatch(vol *state.Volume, src *csi.VolumeContentSource)
 }
 
 // contentSourceIDs extracts the snapshot ID and volume ID from a VolumeContentSource.
-//
-//nolint:gocritic // unnamedResult conflicts with nonamedreturns linter
 func contentSourceIDs(src *csi.VolumeContentSource) (string, string) {
 	if src == nil {
 		return "", ""
