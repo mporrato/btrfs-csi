@@ -298,7 +298,7 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 	}()
 
 	if err := d.applyCapacityLimit(basePath, vol.Path(), capacityBytes); err != nil {
-		return nil, status.Errorf(codes.Internal, "%v", err)
+		return nil, status.Errorf(codes.Internal, "apply capacity limit: %v", err)
 	}
 
 	if err := d.store.SaveVolume(vol); err != nil {
@@ -380,7 +380,7 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context,
 	// Update qgroup limit (ensures quota is enabled first in case the volume
 	// was originally created with zero capacity and no quota set up).
 	if err := d.applyCapacityLimit(vol.BasePath, vol.Path(), newCapacity); err != nil {
-		return nil, status.Errorf(codes.Internal, "%v", err)
+		return nil, status.Errorf(codes.Internal, "apply capacity limit: %v", err)
 	}
 
 	// Update state.

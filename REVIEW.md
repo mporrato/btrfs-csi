@@ -256,7 +256,7 @@ long-running operations (like `CreateSnapshot` with send/receive).
 - [ ] Remove or implement skipped/no-op tests in `real_test.go`
 - [ ] Consider using `FileStore` with `t.TempDir()` instead of `memStore` in driver tests
 - [ ] Extract `d.store.(*state.MultiStore)` type assertions into a test helper
-- [ ] Use consistent error wrapping (descriptive messages instead of bare `"%v"`)
+- [x] Use consistent error wrapping (descriptive messages instead of bare `"%v"`)
 - [ ] Make `provisionVolume` mutation of `vol` explicit (return source IDs)
 - [ ] Use full UUID (or at least 16 chars) instead of `[:8]` truncation in temp snapshot names
 - [x] Log errors in deferred cleanup instead of silently discarding
