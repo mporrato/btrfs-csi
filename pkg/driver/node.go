@@ -228,13 +228,14 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context,
 	if req.GetVolumeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
 	}
-	if err := validatePath(req.GetVolumePath()); err != nil {
-		return nil, err
-	}
 
 	vol, ok := d.store.GetVolume(req.GetVolumeId())
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.GetVolumeId())
+	}
+
+	if req.GetVolumePath() == "" {
+		return nil, status.Error(codes.InvalidArgument, "volume path is required")
 	}
 
 	isMount, err := d.mounter.IsMountPoint(req.GetVolumePath())

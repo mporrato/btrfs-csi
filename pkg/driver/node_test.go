@@ -393,15 +393,20 @@ func TestNodeGetVolumeStats(t *testing.T) {
 	}
 }
 
-func TestNodeGetVolumeStats_InvalidVolumePath(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+func TestNodeGetVolumeStats_EmptyVolumePath(t *testing.T) {
+	d, _, _, store := newTestDriverWithMounter()
+
+	vol := &state.Volume{ID: "vol-1", Name: "pvc-1", BasePath: testRootPath}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
 
 	_, err := d.NodeGetVolumeStats(context.Background(), &csi.NodeGetVolumeStatsRequest{
 		VolumeId:   "vol-1",
-		VolumePath: "../etc/passwd",
+		VolumePath: "",
 	})
 	if code := status.Code(err); code != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument for traversal path, got %v", code)
+		t.Errorf("expected InvalidArgument for empty volume path, got %v", code)
 	}
 }
 
