@@ -48,7 +48,8 @@ var _ = BeforeSuite(func() {
 	store, err := state.NewFileStore(filepath.Join(sanityRoot, "state.json"))
 	Expect(err).NotTo(HaveOccurred())
 
-	sanityDriver = NewDriver(&btrfs.RealManager{}, store, "sanity-node")
+	sanityDriver, err = NewDriver(&btrfs.RealManager{}, store, "sanity-node")
+	Expect(err).NotTo(HaveOccurred())
 	sanityDriver.SetPools(map[string]string{"default": sanityRoot})
 	sanityErrCh = make(chan error, 1)
 	go func() {

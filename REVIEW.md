@@ -262,5 +262,5 @@ long-running operations (like `CreateSnapshot` with send/receive).
 - [x] Log errors in deferred cleanup instead of silently discarding
 - [x] Advertise `EXPAND_VOLUME` in `NodeGetCapabilities`
 - [x] Set `MaxVolumesPerNode: 0` explicitly in `NodeGetInfo` response
-- [ ] Return error from `NewDriver` instead of panicking on nil arguments
+- [x] Return error from `NewDriver` instead of panicking on nil arguments
 - [ ] Check `ctx.Err()` at start of long-running CSI RPCs

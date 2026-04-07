@@ -53,13 +53,13 @@ type Driver struct {
 }
 
 // NewDriver creates a new Driver with the given btrfs manager, state store, and node ID.
-// It panics if mgr or store is nil.
-func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) *Driver {
+// Returns an error if mgr or store is nil.
+func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) (*Driver, error) {
 	if mgr == nil {
-		panic("btrfs.Manager must not be nil")
+		return nil, fmt.Errorf("btrfs.Manager must not be nil")
 	}
 	if store == nil {
-		panic("state.Store must not be nil")
+		return nil, fmt.Errorf("state.Store must not be nil")
 	}
 
 	klog.V(2).InfoS("Creating new driver",
@@ -80,7 +80,7 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) *Driver {
 	// Schedule initial qgroup cleanup for all known paths, staggered.
 	d.scheduleStartupQgroupCleanups(startupQgroupCleanup, startupQgroupStagger)
 
-	return d
+	return d, nil
 }
 
 // SetPools replaces the pool map atomically.

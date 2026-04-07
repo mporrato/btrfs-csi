@@ -79,7 +79,10 @@ func TestProbeNotBtrfsFilesystem(t *testing.T) {
 	tmpDir := t.TempDir()
 	mock := &btrfs.MockManager{IsBtrfsFilesystemResult: false}
 	ms, _ := newTestMultiStore(tmpDir)
-	d := NewDriver(mock, ms, "test-node")
+	d, err := NewDriver(mock, ms, "test-node")
+	if err != nil {
+		t.Fatalf("NewDriver: %v", err)
+	}
 	d.SetPools(map[string]string{"default": tmpDir})
 
 	resp, err := d.Probe(context.Background(), &csi.ProbeRequest{})
@@ -121,21 +124,17 @@ func TestNewDriverValidation(t *testing.T) {
 	ms, _ := newTestMultiStore(testRootPath)
 
 	t.Run("nil manager", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("NewDriver with nil manager should panic")
-			}
-		}()
-		NewDriver(nil, ms, "node1")
+		_, err := NewDriver(nil, ms, "node1")
+		if err == nil {
+			t.Error("NewDriver with nil manager should return error")
+		}
 	})
 
 	t.Run("nil store", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("NewDriver with nil store should panic")
-			}
-		}()
-		NewDriver(&btrfs.MockManager{}, nil, "node1")
+		_, err := NewDriver(&btrfs.MockManager{}, nil, "node1")
+		if err == nil {
+			t.Error("NewDriver with nil store should return error")
+		}
 	})
 }
 
@@ -144,7 +143,10 @@ func TestNewDriverSetsFields(t *testing.T) {
 	ms, _ := newTestMultiStore(testRootPath)
 	nodeID := "test-node"
 
-	d := NewDriver(mgr, ms, nodeID)
+	d, err := NewDriver(mgr, ms, nodeID)
+	if err != nil {
+		t.Fatalf("NewDriver: %v", err)
+	}
 
 	if d.nodeID != nodeID {
 		t.Errorf("nodeID = %q, want %q", d.nodeID, nodeID)

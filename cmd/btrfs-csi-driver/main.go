@@ -78,7 +78,10 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 	}
 
 	// Create driver
-	drv := driver.NewDriver(mgr, ms, *nodeID)
+	drv, err := driver.NewDriver(mgr, ms, *nodeID)
+	if err != nil {
+		return err
+	}
 	drv.SetPools(pools)
 
 	// Watch for changes (ConfigMap kubelet updates) — 30 s poll interval.

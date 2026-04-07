@@ -48,7 +48,10 @@ func TestScheduleStartupQgroupCleanups_Staggered(t *testing.T) {
 	ms.AddStoreForTest(pathA, newMemStore(pathA))
 	ms.AddStoreForTest(pathB, newMemStore(pathB))
 
-	d := NewDriver(mgr, ms, "test-node")
+	d, err := NewDriver(mgr, ms, "test-node")
+	if err != nil {
+		t.Fatalf("NewDriver: %v", err)
+	}
 	d.SetPools(map[string]string{"a": pathA, "b": pathB})
 
 	const base, stagger = 20 * time.Millisecond, 30 * time.Millisecond
@@ -108,7 +111,10 @@ func TestScheduleQgroupCleanup_OnlyTargetsSpecifiedPath(t *testing.T) {
 	ms.AddStoreForTest(pathA, memA)
 	ms.AddStoreForTest(pathB, memB)
 
-	d := NewDriver(mgr, ms, "test-node")
+	d, err := NewDriver(mgr, ms, "test-node")
+	if err != nil {
+		t.Fatalf("NewDriver: %v", err)
+	}
 	d.SetPools(map[string]string{"a": pathA, "b": pathB})
 
 	// Schedule cleanup only for pathA with a very short delay.
