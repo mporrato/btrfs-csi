@@ -233,7 +233,7 @@ long-running operations (like `CreateSnapshot` with send/receive).
 - [ ] Pin sidecar images by SHA256 digest in `plugin.yaml`
 - [x] Add `seccompProfile` and `capabilities: drop: ["ALL"]` to security context
 - [x] Add `storageCapacity: true` to CSIDriver spec
-- [ ] Improve `Probe` to check btrfs filesystem health (not just path existence)
+- [x] Improve `Probe` to check btrfs filesystem health (not just path existence)
 
 ### Low Priority
 

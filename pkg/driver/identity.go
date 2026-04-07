@@ -54,6 +54,15 @@ func (d *Driver) Probe(_ context.Context, _ *csi.ProbeRequest) (*csi.ProbeRespon
 			klog.V(2).InfoS("Probe: path check failed", "path", p, "error", err)
 			return &csi.ProbeResponse{Ready: wrapperspb.Bool(false)}, nil
 		}
+		ok, err := d.manager.IsBtrfsFilesystem(p)
+		if err != nil {
+			klog.V(2).InfoS("Probe: btrfs check failed", "path", p, "error", err)
+			return &csi.ProbeResponse{Ready: wrapperspb.Bool(false)}, nil
+		}
+		if !ok {
+			klog.V(2).InfoS("Probe: path is not on a btrfs filesystem", "path", p)
+			return &csi.ProbeResponse{Ready: wrapperspb.Bool(false)}, nil
+		}
 	}
 
 	klog.V(5).InfoS("Probe: healthy", "paths", paths)

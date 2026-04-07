@@ -74,6 +74,29 @@ func TestProbeHealthy(t *testing.T) {
 	}
 }
 
+func TestProbeNotBtrfsFilesystem(t *testing.T) {
+	// Path exists but mock reports it is not on a btrfs filesystem.
+	tmpDir := t.TempDir()
+	mock := &btrfs.MockManager{IsBtrfsFilesystemResult: false}
+	ms, _ := newTestMultiStore(tmpDir)
+	d := NewDriver(mock, ms, "test-node")
+	d.SetPools(map[string]string{"default": tmpDir})
+
+	resp, err := d.Probe(context.Background(), &csi.ProbeRequest{})
+	if err != nil {
+		t.Fatalf("Probe returned error: %v", err)
+	}
+
+	ready := resp.GetReady()
+	if ready == nil {
+		t.Fatal("Probe response ready is nil, want non-nil BoolValue")
+	}
+
+	if ready.GetValue() {
+		t.Error("Probe ready = true, want false when path is not on a btrfs filesystem")
+	}
+}
+
 func TestProbeUnhealthy(t *testing.T) {
 	// Use a non-existent path
 	nonExistent := filepath.Join(t.TempDir(), "does-not-exist")
