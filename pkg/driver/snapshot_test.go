@@ -354,6 +354,7 @@ func TestCreateSnapshot_Idempotent_DifferentPool(t *testing.T) {
 
 func TestDeleteSnapshot_Success(t *testing.T) {
 	d, mock, store := newTestDriverWithMock()
+	mock.SubvolumeExistsResult = true
 
 	snap := &state.Snapshot{
 		ID:          "snap-abc",
@@ -393,6 +394,35 @@ func TestDeleteSnapshot_NotFound(t *testing.T) {
 
 	if len(mock.DeleteSubvolumeCalls) != 0 {
 		t.Errorf("expected no DeleteSubvolume calls, got %d", len(mock.DeleteSubvolumeCalls))
+	}
+}
+
+func TestDeleteSnapshot_SubvolumeGoneButStateRemains(t *testing.T) {
+	d, mock, store := newTestDriverWithMock()
+	mock.SubvolumeExistsResult = false // subvolume already gone
+
+	snap := &state.Snapshot{
+		ID:          "snap-partial",
+		Name:        "snap-1",
+		SourceVolID: "vol-src",
+		BasePath:    "/tmp/btrfs-csi-test",
+		ReadyToUse:  true,
+	}
+	if err := store.SaveSnapshot(snap); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+
+	_, err := d.DeleteSnapshot(context.Background(), &csi.DeleteSnapshotRequest{SnapshotId: "snap-partial"})
+	if err != nil {
+		t.Fatalf("DeleteSnapshot with gone subvolume should succeed, got: %v", err)
+	}
+
+	if len(mock.DeleteSubvolumeCalls) != 0 {
+		t.Errorf("expected no DeleteSubvolume calls when subvolume is already gone, got %d", len(mock.DeleteSubvolumeCalls))
+	}
+
+	if _, ok := store.GetSnapshot("snap-partial"); ok {
+		t.Error("snapshot still in state after DeleteSnapshot")
 	}
 }
 

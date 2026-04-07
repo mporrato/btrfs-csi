@@ -243,10 +243,20 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context,
 		return nil, status.Errorf(codes.Internal, "get qgroup usage for %s: %v", vol.Path(), err)
 	}
 
-	var available int64
+	//nolint:gosec // qgroup values always fit in int64
+	total, available := int64(usage.MaxRfer), int64(0)
 	if usage.MaxRfer > 0 {
 		//nolint:gosec // qgroup values always fit in int64
 		available = max(0, int64(usage.MaxRfer)-int64(usage.Referenced))
+	} else {
+		// No per-volume quota; fall back to filesystem capacity so the volume
+		// doesn't appear full to monitoring systems.
+		if fsUsage, err := d.manager.GetFilesystemUsage(vol.Path()); err == nil {
+			//nolint:gosec // filesystem values always fit in int64
+			total = int64(fsUsage.Total)
+			//nolint:gosec // filesystem values always fit in int64
+			available = int64(fsUsage.Available)
+		}
 	}
 
 	condition := &csi.VolumeCondition{Message: "volume is healthy"}
@@ -258,8 +268,7 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context,
 	return &csi.NodeGetVolumeStatsResponse{
 		Usage: []*csi.VolumeUsage{
 			{
-				//nolint:gosec // qgroup values always fit in int64
-				Total: int64(usage.MaxRfer),
+				Total: total,
 				//nolint:gosec // qgroup values always fit in int64
 				Used:      int64(usage.Referenced),
 				Available: available,
@@ -273,8 +282,21 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context,
 func (d *Driver) NodeExpandVolume(_ context.Context,
 	req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
 	klog.V(5).InfoS("NodeExpandVolume called", "volumeID", req.GetVolumeId())
+
+	if req.GetVolumeId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
+	}
+	if req.GetVolumePath() == "" {
+		return nil, status.Error(codes.InvalidArgument, "volume path is required")
+	}
+
+	vol, ok := d.store.GetVolume(req.GetVolumeId())
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.GetVolumeId())
+	}
+
 	// Node expansion is not required for this driver (handled by ControllerExpandVolume).
-	return &csi.NodeExpandVolumeResponse{}, nil
+	return &csi.NodeExpandVolumeResponse{CapacityBytes: vol.CapacityBytes}, nil
 }
 
 // Ensure Driver implements the CSI Node server (compile-time check).

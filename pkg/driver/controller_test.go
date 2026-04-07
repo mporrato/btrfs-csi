@@ -109,6 +109,22 @@ func TestCreateVolume_MissingName(t *testing.T) {
 	}
 }
 
+func TestCreateVolume_LimitBytesExceeded(t *testing.T) {
+	d, _, _ := newTestDriverWithMock()
+
+	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "test-pvc",
+		VolumeCapabilities: singleNodeWriterCap(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 2 << 30, // 2 GiB required
+			LimitBytes:    1 << 30, // but only 1 GiB limit
+		},
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument when required > limit, got %v", code)
+	}
+}
+
 func TestCreateVolume_MissingCapabilities(t *testing.T) {
 	d, _, _ := newTestDriverWithMock()
 
@@ -261,6 +277,7 @@ func TestResolveBasePath_NoPools(t *testing.T) {
 
 func TestDeleteVolume_Exists(t *testing.T) {
 	d, mock, store := newTestDriverWithMock()
+	mock.SubvolumeExistsResult = true
 
 	vol := &state.Volume{
 		ID:       "vol-abc",
@@ -284,6 +301,33 @@ func TestDeleteVolume_Exists(t *testing.T) {
 	}
 
 	if _, ok := store.GetVolume("vol-abc"); ok {
+		t.Error("volume still in state after DeleteVolume")
+	}
+}
+
+func TestDeleteVolume_SubvolumeGoneButStateRemains(t *testing.T) {
+	d, mock, store := newTestDriverWithMock()
+	mock.SubvolumeExistsResult = false // subvolume already gone
+
+	vol := &state.Volume{
+		ID:       "vol-partial",
+		Name:     "test-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	_, err := d.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: "vol-partial"})
+	if err != nil {
+		t.Fatalf("DeleteVolume with gone subvolume should succeed, got: %v", err)
+	}
+
+	if len(mock.DeleteSubvolumeCalls) != 0 {
+		t.Errorf("expected no DeleteSubvolume calls when subvolume is already gone, got %d", len(mock.DeleteSubvolumeCalls))
+	}
+
+	if _, ok := store.GetVolume("vol-partial"); ok {
 		t.Error("volume still in state after DeleteVolume")
 	}
 }
@@ -351,6 +395,31 @@ func TestControllerExpandVolume_Success(t *testing.T) {
 
 	if resp.NodeExpansionRequired {
 		t.Error("expected NodeExpansionRequired = false, got true")
+	}
+}
+
+func TestControllerExpandVolume_LimitBytesExceeded(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+
+	vol := &state.Volume{
+		ID:            "vol-limit",
+		Name:          "test-pvc",
+		CapacityBytes: 1 << 30, // 1 GiB
+		BasePath:      "/tmp/btrfs-csi-test",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	_, err := d.ControllerExpandVolume(context.Background(), &csi.ControllerExpandVolumeRequest{
+		VolumeId: "vol-limit",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 3 << 30, // 3 GiB required
+			LimitBytes:    2 << 30, // but only 2 GiB limit
+		},
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument when required > limit, got %v", code)
 	}
 }
 

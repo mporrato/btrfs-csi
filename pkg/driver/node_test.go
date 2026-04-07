@@ -685,17 +685,108 @@ func TestNodeGetVolumeStats_GetQgroupUsageError(t *testing.T) {
 	}
 }
 
-func TestNodeExpandVolume(t *testing.T) {
+func TestNodeGetVolumeStats_NoQuotaFallback(t *testing.T) {
+	d, mock, mounter, store := newTestDriverWithMounter()
+
+	vol := &state.Volume{
+		ID:       "vol-noquota",
+		Name:     "test-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	mounter.IsMountPointResult = true
+
+	// No quota set: MaxRfer == 0
+	mock.GetQgroupUsageResult = &btrfs.QgroupUsage{
+		Referenced: 1024 * 1024 * 100, // 100 MiB used
+		MaxRfer:    0,                 // no quota
+	}
+	// Filesystem reports 10 GiB total, 5 GiB available
+	mock.GetFilesystemUsageResult = &btrfs.FsUsage{
+		Total:     10 * 1024 * 1024 * 1024,
+		Available: 5 * 1024 * 1024 * 1024,
+	}
+
+	targetPath := filepath.Join(t.TempDir(), "target")
+	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	resp, err := d.NodeGetVolumeStats(context.Background(), &csi.NodeGetVolumeStatsRequest{
+		VolumeId:   "vol-noquota",
+		VolumePath: targetPath,
+	})
+	if err != nil {
+		t.Fatalf("NodeGetVolumeStats: %v", err)
+	}
+
+	var found bool
+	for _, u := range resp.GetUsage() {
+		if u.Unit != csi.VolumeUsage_BYTES {
+			continue
+		}
+		found = true
+		wantTotal := int64(10 * 1024 * 1024 * 1024)
+		wantAvailable := int64(5 * 1024 * 1024 * 1024)
+		if u.Total != wantTotal {
+			t.Errorf("Total = %d, want %d (filesystem total)", u.Total, wantTotal)
+		}
+		if u.Available != wantAvailable {
+			t.Errorf("Available = %d, want %d (filesystem available)", u.Available, wantAvailable)
+		}
+	}
+	if !found {
+		t.Error("no BYTES usage entry in response")
+	}
+}
+
+func TestNodeExpandVolume_MissingVolumeID(t *testing.T) {
 	d, _, _, _ := newTestDriverWithMounter()
 
-	resp, err := d.NodeExpandVolume(context.Background(), &csi.NodeExpandVolumeRequest{
+	_, err := d.NodeExpandVolume(context.Background(), &csi.NodeExpandVolumeRequest{
+		VolumePath: "/var/lib/kubelet/pods/123/volumes/vol",
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument for missing volume ID, got %v", code)
+	}
+}
+
+func TestNodeExpandVolume_MissingVolumePath(t *testing.T) {
+	d, _, _, _ := newTestDriverWithMounter()
+
+	_, err := d.NodeExpandVolume(context.Background(), &csi.NodeExpandVolumeRequest{
 		VolumeId: "vol-expand",
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument for missing volume path, got %v", code)
+	}
+}
+
+func TestNodeExpandVolume_ReturnsCapacity(t *testing.T) {
+	d, _, _, store := newTestDriverWithMounter()
+
+	vol := &state.Volume{
+		ID:            "vol-expand",
+		Name:          "test-pvc",
+		CapacityBytes: 2 << 30, // 2 GiB
+		BasePath:      "/tmp/btrfs-csi-test",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	resp, err := d.NodeExpandVolume(context.Background(), &csi.NodeExpandVolumeRequest{
+		VolumeId:   "vol-expand",
+		VolumePath: "/var/lib/kubelet/pods/123/volumes/vol",
 	})
 	if err != nil {
 		t.Fatalf("NodeExpandVolume: %v", err)
 	}
-	if resp == nil {
-		t.Fatal("NodeExpandVolume returned nil response")
+	if resp.CapacityBytes != 2<<30 {
+		t.Errorf("CapacityBytes = %d, want %d", resp.CapacityBytes, 2<<30)
 	}
 }
 

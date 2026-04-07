@@ -1,273 +1,217 @@
-# Project Review: btrfs-csi
+# Third Review Pass (2026-04-07)
 
-Review date: 2026-04-06 (updated)
+All items from the first two review passes have been addressed (checked off in
+the summary below). This pass focuses on remaining correctness issues, CSI spec
+compliance gaps, security hardening, and code quality improvements discovered
+during a fresh full-codebase review.
 
-## 1. Bugs
+## Bugs
 
-### Data race in MockManager / qgroup cleanup tests (confirmed by `-race`)
+### `NodeExpandVolume` doesn't validate inputs or return `CapacityBytes`
 
-`driver_test.go:107-111` reads `mock.ClearStaleQgroupsCalls` from the test
-goroutine while the timer goroutine in `scheduleQgroupCleanup` writes to it via
-`mock.ClearStaleQgroups()` (`mock.go:112`). The same race affects
-`TestScheduleStartupQgroupCleanups_Staggered` at `driver_test.go:66` where
-`callLog` is read without the mutex. The production code in
-`scheduleQgroupCleanup` (`driver.go:191`) fires `ClearStaleQgroups` in a
-`time.AfterFunc` callback, so any unsynchronized mock field is a race.
+`node.go:273-278`: Per the CSI spec, `NodeExpandVolume` **must** return
+`CapacityBytes` in the response (at minimum the current capacity). Returning an
+empty response with `CapacityBytes: 0` may confuse the CO. Additionally, the
+method doesn't validate `req.VolumeId` or `req.VolumePath`, unlike every other
+Node RPC. While the external-resizer sidecar may not call this for a driver that
+sets `NodeExpansionRequired: false`, the CSI spec requires the RPC to be
+implemented correctly regardless.
 
-**Fix**: `TestScheduleQgroupCleanup_OnlyTargetsSpecifiedPath` needs a mutex
-around its reads of `mock.ClearStaleQgroupsCalls`, or the mock itself needs
-synchronization. In `TestScheduleStartupQgroupCleanups_Staggered`, line 66
-reads `callLog[0].path` outside the mutex.
+### `NodeGetVolumeStats` reports `Total: 0` when no quota is set
 
-### TOCTOU in stale socket removal
+`node.go:253-259`: When a volume is created with `CapacityBytes: 0` (no quota),
+`MaxRfer` is 0, so `Total` is reported as 0 and `Available` is also 0. This
+makes the volume appear "full" to monitoring systems. The `Total` should fall
+back to the filesystem capacity when no per-volume quota is set, or at minimum
+`Available` should reflect the filesystem's available space.
 
-`driver.go:144`: Between the `Lstat` check and the `os.Remove`, the file could
-be replaced with a symlink. In practice this is mitigated by the directory
-having `0o700` permissions, but it is a theoretical TOCTOU window.
+### `DeleteVolume`/`DeleteSnapshot` not idempotent when subvolume is gone but state remains
 
-### `watchPoolConfig` fires reload redundantly on first tick
+`controller.go:325-334`, `controller.go:525-534`: If `DeleteSubvolume` succeeds
+but `DeleteVolume`/`DeleteSnapshot` fails, the subvolume is gone but the state
+still references it. On retry, `GetVolume` finds the volume in state, tries to
+delete the subvolume again, and gets an error (subvolume doesn't exist). This
+returns `codes.Internal` to the caller instead of succeeding idempotently. The
+fix is to check `SubvolumeExists` before attempting deletion, or to treat
+"subvolume not found" as success during delete.
 
-`config.go:75-79`: On the first tick, `lastPools` is `nil`, so
-`poolsEqual(pools, nil)` is false whenever there are pools. This means the
-reload callback fires immediately on the first tick even though
-`initializeStores` already loaded the config. The driver calls
-`reloadPoolConfig` redundantly ~30s after startup. Not harmful but wastes work
-(re-validates all pools).
+### `CapacityRange.LimitBytes` ignored in `CreateVolume` and `ControllerExpandVolume`
 
-### `NodePublishVolume` idempotency check doesn't verify the source (won't fix)
+`controller.go:276-278`, `controller.go:355-361`: The CSI spec's `CapacityRange`
+has both `RequiredBytes` and `LimitBytes`. The driver only uses `RequiredBytes`
+and ignores `LimitBytes`. If `RequiredBytes` exceeds `LimitBytes`, the spec says
+to return `InvalidArgument`. The current code would silently set the limit to
+`RequiredBytes`, potentially exceeding what the caller considers acceptable.
 
-`node.go:98-105`: If the target is already a mount point, the method returns
-success without verifying it's the *same volume* mounted there. However, for
-bind mounts on btrfs the kernel reports the block device (e.g. `/dev/vda`) as
-the mount source in `/proc/self/mountinfo`, not the directory path. This makes
-reliable source comparison impossible. The CSI spec guarantees the CO will not
-issue conflicting publish requests for the same target path.
+## Security Issues
 
-## 2. Security Issues
+### `validatePath` not called on `NodeGetVolumeStats.VolumePath`
 
-### Command injection surface in `runCommand`
+`node.go:211-280`: `validatePath` is only called on `targetPath` in
+`NodePublishVolume` and `NodeUnpublishVolume`. The `volume_path` in
+`NodeGetVolumeStats` is **not** validated. While the kubelet provides these
+paths, validating all user-facing inputs is a CSI best practice.
 
-`real.go:29`: While `exec.Command` properly separates arguments (no shell
-expansion), all paths passed to btrfs commands come from volume IDs (UUIDs) and
-base paths (from config). The config paths are validated as absolute but not
-sanitized for special characters. This is currently safe because paths are
-UUID-based, but if a future change introduces user-controlled path components,
-this could be exploitable. Consider adding path validation in the `Manager`
-methods.
+### `validatePath` doesn't catch encoded traversal sequences
 
-### `privileged: true` in DaemonSet (won't fix)
+`node.go:9-19`: The check only catches literal `..` path components. It doesn't
+catch URL-encoded sequences like `%2e%2e`, overlong UTF-8 encodings, or paths
+with embedded null bytes. While the CSI CO should not send these,
+defense-in-depth is warranted.
 
-`plugin.yaml`: The CSI driver container runs as `privileged: true`. While best
-practice is to use specific capabilities, Kubernetes requires `privileged: true`
-for `mountPropagation: Bidirectional`, which this driver needs to make bind
-mounts visible to kubelet. This is a kubelet-enforced requirement and cannot be
-replaced with `SYS_ADMIN` alone.
+### Sidecar images not pinned by digest
 
-### State file permissions
+`plugin.yaml`: All sidecar images use tag-only references (e.g.
+`registry.k8s.io/sig-storage/livenessprobe:v2.14.0`). For supply-chain
+security, images should be pinned by digest (SHA256). Tags are mutable and can
+be retagged to point to malicious images.
 
-`state.go:225`: Temp files created by `os.CreateTemp` use the default umask. The
-final state file permissions depend on the process umask. Explicitly set `0o600`
-on the temp file before writing to ensure the state file isn't world-readable.
-Use `tmpFile.Chmod(0o600)` or `os.OpenFile` with explicit perms.
+### No `seccompProfile` or capability drop in security context
 
-### `hostNetwork: true` in DaemonSet
+`plugin.yaml`: While `privileged: true` is required for bidirectional mount
+propagation, best practice is to also add `capabilities: drop: ["ALL"]` and
+`seccompProfile: type: RuntimeDefault`. This documents intent and ensures that
+if `privileged` is ever removed, the container starts with minimal
+capabilities.
 
-`plugin.yaml`: `hostNetwork: true` is unnecessary for a CSI driver that
-communicates only via Unix socket. This exposes the pod to the host network
-stack unnecessarily.
+## Undesirable Behaviour
 
-## 3. Performance Concerns
+### `Snapshot.SizeBytes` is never populated
 
-### Linear scan for `GetVolumeByName` / `GetSnapshotByName`
+`controller.go:475-483`: `SizeBytes` is always 0 in the `Snapshot` struct. The
+CSI spec says `SizeBytes` should be populated when `ReadyToUse` is true. The
+driver could call `GetQgroupUsage` on the snapshot path to get the referenced
+size.
 
-`state.go:263-274`, `state.go:316-327`: These iterate all volumes/snapshots on
-every call. Called on every `CreateVolume` and `CreateSnapshot` for idempotency
-checks. With many volumes this becomes O(n). Consider adding a `name -> id`
-index map.
+### `CreateSnapshot` always creates readonly snapshots
 
-### `MultiStore` read methods hold `RLock` across all sub-store iterations
+`controller.go:489`: The driver always passes `readonly: true` when creating
+snapshots. This means snapshots can never be directly mounted read-write. If a
+user wants to restore from a snapshot by mounting it, they must create a volume
+from the snapshot first. This is a design choice, not a bug, but it should be
+documented.
 
-`state.go:460-469`: `GetVolume` acquires `ms.mu.RLock()` and then calls
-`s.GetVolume()` on each sub-store, which in turn acquires `fs.mu.Lock()`. This
-creates a lock hierarchy but also means every read blocks on all stores
-serially. With many pools, reads are serialized.
+### `NodeGetInfo` doesn't report `MaxVolumesPerNode`
 
-### `ListVolumes` doesn't support pagination
+`node.go:178-186`: The response doesn't include `MaxVolumesPerNode`. Since btrfs
+subvolumes are limited only by filesystem capacity, this could be left unset (0
+means "unlimited"), but explicitly setting it to 0 would be clearer and more
+aligned with CSI best practices.
 
-`controller.go:68-78`: `ListVolumes` returns all volumes at once. The CSI spec
-recommends pagination via `max_entries`/`starting_token`. `ListSnapshots` has
-it, but `ListVolumes` doesn't. With many volumes, this could be a large
-response.
+## Simplification Opportunities
 
-### No `fsync` on state directory after rename (won't fix)
+### `btrfs_test.go` tests are purely structural and low-value
 
-`state.go:239`: The atomic write pattern does `Write` -> `Close` -> `Rename`
-but never calls `fsync` on the directory. On most filesystems this would warrant
-a directory fsync for crash durability. However, on btrfs, directory fsync
-triggers a **full transaction commit** that flushes ALL dirty data across the
-entire filesystem. Since the state file shares a pool with volume data, this
-would cause every state write to sync all in-flight workload I/O. The file
-data is fsynced before rename, and CSI operations are idempotent, so the worst
-case on crash is replaying an operation — acceptable for this driver.
+`pkg/btrfs/btrfs_test.go`: These tests use reflection to verify that the
+`Manager` interface has certain methods and that structs have certain fields.
+They break if you rename a method but don't catch behavioral bugs. They provide
+minimal value over the compile-time `var _ Manager = (*RealManager)(nil)` check
+already in `real.go`. Consider removing them or replacing with behavioral tests.
 
-### Quota enable on every `CreateVolume` with capacity
+### `real_test.go` has skipped and no-op tests
 
-`controller.go:251`: `EnsureQuotaEnabled` runs a `btrfs quota enable` command
-on every volume creation with capacity. This shells out twice (try `--simple`,
-fallback). Consider caching the enabled state per-basePath.
+`pkg/btrfs/real_test.go`: `TestSendReceive_IdempotencyCheck` immediately calls
+`t.Skip()`. `TestTempSnapshotNaming` just logs a message.
+`TestTempSnapshotCleanupPattern` tests a glob pattern but not the actual cleanup
+code. These are documentation tests that add noise to the test output. Either
+implement them properly or remove them.
 
-## 4. Simplification Opportunities
+### `memStore` test helper duplicates `FileStore` logic
 
-### Redundant exported/unexported wrapper pairs in `config.go`
+`testutil_test.go`: The `memStore` is a hand-written in-memory store that
+duplicates much of `FileStore`'s logic (deep copies, BasePath hydration, name
+indexing). Since `FileStore` already works with temp directories (as shown in
+`state_test.go`), the tests could use `FileStore` backed by `t.TempDir()`
+instead. This would also test the real store implementation, catching
+serialization bugs that `memStore` can't.
 
-`ParsePoolConfig` wraps `parsePoolConfig`, `WatchPoolConfig` wraps
-`watchPoolConfig` with identical signatures. Either export the functions
-directly or keep only one form. The current pattern adds indirection without
-benefit.
+### Type assertions on `d.store.(*state.MultiStore)` in tests
 
-### `basePaths()` type-asserts against concrete store types
+Multiple test files do `d.store.(*state.MultiStore).AddStoreForTest(...)`. This
+couples tests to the concrete store type. If the store implementation ever
+changes, all these tests break. Consider exposing a test-only helper method on
+`Driver` like `AddTestStore(basePath string, s state.Store)`.
 
-`driver.go:107-113`: `basePaths()` checks `*state.MultiStore` and
-`*state.FileStore` with type assertions. This is fragile; if a new store type
-is added, it breaks. Consider adding a `Dirs() []string` method to the `Store`
-interface, or always using the pools map (which is already the source of truth
-when pools are configured).
+## Readability Improvements
 
-### `reloadPoolConfig` type-asserts `ms.(*state.MultiStore)`
+### Inconsistent error wrapping in controller
 
-`main.go:160`: This hard-casts the `state.Store` to `*state.MultiStore`. If the
-store type changes, this panics at runtime. Consider passing the
-`*state.MultiStore` directly or adding a `Reloader` interface.
+Some errors use `status.Errorf(codes.Internal, "%v", err)` which double-wraps
+(`controller.go:302`), while others provide context (`controller.go:292`:
+`"create subvolume: %v"`). The `"%v"` pattern loses the original error context.
+Use descriptive messages consistently.
 
-### `poolsEqual` reimplements `maps.Equal`
+### `provisionVolume` mutates its `vol` parameter as a side effect
 
-`config.go:53-63`: Since the project already imports `maps` (in `driver.go`),
-use `maps.Equal(a, b)` instead.
+`controller.go:414,422`: `provisionVolume` takes `*state.Volume` and mutates it
+(`vol.SourceSnapID = snapID`, `vol.SourceVolID = srcVolID`). This is surprising
+— a function named "provision" shouldn't silently modify the volume struct.
+Consider returning the source IDs or making the mutation explicit.
 
-## 5. Readability Improvements
+### UUID truncation to 8 hex chars in temp snapshot names
 
-### Embedded `btrfs.Manager` in `Driver` struct
+`real.go:151`: `uuid.New().String()[:8]` truncates a UUID from 122 bits of
+uniqueness to 32 bits. While collisions are still unlikely for temp snapshot
+names, using the full UUID (or at least 16 characters) would be safer and more
+idiomatic.
 
-`driver.go:38`: Embedding `btrfs.Manager` promotes all its methods onto
-`Driver`, making it unclear in call sites whether `d.CreateSubvolume(...)` is a
-Driver method or a Manager method. Use a named field (`mgr btrfs.Manager`) and
-call `d.mgr.CreateSubvolume(...)` for clarity.
+### Deferred cleanup silently discards errors
 
-### Exported `Store` field on `Driver`
+`real.go:155`: `defer func() { _ = m.DeleteSubvolume(tempSnap) }()` silently
+discards the error. While this is intentional (best-effort cleanup), logging the
+error would help debug stale temp snapshots.
 
-`driver.go:39`: `Store state.Store` is exported but only accessed within the
-`driver` package (tests use the `driver` package too). This should be unexported
-(`store state.Store`) to enforce encapsulation.
+## CSI Best Practices Alignment
 
-### `memStore` in tests is not thread-safe
+### Missing `EXPAND_VOLUME` capability in `NodeGetCapabilities`
 
-`testutil_test.go:12-108`: The `memStore` has no mutex, yet the driver uses it
-from multiple goroutines (controller mutex only serializes some operations).
-This contributes to the data races above. Tests that exercise concurrent
-behavior need a thread-safe store.
+The controller advertises `EXPAND_VOLUME`, and `NodeExpandVolume` is implemented
+(as a no-op), but the Node service doesn't advertise `RPC_EXPAND_VOLUME` in
+`NodeGetCapabilities`. Per the CSI spec, if `ControllerExpandVolume` returns
+`NodeExpansionRequired: false`, you don't strictly need the node capability, but
+advertising it makes the driver's capabilities explicit.
 
-## 6. CSI Best Practices Alignment
+### `CSIDriver` spec missing `storageCapacity`
 
-### Missing `SINGLE_NODE_SINGLE_WRITER` / `SINGLE_NODE_MULTI_WRITER` access modes
+`deploy/csi-driver.yaml`: Since the driver implements `GetCapacity` and the
+external-provisioner supports capacity-aware scheduling, adding
+`storageCapacity: true` to the CSIDriver spec would enable the kube-scheduler to
+consider storage capacity when scheduling pods. This is especially important for
+a driver that manages finite btrfs pools.
 
-`controller.go:23-26`: The driver supports `SINGLE_NODE_WRITER` and
-`SINGLE_NODE_READER_ONLY` but not the newer `SINGLE_NODE_SINGLE_WRITER` or
-`SINGLE_NODE_MULTI_WRITER` modes introduced in CSI spec 1.5+. Since you depend
-on CSI spec v1.12.0, these should be supported.
+### `Probe` should check btrfs filesystem health, not just path existence
 
-### No liveness probe endpoint
+`identity.go:43-60`: `os.Stat` only checks if the directory exists. A more
+robust probe would verify the path is still on a btrfs filesystem (e.g., call
+`IsBtrfsFilesystem`). If the btrfs filesystem is unmounted or corrupted, the
+driver should report not-ready.
 
-CSI best practice is to run the `livenessprobe` sidecar. The DaemonSet in
-`plugin.yaml` doesn't include it. Add the
-`registry.k8s.io/sig-storage/livenessprobe` sidecar and configure a
-`livenessProbe` on the driver container.
+## Idiomatic Go
 
-### No `--leader-election` for controller sidecars
+### `panic` in `NewDriver` for nil arguments
 
-`plugin.yaml`: The `external-provisioner`, `external-snapshotter`, and
-`external-resizer` sidecars don't have `--leader-election` flags. For a
-single-node setup this isn't critical, but if the DaemonSet ever runs >1
-replica (or during rolling updates), you could get duplicate operations.
+`driver.go:57-62`: While panicking on programmer errors is acceptable in Go,
+returning an error is more idiomatic and testable. The current approach makes it
+impossible to write a test that verifies the error case without recovering from
+a panic.
 
-### Missing resource requests/limits on all containers
+### `context.Context` ignored in all CSI RPCs
 
-`plugin.yaml`: No container has `resources` set. Kubernetes best practice (and
-many cluster policies) require resource requests and limits, especially for
-system-critical pods.
+All CSI RPCs receive `context.Context` but ignore it (using `_ context.Context`).
+While the CSI spec says the CO may set deadlines, and most CSI drivers ignore the
+context, it would be more correct to at least check `ctx.Err()` at the start of
+long-running operations (like `CreateSnapshot` with send/receive).
 
-### CSIDriver spec missing `podInfoOnMount` and `fsGroupPolicy`
-
-`csi-driver.yaml`: Consider setting `podInfoOnMount: true` (useful for audit
-logging) and `fsGroupPolicy: File` (btrfs supports POSIX permissions, so the
-kubelet should apply fsGroup via chmod).
-
-### No `VolumeCondition` capability advertised by Node service
-
-The controller advertises `VOLUME_CONDITION` capability, but the Node service
-should also advertise `VOLUME_CONDITION` in `NodeGetCapabilities` if you want
-kubelet to report volume health via `NodeGetVolumeStats`.
-
-### `DeleteVolume` / `DeleteSnapshot` not under `controllerMu`
-
-`controller.go:268`, `controller.go:448`: These aren't serialized by the
-controller mutex. While deletes are idempotent, concurrent delete +
-create-from-snapshot could race: a snapshot delete could remove the btrfs
-subvolume while a volume clone is reading from it. The CSI spec expects the CO
-to coordinate, but defensive serialization is safer.
-
-## 7. New Findings (second review pass)
-
-### `NodeGetVolumeStats` missing `VolumeCondition` in response
-
-`node.go:188-209,252-263`: The Node service advertises `VOLUME_CONDITION`
-capability in `NodeGetCapabilities`, but `NodeGetVolumeStats` never populates the
-`VolumeCondition` field in its response. Per the CSI spec, if `VOLUME_CONDITION`
-is advertised, the response must include condition info. `ControllerGetVolume`
-does this correctly (`controller.go:173`), but Node doesn't.
-
-### `CreateVolume` leaks subvolume on downstream failure
-
-`controller.go:269-285`: If `provisionVolume` succeeds (subvolume created on
-disk) but `SetQgroupLimit` or `SaveVolume` subsequently fails, the subvolume is
-left orphaned. On retry, CSI idempotency checks find no volume with that name in
-state, generates a new UUID, and creates another subvolume — leaving the old one
-behind. Add a deferred cleanup that deletes the subvolume if any subsequent step
-fails.
-
-### `ControllerExpandVolume` doesn't call `ensureQuotaEnabled`
-
-`controller.go:319-367`: `CreateVolume` calls `ensureQuotaEnabled` before
-`SetQgroupLimit` (line 276). `ControllerExpandVolume` calls `SetQgroupLimit`
-(line 352) without ensuring quotas are enabled first. If a volume was created
-with zero capacity (no quota set up), a later expand call to `SetQgroupLimit`
-may fail because quotas were never enabled on that pool.
-
-### Deprecated `grpc.DialContext` in tests
-
-`driver_test.go:214-217,341-344`: `grpc.DialContext` and `grpc.WithBlock` are
-deprecated (flagged by `staticcheck`). Replace with `grpc.NewClient` for forward
-compatibility. Test-only, low priority.
-
-### `WatchPoolConfig` does work before checking stop channel
-
-`config.go:56-62`: Each loop iteration calls `ParsePoolConfig` before checking
-`stop`. This means closing the stop channel doesn't take effect until after one
-more parse+compare cycle. Moving the `select` to the top of the loop would make
-shutdown more responsive and eliminate a wasted parse on first iteration (the
-seed already matched startup state).
-
-### `csi_test.go` blank import for dependency pinning
-
-`cmd/btrfs-csi-driver/csi_test.go`: Uses `_ "...csi-test/v5/pkg/sanity"` to
-keep the dependency in `go.mod`. The conventional Go pattern is a `tools.go`
-file with `//go:build tools` build tag.
-
-## Summary Checklist
+## Updated Summary Checklist
 
 ### High Priority
 
 - [x] Fix data races in qgroup cleanup tests (confirmed by `go test -race`)
 - [x] Make `memStore` test helper thread-safe
+- [x] `DeleteVolume`/`DeleteSnapshot`: make idempotent when subvolume is gone but state remains
+- [x] `NodeExpandVolume`: return `CapacityBytes` and validate inputs
+- [x] `NodeGetVolumeStats`: report filesystem capacity as `Total`/`Available` when no quota is set
+- [x] Validate `CapacityRange.LimitBytes` in `CreateVolume` and `ControllerExpandVolume`
 
 ### Medium Priority
 
@@ -284,6 +228,12 @@ file with `//go:build tools` build tag.
 - [x] Add `VolumeCondition` to `NodeGetVolumeStats` response
 - [x] Add cleanup on `CreateVolume` failure after subvolume creation
 - [x] Call `ensureQuotaEnabled` in `ControllerExpandVolume`
+- [ ] Populate `Snapshot.SizeBytes` when `ReadyToUse` is true
+- [ ] Call `validatePath` on `NodeGetVolumeStats.VolumePath`
+- [ ] Pin sidecar images by SHA256 digest in `plugin.yaml`
+- [ ] Add `seccompProfile` and `capabilities: drop: ["ALL"]` to security context
+- [ ] Add `storageCapacity: true` to CSIDriver spec
+- [ ] Improve `Probe` to check btrfs filesystem health (not just path existence)
 
 ### Low Priority
 
@@ -302,3 +252,15 @@ file with `//go:build tools` build tag.
 - [x] Replace deprecated `grpc.DialContext` with `grpc.NewClient` in tests
 - [x] Move `WatchPoolConfig` select to top of loop for responsive shutdown
 - [x] Move `csi_test.go` blank import to `tools.go` with build tag
+- [ ] Remove or replace low-value structural tests in `btrfs_test.go`
+- [ ] Remove or implement skipped/no-op tests in `real_test.go`
+- [ ] Consider using `FileStore` with `t.TempDir()` instead of `memStore` in driver tests
+- [ ] Extract `d.store.(*state.MultiStore)` type assertions into a test helper
+- [ ] Use consistent error wrapping (descriptive messages instead of bare `"%v"`)
+- [ ] Make `provisionVolume` mutation of `vol` explicit (return source IDs)
+- [ ] Use full UUID (or at least 16 chars) instead of `[:8]` truncation in temp snapshot names
+- [ ] Log errors in deferred cleanup instead of silently discarding
+- [ ] Advertise `EXPAND_VOLUME` in `NodeGetCapabilities`
+- [ ] Set `MaxVolumesPerNode: 0` explicitly in `NodeGetInfo` response
+- [ ] Return error from `NewDriver` instead of panicking on nil arguments
+- [ ] Check `ctx.Err()` at start of long-running CSI RPCs

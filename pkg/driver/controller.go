@@ -262,9 +262,9 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 		return &csi.CreateVolumeResponse{Volume: toCSIVolume(existing, d.nodeID)}, nil
 	}
 
-	var capacityBytes int64
-	if req.CapacityRange != nil {
-		capacityBytes = req.CapacityRange.RequiredBytes
+	capacityBytes, err := capacityFromRange(req.CapacityRange)
+	if err != nil {
+		return nil, err
 	}
 
 	basePath, err := d.resolveBasePath(req.Parameters)
@@ -326,8 +326,14 @@ func (d *Driver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest)
 		return &csi.DeleteVolumeResponse{}, nil
 	}
 
-	if err := d.manager.DeleteSubvolume(vol.Path()); err != nil {
-		return nil, status.Errorf(codes.Internal, "delete subvolume: %v", err)
+	exists, err := d.manager.SubvolumeExists(vol.Path())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "check subvolume: %v", err)
+	}
+	if exists {
+		if err := d.manager.DeleteSubvolume(vol.Path()); err != nil {
+			return nil, status.Errorf(codes.Internal, "delete subvolume: %v", err)
+		}
 	}
 
 	if err := d.store.DeleteVolume(req.VolumeId); err != nil {
@@ -353,9 +359,9 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context,
 		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.VolumeId)
 	}
 
-	var newCapacity int64
-	if req.CapacityRange != nil {
-		newCapacity = req.CapacityRange.RequiredBytes
+	newCapacity, err := capacityFromRange(req.CapacityRange)
+	if err != nil {
+		return nil, err
 	}
 
 	// Reject shrink attempts.
@@ -524,8 +530,14 @@ func (d *Driver) DeleteSnapshot(_ context.Context,
 		return &csi.DeleteSnapshotResponse{}, nil
 	}
 
-	if err := d.manager.DeleteSubvolume(snap.Path()); err != nil {
-		return nil, status.Errorf(codes.Internal, "delete snapshot subvolume: %v", err)
+	exists, err := d.manager.SubvolumeExists(snap.Path())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "check snapshot subvolume: %v", err)
+	}
+	if exists {
+		if err := d.manager.DeleteSubvolume(snap.Path()); err != nil {
+			return nil, status.Errorf(codes.Internal, "delete snapshot subvolume: %v", err)
+		}
 	}
 
 	if err := d.store.DeleteSnapshot(req.SnapshotId); err != nil {
@@ -546,6 +558,19 @@ func toCSISnapshot(snap *state.Snapshot) *csi.Snapshot {
 		CreationTime:   timestamppb.New(snap.CreatedAt),
 		ReadyToUse:     snap.ReadyToUse,
 	}
+}
+
+// capacityFromRange extracts RequiredBytes from cr, validating that it does not
+// exceed LimitBytes. Returns InvalidArgument if the range is unsatisfiable.
+func capacityFromRange(cr *csi.CapacityRange) (int64, error) {
+	if cr == nil {
+		return 0, nil
+	}
+	if cr.LimitBytes > 0 && cr.RequiredBytes > cr.LimitBytes {
+		return 0, status.Errorf(codes.InvalidArgument,
+			"required bytes %d exceeds limit bytes %d", cr.RequiredBytes, cr.LimitBytes)
+	}
+	return cr.RequiredBytes, nil
 }
 
 // isCapacityCompatible returns true if existingBytes satisfies the requested CapacityRange.
