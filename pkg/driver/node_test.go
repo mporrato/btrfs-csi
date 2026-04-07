@@ -410,6 +410,18 @@ func TestNodeGetVolumeStats_EmptyVolumePath(t *testing.T) {
 	}
 }
 
+func TestNodeGetVolumeStats_EmptyVolumePath_UnknownVolume(t *testing.T) {
+	d, _, _, _ := newTestDriverWithMounter()
+
+	_, err := d.NodeGetVolumeStats(context.Background(), &csi.NodeGetVolumeStatsRequest{
+		VolumeId:   "vol-unknown",
+		VolumePath: "",
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument for empty volume path even with unknown volume, got %v", code)
+	}
+}
+
 func TestNodeGetVolumeStats_VolumeNotFound(t *testing.T) {
 	d, _, _, _ := newTestDriverWithMounter()
 
