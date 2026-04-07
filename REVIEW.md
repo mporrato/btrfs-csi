@@ -258,7 +258,7 @@ long-running operations (like `CreateSnapshot` with send/receive).
 - [ ] Extract `d.store.(*state.MultiStore)` type assertions into a test helper
 - [x] Use consistent error wrapping (descriptive messages instead of bare `"%v"`)
 - [x] Make `provisionVolume` mutation of `vol` explicit (return source IDs)
-- [ ] Use full UUID (or at least 16 chars) instead of `[:8]` truncation in temp snapshot names
+- [x] Use full UUID (or at least 16 chars) instead of `[:8]` truncation in temp snapshot names
 - [x] Log errors in deferred cleanup instead of silently discarding
 - [x] Advertise `EXPAND_VOLUME` in `NodeGetCapabilities`
 - [x] Set `MaxVolumesPerNode: 0` explicitly in `NodeGetInfo` response

@@ -197,7 +197,7 @@ func (m *RealManager) sendReceive(src, dst string, readonly bool) error {
 	m.cleanupStaleSnapshots(srcDir, tempDir, filepath.Base(src))
 
 	// 3. Create temporary readonly snapshot of src in the temp subdirectory
-	snapName := fmt.Sprintf(".btrfs-csi-send-%s-%s", filepath.Base(src), uuid.New().String()[:8])
+	snapName := fmt.Sprintf(".btrfs-csi-send-%s-%s", filepath.Base(src), uuid.New().String())
 	tempSnap := filepath.Join(tempDir, snapName)
 	if _, err := runCommand("btrfs", "subvolume", "snapshot", "-r", src, tempSnap); err != nil {
 		return fmt.Errorf("create temp snapshot: %w", err)
