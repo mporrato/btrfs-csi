@@ -229,7 +229,7 @@ long-running operations (like `CreateSnapshot` with send/receive).
 - [x] Add cleanup on `CreateVolume` failure after subvolume creation
 - [x] Call `ensureQuotaEnabled` in `ControllerExpandVolume`
 - [x] Populate `Snapshot.SizeBytes` when `ReadyToUse` is true
-- [ ] Call `validatePath` on `NodeGetVolumeStats.VolumePath`
+- [x] Call `validatePath` on `NodeGetVolumeStats.VolumePath`
 - [ ] Pin sidecar images by SHA256 digest in `plugin.yaml`
 - [x] Add `seccompProfile` and `capabilities: drop: ["ALL"]` to security context
 - [x] Add `storageCapacity: true` to CSIDriver spec

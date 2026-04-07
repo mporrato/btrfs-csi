@@ -393,6 +393,18 @@ func TestNodeGetVolumeStats(t *testing.T) {
 	}
 }
 
+func TestNodeGetVolumeStats_InvalidVolumePath(t *testing.T) {
+	d, _, _, _ := newTestDriverWithMounter()
+
+	_, err := d.NodeGetVolumeStats(context.Background(), &csi.NodeGetVolumeStatsRequest{
+		VolumeId:   "vol-1",
+		VolumePath: "../etc/passwd",
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument for traversal path, got %v", code)
+	}
+}
+
 func TestNodeGetVolumeStats_VolumeNotFound(t *testing.T) {
 	d, _, _, _ := newTestDriverWithMounter()
 

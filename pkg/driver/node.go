@@ -228,8 +228,8 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context,
 	if req.GetVolumeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume ID is required")
 	}
-	if req.GetVolumePath() == "" {
-		return nil, status.Error(codes.InvalidArgument, "volume path is required")
+	if err := validatePath(req.GetVolumePath()); err != nil {
+		return nil, err
 	}
 
 	vol, ok := d.store.GetVolume(req.GetVolumeId())
