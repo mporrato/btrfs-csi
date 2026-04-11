@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  checks:
+    name: Code Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.11.3
+      - name: go fmt
+        run: |
+          if ! go fmt ./...; then
+            echo "go fmt failed"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: go mod tidy
+        run: |
+          go mod tidy
+          if ! git diff --quiet go.mod go.sum; then
+            echo "go.mod or go.sum not tidy"
+            git diff go.mod go.sum
+            exit 1
+          fi
+
+  unit-test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Run unit tests
+        run: GOTOOLCHAIN=auto go test ./...
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Set up btrfs loop device
+        run: |
+          sudo modprobe btrfs
+          dd if=/dev/zero bs=1M count=512 of=/tmp/btrfs.img
+          LOOP=$(sudo losetup -f)
+          sudo losetup "$LOOP" /tmp/btrfs.img
+          sudo mkfs.btrfs "$LOOP"
+          sudo mkdir -p /var/lib/btrfs-csi/default
+          sudo mount "$LOOP" /var/lib/btrfs-csi/default
+      - name: Run integration tests
+        run: sudo -E GOTOOLCHAIN=auto go test -tags integration ./pkg/btrfs/
+
+  sanity-e2e:
+    name: Sanity & E2E Tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Install minikube
+        run: |
+          curl -Lo minikube https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
+          chmod +x minikube
+          sudo mv minikube /usr/local/bin/
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+      - name: Start minikube cluster
+        run: |
+          minikube start \
+            --cluster=btrfs-csi \
+            --driver=qemu \
+            --extra-disks=2 \
+            --memory=4096 \
+            --cpus=4
+      - name: Build driver image
+        run: docker build -t localhost/btrfs-csi-driver:latest .
+      - name: Set up cluster with driver
+        run: CLUSTER=btrfs-csi bash scripts/minikube-up.sh
+      - name: Run sanity tests
+        run: CLUSTER=btrfs-csi bash scripts/sanity.sh
+      - name: Run e2e tests
+        run: KUBECTL="kubectl --context=btrfs-csi" bash scripts/e2e.sh

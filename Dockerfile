@@ -1,13 +1,15 @@
 # Stage 1: Build
 FROM golang:1.26-alpine AS builder
 
+ARG TARGETARCH
+
 WORKDIR /src
 
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-w -s" -o /bin/btrfs-csi-driver ./cmd/btrfs-csi-driver/
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -ldflags "-w -s" -o /bin/btrfs-csi-driver ./cmd/btrfs-csi-driver/
 
 # Stage 2: Runtime
 FROM alpine:3.23
