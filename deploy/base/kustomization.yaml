@@ -1,0 +1,14 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - csi-driver.yaml
+  - rbac.yaml
+  - basepaths.yaml
+  - plugin.yaml
+  - storageclass.yaml
+  - snapshotclass.yaml
+images:
+  - name: ghcr.io/mporrato/btrfs-csi-driver
+    newTag: v0.1.0

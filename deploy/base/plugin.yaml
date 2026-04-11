@@ -37,8 +37,8 @@ spec:
             name: btrfs-csi-pools
       containers:
         - name: btrfs-csi-driver
-          image: localhost/btrfs-csi-driver:latest
-          imagePullPolicy: Never
+          image: ghcr.io/mporrato/btrfs-csi-driver
+          imagePullPolicy: IfNotPresent
           # privileged is required by kubelet for mountPropagation: Bidirectional
           securityContext:
             privileged: true
@@ -123,6 +123,18 @@ spec:
             - --csi-address=/csi/csi.sock
             - --extra-create-metadata
             - --leader-election
+            - --timeout=120s
+            - --enable-capacity
+            - --capacity-ownerref-level=1
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           resources:
             requests:
               cpu: 5m
@@ -138,6 +150,7 @@ spec:
           args:
             - --csi-address=/csi/csi.sock
             - --leader-election
+            - --timeout=300s
           resources:
             requests:
               cpu: 5m
@@ -153,6 +166,7 @@ spec:
           args:
             - --csi-address=/csi/csi.sock
             - --leader-election
+            - --timeout=120s
           resources:
             requests:
               cpu: 5m

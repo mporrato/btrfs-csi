@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# run-sanity.sh — builds the CSI sanity integration test binary on the host, copies
+# sanity.sh — builds the CSI sanity integration test binary on the host, copies
 # it into the minikube VM, and runs it there (root + btrfs provided by the VM).
 #
 # Prerequisites: minikube cluster running with --extra-disks=1, Go toolchain on host.
 #
 # Usage:
-#   bash test/run-sanity.sh
-#   CLUSTER=btrfs-csi VERBOSE=1 bash test/run-sanity.sh
+#   bash scripts/sanity.sh
+#   CLUSTER=btrfs-csi VERBOSE=1 bash scripts/sanity.sh
 set -euo pipefail
 
 CLUSTER="${CLUSTER:-btrfs-csi}"

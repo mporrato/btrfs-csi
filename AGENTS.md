@@ -22,8 +22,15 @@ cmd/btrfs-csi-driver/main.go    # Entry point, flags
 pkg/driver/                      # CSI gRPC service implementations
 pkg/btrfs/                       # btrfs CLI wrapper (Manager interface)
 pkg/state/                       # JSON-backed volume/snapshot metadata
-deploy/                          # Kubernetes manifests
-test/                            # Kind cluster config, e2e helpers
+deploy/
+  base/                          # Common Kubernetes manifests (CSIDriver, RBAC, etc.)
+  overlays/
+    minikube/                    # Minikube cluster (standard /var/lib/kubelet)
+    kind/                        # Kind cluster (standard /var/lib/kubelet)
+    k0s/                         # k0s cluster (patches to /var/lib/k0s/kubelet)
+    k3s/                         # k3s cluster (patches to /var/lib/rancher/k3s/agent/kubelet)
+    dev/                         # Development: minikube + verbose logging + secondary pool
+scripts/                         # Cluster setup and test runner scripts
 ```
 
 ## Key Interfaces
@@ -46,10 +53,36 @@ test/                            # Kind cluster config, e2e helpers
 
 - **Driver name**: `btrfs.csi.local`
 - **Topology key**: `topology.btrfs.csi.local/node`
-- **Default base path**: `/var/lib/btrfs-csi` (configurable via `--root-path` flag and StorageClass `parameters.basePath`)
-- **Volumes**: btrfs subvolumes under `<basePath>/volumes/<id>`
-- **Snapshots**: readonly btrfs snapshots under `<basePath>/snapshots/<id>`
-- **State**: JSON file at `<basePath>/state.json`
+- **Pool configuration**: via `--config` directory (ConfigMap mounted in deploy/ base)
+  - Each file's name = pool name, content = absolute path to btrfs filesystem
+  - Example: `/etc/btrfs-csi/pools/default` contains `/var/lib/btrfs-csi`
+- **Volumes**: btrfs subvolumes under `<poolPath>/volumes/<id>`
+- **Snapshots**: readonly btrfs snapshots under `<poolPath>/snapshots/<id>`
+- **State**: JSON file at `<poolPath>/state.json` (one per pool)
+
+## Deployment
+
+Use kustomize overlays to deploy to different environments:
+
+```bash
+# Development (minikube with verbose logging and secondary pool)
+make minikube-up        # Automatically uses deploy/overlays/dev/
+make minikube-e2e       # Run end-to-end tests
+
+# Production deployment (choose your platform)
+make deploy OVERLAY=k0s         # Deploy to k0s cluster
+make deploy OVERLAY=k3s         # Deploy to k3s cluster
+make deploy OVERLAY=minikube    # Deploy to minikube
+make deploy OVERLAY=kind        # Deploy to kind cluster
+
+# Teardown dev cluster
+make minikube-down
+```
+
+The overlays handle platform-specific kubelet paths and configuration. The `dev` overlay adds:
+- `--v=4` verbose driver logging
+- Local image (`localhost/btrfs-csi-driver:latest`) with `imagePullPolicy: Never`
+- Secondary btrfs pool and StorageClass for multi-pool testing
 
 ## Important Context
 
@@ -58,3 +91,4 @@ test/                            # Kind cluster config, e2e helpers
 - Quota enforcement uses simple quotas (`--simple`) when available, falls back to traditional qgroups
 - All CSI operations must be **idempotent** per the CSI spec
 - Capacity is enforced via qgroup limits, not filesystem-level sizing
+- Storage capacity tracking is enabled (`--enable-capacity`): the provisioner reports `CSIStorageCapacity` objects to prevent over-provisioning

@@ -2,7 +2,7 @@
 # e2e.sh — end-to-end tests for btrfs-csi-driver.
 # Requires a running Kubernetes cluster with the driver deployed and at least
 # two StorageClasses backed by different btrfs filesystems.
-# Run: bash test/e2e.sh
+# Run: bash scripts/e2e.sh
 set -euo pipefail
 
 KUBECTL="${KUBECTL:-kubectl}"
@@ -126,6 +126,14 @@ assert_pvc_binds() {
   fi
 }
 
+# With WaitForFirstConsumer, PVCs stay Pending until a pod references them.
+# bind_pvc runs a short-lived pod to trigger provisioning and waits for Bound.
+bind_pvc() {
+  local name="$1" msg="$2"
+  run_pod "bind-${name}" "${name}" "true"
+  assert_pvc_binds "${name}" "${msg}"
+}
+
 assert_pod_succeeds() {
   local name="$1" pvc="$2" cmd="$3" msg="$4"
   if run_pod "${name}" "${pvc}" "${cmd}"; then
@@ -186,11 +194,10 @@ ${KUBECTL} create namespace "${NAMESPACE}" --dry-run=client -o yaml | ${KUBECTL}
 section "Basic volume lifecycle"
 
 apply_pvc e2e-basic-pvc "$PRIMARY_STORAGECLASS" 256Mi
-assert_pvc_binds e2e-basic-pvc "PVC becomes Bound"
 
 assert_pod_succeeds e2e-basic-writer e2e-basic-pvc \
   "echo hello-btrfs > /data/test.txt && cat /data/test.txt" \
-  "Writer pod succeeds"
+  "PVC binds and writer pod succeeds"
 
 delete_resources pvc/e2e-basic-pvc
 pass "Resources cleaned up"
@@ -200,14 +207,12 @@ pass "Resources cleaned up"
 section "Snapshot and restore"
 
 apply_pvc e2e-snap-source-pvc "$PRIMARY_STORAGECLASS" 256Mi
-assert_pvc_binds e2e-snap-source-pvc "Source PVC becomes Bound"
 run_pod e2e-snap-writer e2e-snap-source-pvc "echo snapshot-data > /data/snap.txt"
 
 apply_snapshot e2e-snap "$PRIMARY_STORAGECLASS" e2e-snap-source-pvc
 assert_snapshot_ready e2e-snap "Snapshot is ReadyToUse"
 
 apply_pvc e2e-snap-restore-pvc "$PRIMARY_STORAGECLASS" 256Mi "$(ds_snapshot e2e-snap)"
-assert_pvc_binds e2e-snap-restore-pvc "Restored PVC becomes Bound"
 
 assert_pod_succeeds e2e-snap-reader e2e-snap-restore-pvc \
   "grep snapshot-data /data/snap.txt" \
@@ -221,11 +226,9 @@ pass "Resources cleaned up"
 section "Volume cloning"
 
 apply_pvc e2e-clone-source-pvc "$PRIMARY_STORAGECLASS" 256Mi
-assert_pvc_binds e2e-clone-source-pvc "Source PVC becomes Bound"
 run_pod e2e-clone-writer e2e-clone-source-pvc "echo clone-source-data > /data/clone.txt"
 
 apply_pvc e2e-clone-pvc "$PRIMARY_STORAGECLASS" 256Mi "$(ds_pvc e2e-clone-source-pvc)"
-assert_pvc_binds e2e-clone-pvc "Clone PVC becomes Bound"
 
 assert_pod_succeeds e2e-clone-verifier e2e-clone-pvc \
   "grep clone-source-data /data/clone.txt && echo override > /data/clone.txt" \
@@ -243,7 +246,7 @@ pass "Resources cleaned up"
 section "Volume expansion"
 
 apply_pvc e2e-expand-pvc "$PRIMARY_STORAGECLASS" 100Mi
-assert_pvc_binds e2e-expand-pvc "PVC created at 100Mi"
+bind_pvc e2e-expand-pvc "PVC created at 100Mi"
 
 ${KUBECTL} patch pvc e2e-expand-pvc -n "${NAMESPACE}" \
   -p '{"spec":{"resources":{"requests":{"storage":"500Mi"}}}}'
@@ -261,7 +264,6 @@ delete_resources pvc/e2e-expand-pvc
 section "Quota enforcement"
 
 apply_pvc e2e-quota-pvc "$PRIMARY_STORAGECLASS" 50Mi
-assert_pvc_binds e2e-quota-pvc "Quota-limited PVC created at 50Mi"
 
 assert_pod_succeeds e2e-quota-writer e2e-quota-pvc \
   "dd if=/dev/zero of=/data/file bs=1M count=40 && echo 'Write succeeded within limit'" \
@@ -284,14 +286,12 @@ elif ! ${KUBECTL} get volumesnapshotclass "${SECONDARY_STORAGECLASS}" &>/dev/nul
   skip "VolumeSnapshotClass ${SECONDARY_STORAGECLASS} not found"
 else
   apply_pvc e2e-xsnap-source-pvc "$PRIMARY_STORAGECLASS" 256Mi
-  assert_pvc_binds e2e-xsnap-source-pvc "Source PVC becomes Bound"
   run_pod e2e-xsnap-writer e2e-xsnap-source-pvc "echo cross-pool-snapshot-data > /data/crosspool.txt"
 
   apply_snapshot e2e-xsnap "$SECONDARY_STORAGECLASS" e2e-xsnap-source-pvc
   assert_snapshot_ready e2e-xsnap "Snapshot created on secondary pool"
 
   apply_pvc e2e-xsnap-restore-pvc "$PRIMARY_STORAGECLASS" 256Mi "$(ds_snapshot e2e-xsnap)"
-  assert_pvc_binds e2e-xsnap-restore-pvc "Restored PVC becomes Bound"
 
   assert_pod_succeeds e2e-xsnap-reader e2e-xsnap-restore-pvc \
     "grep cross-pool-snapshot-data /data/crosspool.txt" \
@@ -309,11 +309,9 @@ if ! ${KUBECTL} get storageclass "${SECONDARY_STORAGECLASS}" &>/dev/null; then
   skip "StorageClass ${SECONDARY_STORAGECLASS} not found"
 else
   apply_pvc e2e-xclone-source-pvc "$PRIMARY_STORAGECLASS" 256Mi
-  assert_pvc_binds e2e-xclone-source-pvc "Source PVC becomes Bound"
   run_pod e2e-xclone-writer e2e-xclone-source-pvc "echo clone-pool2-data > /data/clone.txt"
 
   apply_pvc e2e-xclone-dest-pvc "$SECONDARY_STORAGECLASS" 256Mi "$(ds_pvc e2e-xclone-source-pvc)"
-  assert_pvc_binds e2e-xclone-dest-pvc "Clone PVC becomes Bound on secondary pool"
 
   assert_pod_succeeds e2e-xclone-reader e2e-xclone-dest-pvc \
     "grep clone-pool2-data /data/clone.txt" \

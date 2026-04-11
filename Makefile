@@ -1,11 +1,10 @@
-IMAGE     ?= btrfs-csi-driver
-TAG       ?= latest
 CLUSTER   ?= btrfs-csi
+OVERLAY   ?= minikube
 RUNTIME   ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 PRECOMMIT ?= $(shell command -v prek 2>/dev/null || command -v pre-commit 2>/dev/null)
 
-.PHONY: build test test-integration lint image deploy clean \
-        minikube-setup minikube-sanity minikube-e2e
+.PHONY: build test test-integration lint image deploy \
+        minikube-up minikube-down minikube-sanity minikube-e2e
 
 lint:
 	$(PRECOMMIT) run --all-files
@@ -22,26 +21,26 @@ test-integration:
 	go test -tags integration ./pkg/btrfs/
 
 image:
-	$(RUNTIME) build -t localhost/$(IMAGE):$(TAG) .
+	$(RUNTIME) build -t localhost/btrfs-csi-driver:latest .
 
 deploy:
-	kubectl apply -f deploy/
+	kubectl apply -k deploy/overlays/$(OVERLAY)/
 
-# Start a minikube cluster with QEMU driver, set up btrfs on the extra disk,
+# Start a minikube cluster with QEMU driver, set up btrfs on the extra disks,
 # load the driver image, and deploy all manifests.
-minikube-setup:
-	IMAGE=localhost/$(IMAGE):$(TAG) CLUSTER=$(CLUSTER) bash test/setup-minikube.sh
+minikube-up:
+	CLUSTER=$(CLUSTER) bash scripts/minikube-up.sh
 
-minikube-teardown:
-	CLUSTER=$(CLUSTER) bash test/teardown-minikube.sh
+minikube-down:
+	CLUSTER=$(CLUSTER) bash scripts/minikube-down.sh
 
 # Build the CSI sanity test binary and run it inside the minikube VM.
 minikube-sanity:
-	CLUSTER=$(CLUSTER) bash test/run-sanity.sh
+	CLUSTER=$(CLUSTER) bash scripts/sanity.sh
 
 # Run end-to-end tests against the deployed cluster.
 minikube-e2e:
-	KUBECTL="kubectl --context=$(CLUSTER)" bash test/e2e.sh
+	KUBECTL="kubectl --context=$(CLUSTER)" bash scripts/e2e.sh
 
 clean:
 	rm -rf bin/

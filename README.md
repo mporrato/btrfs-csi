@@ -88,14 +88,31 @@ make image
 
 ### Deploy to Kubernetes
 
+The deployment uses kustomize with environment-specific overlays for different Kubernetes flavors. Each overlay configures the correct kubelet path and other environment-specific settings.
+
+**Choose your environment:**
+
 ```bash
-make deploy
+# Minikube (default)
+make deploy OVERLAY=minikube
+
+# Kind (standard kubelet path, same as minikube)
+make deploy OVERLAY=kind
+
+# k0s (uses /var/lib/k0s/kubelet)
+make deploy OVERLAY=k0s
+
+# k3s (uses /var/lib/rancher/k3s/agent/kubelet)
+make deploy OVERLAY=k3s
+
+# Development (minikube + verbose logging + secondary pool for testing)
+make deploy OVERLAY=dev
 ```
 
-Or manually apply manifests:
+Or manually:
 
 ```bash
-kubectl apply -f deploy/
+kubectl apply -k deploy/overlays/minikube/  # or k3s, kind, k0s, dev
 ```
 
 ## Usage
@@ -203,7 +220,7 @@ btrfs-csi/
 │   ├── btrfs/               # btrfs CLI wrapper
 │   └── state/               # JSON-backed metadata (MultiStore/FileStore)
 ├── deploy/                  # Kubernetes manifests
-└── test/                    # Kind cluster config, e2e helpers
+└── scripts/                  # Cluster setup and test runner scripts
 ```
 
 ### Key Interfaces

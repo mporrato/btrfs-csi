@@ -1,0 +1,48 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Development overlay: inherits minikube settings, enables verbose logging,
+# and wires up the secondary btrfs pool for multi-pool testing.
+resources:
+  - ../minikube
+  - storageclass-secondary.yaml
+  - snapshotclass-secondary.yaml
+images:
+  - name: ghcr.io/mporrato/btrfs-csi-driver
+    newName: localhost/btrfs-csi-driver
+    newTag: latest
+patches:
+  # Add the secondary btrfs pool path to the pools ConfigMap.
+  - target:
+      kind: ConfigMap
+      name: btrfs-csi-pools
+    patch: |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: btrfs-csi-pools
+      data:
+        secondary: /var/lib/btrfs-csi-extra
+  # Use local image, enable verbose logging, and mount the secondary pool into the driver.
+  - target:
+      kind: DaemonSet
+      name: btrfs-csi-driver
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --v=4
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value:
+          name: btrfs-data-dir-secondary
+          hostPath:
+            path: /var/lib/btrfs-csi-extra
+            type: DirectoryOrCreate
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value:
+          name: btrfs-data-dir-secondary
+          mountPath: /var/lib/btrfs-csi-extra
