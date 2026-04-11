@@ -897,3 +897,268 @@ func TestSaveSnapshot_CallerMutationIsolated(t *testing.T) {
 		t.Errorf("store returned mutated name %q; SaveSnapshot must copy the input", got.Name)
 	}
 }
+
+// --- MultiStore snapshot tests ---
+
+func TestMultiStore_GetVolumeByName_FindsAcrossStores(t *testing.T) {
+	dir1, dir2 := t.TempDir(), t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+	_ = ms.AddPath(dir2)
+
+	_ = ms.SaveVolume(&Volume{ID: "v1", Name: "pvc-1", BasePath: dir1})
+	_ = ms.SaveVolume(&Volume{ID: "v2", Name: "pvc-2", BasePath: dir2})
+
+	got, ok := ms.GetVolumeByName("pvc-2")
+	if !ok {
+		t.Fatal("GetVolumeByName returned false")
+	}
+	if got.ID != "v2" {
+		t.Errorf("ID = %q, want %q", got.ID, "v2")
+	}
+
+	// Test not found
+	_, ok = ms.GetVolumeByName("pvc-nonexistent")
+	if ok {
+		t.Error("GetVolumeByName returned true for unknown name")
+	}
+}
+
+func TestMultiStore_SaveAndGetSnapshot_RoutesToCorrectStore(t *testing.T) {
+	dir1, dir2 := t.TempDir(), t.TempDir()
+	ms := NewMultiStore()
+	if err := ms.AddPath(dir1); err != nil {
+		t.Fatalf("AddPath %s: %v", dir1, err)
+	}
+	if err := ms.AddPath(dir2); err != nil {
+		t.Fatalf("AddPath %s: %v", dir2, err)
+	}
+
+	snap := &Snapshot{ID: "snap-1", Name: "backup-1", BasePath: dir1}
+	if err := ms.SaveSnapshot(snap); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+
+	// Must be found globally
+	got, ok := ms.GetSnapshot("snap-1")
+	if !ok {
+		t.Fatal("GetSnapshot returned false")
+	}
+	if got.BasePath != dir1 {
+		t.Errorf("BasePath = %q, want %q", got.BasePath, dir1)
+	}
+
+	// Must NOT appear in the other store
+	s2, ok := ms.StoreFor(dir2)
+	if !ok {
+		t.Fatal("StoreFor dir2 returned false")
+	}
+	if _, ok := s2.GetSnapshot("snap-1"); ok {
+		t.Error("snapshot leaked into wrong store")
+	}
+}
+
+func TestMultiStore_GetSnapshotByName_FindsAcrossStores(t *testing.T) {
+	dir1, dir2 := t.TempDir(), t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+	_ = ms.AddPath(dir2)
+
+	_ = ms.SaveSnapshot(&Snapshot{ID: "snap-1", Name: "backup-1", BasePath: dir1})
+	_ = ms.SaveSnapshot(&Snapshot{ID: "snap-2", Name: "backup-2", BasePath: dir2})
+
+	got, ok := ms.GetSnapshotByName("backup-2")
+	if !ok {
+		t.Fatal("GetSnapshotByName returned false")
+	}
+	if got.ID != "snap-2" {
+		t.Errorf("ID = %q, want %q", got.ID, "snap-2")
+	}
+
+	// Test not found
+	_, ok = ms.GetSnapshotByName("backup-nonexistent")
+	if ok {
+		t.Error("GetSnapshotByName returned true for unknown name")
+	}
+}
+
+func TestMultiStore_ListSnapshots_UnionsAllStores(t *testing.T) {
+	dir1, dir2 := t.TempDir(), t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+	_ = ms.AddPath(dir2)
+
+	_ = ms.SaveSnapshot(&Snapshot{ID: "snap-1", Name: "backup-1", BasePath: dir1})
+	_ = ms.SaveSnapshot(&Snapshot{ID: "snap-2", Name: "backup-2", BasePath: dir2})
+	_ = ms.SaveSnapshot(&Snapshot{ID: "snap-3", Name: "backup-3", BasePath: dir1})
+
+	snaps := ms.ListSnapshots()
+	if len(snaps) != 3 {
+		t.Errorf("ListSnapshots returned %d, want 3", len(snaps))
+	}
+
+	// Verify all IDs are present
+	ids := make(map[string]bool)
+	for _, s := range snaps {
+		ids[s.ID] = true
+	}
+	if !ids["snap-1"] || !ids["snap-2"] || !ids["snap-3"] {
+		t.Errorf("missing snapshots from list: %v", snaps)
+	}
+}
+
+func TestMultiStore_DeleteSnapshot_FindsAcrossStores(t *testing.T) {
+	dir1, dir2 := t.TempDir(), t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+	_ = ms.AddPath(dir2)
+
+	_ = ms.SaveSnapshot(&Snapshot{ID: "snap-1", Name: "backup-1", BasePath: dir1})
+	_ = ms.SaveSnapshot(&Snapshot{ID: "snap-2", Name: "backup-2", BasePath: dir2})
+
+	if err := ms.DeleteSnapshot("snap-1"); err != nil {
+		t.Fatalf("DeleteSnapshot: %v", err)
+	}
+	if _, ok := ms.GetSnapshot("snap-1"); ok {
+		t.Error("deleted snapshot still found")
+	}
+	if _, ok := ms.GetSnapshot("snap-2"); !ok {
+		t.Error("unrelated snapshot was deleted")
+	}
+}
+
+func TestMultiStore_DeleteSnapshot_Idempotent(t *testing.T) {
+	dir1 := t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+
+	// Delete non-existent snapshot should not error
+	if err := ms.DeleteSnapshot("snap-nonexistent"); err != nil {
+		t.Errorf("DeleteSnapshot of non-existent should be idempotent, got: %v", err)
+	}
+}
+
+func TestMultiStore_SaveSnapshot_UnknownBasePathReturnsError(t *testing.T) {
+	ms := NewMultiStore()
+	_ = ms.AddPath(t.TempDir())
+
+	err := ms.SaveSnapshot(&Snapshot{ID: "snap-1", BasePath: "/nonexistent/path"})
+	if err == nil {
+		t.Error("expected error for unknown basePath, got nil")
+	}
+}
+
+func TestMultiStore_SaveSnapshot_CallerMutationIsolated(t *testing.T) {
+	dir1 := t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+
+	snap := &Snapshot{ID: "snap-1", Name: "original", BasePath: dir1}
+	if err := ms.SaveSnapshot(snap); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+
+	snap.Name = "mutated"
+
+	got, ok := ms.GetSnapshot("snap-1")
+	if !ok {
+		t.Fatal("GetSnapshot returned false after SaveSnapshot")
+	}
+	if got.Name != "original" {
+		t.Errorf("store returned mutated name %q; SaveSnapshot must copy the input", got.Name)
+	}
+}
+
+func TestMultiStore_ListSnapshots_ReturnsDeepCopies(t *testing.T) {
+	dir1, dir2 := t.TempDir(), t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+	_ = ms.AddPath(dir2)
+
+	_ = ms.SaveSnapshot(&Snapshot{ID: "snap-1", Name: "backup-1", BasePath: dir1})
+
+	// List and modify
+	list := ms.ListSnapshots()
+	if len(list) != 1 {
+		t.Fatalf("ListSnapshots returned %d, want 1", len(list))
+	}
+	list[0].Name = "modified"
+
+	// List again - should not be modified
+	list2 := ms.ListSnapshots()
+	if list2[0].Name == "modified" {
+		t.Error("ListSnapshots returned references to internal state, want deep copies")
+	}
+}
+
+func TestMultiStore_GetSnapshot_ReturnsDeepCopy(t *testing.T) {
+	dir1 := t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+
+	_ = ms.SaveSnapshot(&Snapshot{ID: "snap-1", Name: "backup-1", BasePath: dir1})
+
+	// Get and modify
+	got, ok := ms.GetSnapshot("snap-1")
+	if !ok {
+		t.Fatal("GetSnapshot returned false")
+	}
+	got.Name = "modified"
+
+	// Get again - should not be modified
+	got2, ok := ms.GetSnapshot("snap-1")
+	if !ok {
+		t.Fatal("GetSnapshot returned false")
+	}
+	if got2.Name == "modified" {
+		t.Error("GetSnapshot returned reference to internal state, want deep copy")
+	}
+}
+
+func TestMultiStore_GetSnapshotByName_ReturnsDeepCopy(t *testing.T) {
+	dir1 := t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+
+	_ = ms.SaveSnapshot(&Snapshot{ID: "snap-1", Name: "backup-1", BasePath: dir1})
+
+	// Get and modify
+	got, ok := ms.GetSnapshotByName("backup-1")
+	if !ok {
+		t.Fatal("GetSnapshotByName returned false")
+	}
+	got.Name = "modified"
+
+	// Get again - should not be modified
+	got2, ok := ms.GetSnapshotByName("backup-1")
+	if !ok {
+		t.Fatal("GetSnapshotByName returned false")
+	}
+	if got2.Name == "modified" {
+		t.Error("GetSnapshotByName returned reference to internal state, want deep copy")
+	}
+}
+
+func TestMultiStore_GetVolumeByName_ReturnsDeepCopy(t *testing.T) {
+	dir1 := t.TempDir()
+	ms := NewMultiStore()
+	_ = ms.AddPath(dir1)
+
+	_ = ms.SaveVolume(&Volume{ID: "v1", Name: "pvc-1", BasePath: dir1})
+
+	// Get and modify
+	got, ok := ms.GetVolumeByName("pvc-1")
+	if !ok {
+		t.Fatal("GetVolumeByName returned false")
+	}
+	got.Name = "modified"
+
+	// Get again - should not be modified
+	got2, ok := ms.GetVolumeByName("pvc-1")
+	if !ok {
+		t.Fatal("GetVolumeByName returned false")
+	}
+	if got2.Name == "modified" {
+		t.Error("GetVolumeByName returned reference to internal state, want deep copy")
+	}
+}

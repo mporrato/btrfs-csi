@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -117,5 +118,196 @@ func TestTempSnapshotCleanupPattern(t *testing.T) {
 	// Should still only match the 3 stale snapshots for "mysubvolume"
 	if len(matches) != 3 {
 		t.Errorf("expected 3 matches after adding unrelated dir, got %d", len(matches))
+	}
+}
+
+// --- parseSubvolumeID tests ---
+
+func TestParseSubvolumeID_ValidOutput(t *testing.T) {
+	output := `	Name: 			subvol-1
+	UUID: 			abcd-1234
+	Parent UUID: 		-
+	Received UUID: 		-
+	Creation time: 		2025-01-15 12:00:00
+	Subvolume ID: 		123
+	Generation: 		5
+	Gen at creation: 	1
+	Parent ID: 		5
+	Top level ID: 		5
+	Flags: 			-
+`
+	id, err := parseSubvolumeID(output)
+	if err != nil {
+		t.Fatalf("parseSubvolumeID: %v", err)
+	}
+	if id != 123 {
+		t.Errorf("id = %d, want 123", id)
+	}
+}
+
+func TestParseSubvolumeID_DifferentFormat(t *testing.T) {
+	// Test with different spacing
+	output := `Subvolume ID: 456`
+	id, err := parseSubvolumeID(output)
+	if err != nil {
+		t.Fatalf("parseSubvolumeID: %v", err)
+	}
+	if id != 456 {
+		t.Errorf("id = %d, want 456", id)
+	}
+}
+
+func TestParseSubvolumeID_LargeID(t *testing.T) {
+	output := `
+Subvolume ID: 18446744073709551615
+`
+	id, err := parseSubvolumeID(output)
+	if err != nil {
+		t.Fatalf("parseSubvolumeID: %v", err)
+	}
+	if id != 18446744073709551615 {
+		t.Errorf("id = %d, want max uint64", id)
+	}
+}
+
+func TestParseSubvolumeID_NotFound(t *testing.T) {
+	output := `
+Name: subvol-1
+UUID: abcd-1234
+`
+	_, err := parseSubvolumeID(output)
+	if err == nil {
+		t.Fatal("parseSubvolumeID should return error when Subvolume ID not found")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error should mention 'not found', got: %v", err)
+	}
+}
+
+func TestParseSubvolumeID_MalformedLine(t *testing.T) {
+	output := `Subvolume ID: abc`
+	_, err := parseSubvolumeID(output)
+	if err == nil {
+		t.Fatal("parseSubvolumeID should return error for malformed ID")
+	}
+	// ParseUint returns "invalid syntax" error which we wrap
+	if !strings.Contains(err.Error(), "invalid syntax") {
+		t.Errorf("error should mention invalid syntax, got: %v", err)
+	}
+}
+
+func TestParseSubvolumeID_EmptyLine(t *testing.T) {
+	output := `Subvolume ID:`
+	_, err := parseSubvolumeID(output)
+	if err == nil {
+		t.Fatal("parseSubvolumeID should return error for empty ID")
+	}
+}
+
+// --- parseQgroupShow tests ---
+
+func TestParseQgroupShow_ValidOutput(t *testing.T) {
+	output := `qgroupid rfer excl max_rfer max_excl
+-------- ---- ---- -------- --------
+0/123    1024  512  2048     4096
+0/456    2048 1024  none     none
+`
+	usage, err := parseQgroupShow(output, "0/123")
+	if err != nil {
+		t.Fatalf("parseQgroupShow: %v", err)
+	}
+	if usage.Referenced != 1024 {
+		t.Errorf("Referenced = %d, want 1024", usage.Referenced)
+	}
+	if usage.Exclusive != 512 {
+		t.Errorf("Exclusive = %d, want 512", usage.Exclusive)
+	}
+	if usage.MaxRfer != 2048 {
+		t.Errorf("MaxRfer = %d, want 2048", usage.MaxRfer)
+	}
+}
+
+func TestParseQgroupShow_NoLimit(t *testing.T) {
+	output := `qgroupid rfer excl max_rfer max_excl
+0/123    1024  512  none     none
+`
+	usage, err := parseQgroupShow(output, "0/123")
+	if err != nil {
+		t.Fatalf("parseQgroupShow: %v", err)
+	}
+	if usage.MaxRfer != 0 {
+		t.Errorf("MaxRfer = %d, want 0 (no limit)", usage.MaxRfer)
+	}
+}
+
+func TestParseQgroupShow_ZeroLimit(t *testing.T) {
+	output := `qgroupid rfer excl max_rfer max_excl
+0/123    1024  512  0        0
+`
+	usage, err := parseQgroupShow(output, "0/123")
+	if err != nil {
+		t.Fatalf("parseQgroupShow: %v", err)
+	}
+	if usage.MaxRfer != 0 {
+		t.Errorf("MaxRfer = %d, want 0 (zero means no limit)", usage.MaxRfer)
+	}
+}
+
+func TestParseQgroupShow_NotFound(t *testing.T) {
+	output := `qgroupid rfer excl max_rfer max_excl
+0/123    1024  512  2048     4096
+`
+	_, err := parseQgroupShow(output, "0/999")
+	if err == nil {
+		t.Fatal("parseQgroupShow should return error when qgroup not found")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error should mention 'not found', got: %v", err)
+	}
+}
+
+func TestParseQgroupShow_LargeValues(t *testing.T) {
+	output := `qgroupid rfer excl max_rfer max_excl
+0/123    1099511627776 549755813888 2199023255552 4398046511104
+`
+	usage, err := parseQgroupShow(output, "0/123")
+	if err != nil {
+		t.Fatalf("parseQgroupShow: %v", err)
+	}
+	if usage.Referenced != 1099511627776 {
+		t.Errorf("Referenced = %d, want 1TB", usage.Referenced)
+	}
+	if usage.Exclusive != 549755813888 {
+		t.Errorf("Exclusive = %d, want 512GB", usage.Exclusive)
+	}
+}
+
+func TestParseQgroupShow_MalformedRfer(t *testing.T) {
+	output := `qgroupid rfer excl max_rfer max_excl
+0/123    abc  512  2048     4096
+`
+	_, err := parseQgroupShow(output, "0/123")
+	if err == nil {
+		t.Fatal("parseQgroupShow should return error for malformed rfer")
+	}
+}
+
+func TestParseQgroupShow_MalformedExcl(t *testing.T) {
+	output := `qgroupid rfer excl max_rfer max_excl
+0/123    1024 abc  2048     4096
+`
+	_, err := parseQgroupShow(output, "0/123")
+	if err == nil {
+		t.Fatal("parseQgroupShow should return error for malformed excl")
+	}
+}
+
+func TestParseQgroupShow_MalformedMaxRfer(t *testing.T) {
+	output := `qgroupid rfer excl max_rfer max_excl
+0/123    1024 512  abc      4096
+`
+	_, err := parseQgroupShow(output, "0/123")
+	if err == nil {
+		t.Fatal("parseQgroupShow should return error for malformed max_rfer")
 	}
 }
