@@ -302,6 +302,18 @@ func (m *RealManager) IsBtrfsFilesystem(path string) (bool, error) {
 	}
 }
 
+func (m *RealManager) IsMountpoint(path string) (bool, error) {
+	var pathStat, parentStat syscall.Stat_t
+	if err := syscall.Stat(path, &pathStat); err != nil {
+		return false, fmt.Errorf("stat %s: %w", path, err)
+	}
+	parent := filepath.Dir(path)
+	if err := syscall.Stat(parent, &parentStat); err != nil {
+		return false, fmt.Errorf("stat %s: %w", parent, err)
+	}
+	return pathStat.Dev != parentStat.Dev, nil
+}
+
 func (m *RealManager) GetFilesystemUsage(path string) (*FsUsage, error) {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(path, &stat); err != nil {

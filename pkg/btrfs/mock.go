@@ -65,6 +65,12 @@ type MockManager struct {
 	IsBtrfsFilesystemResult bool
 	IsBtrfsFilesystemErr    error
 	IsBtrfsFilesystemFunc   func(path string) (bool, error)
+
+	// IsMountpoint
+	IsMountpointCalls  []string
+	IsMountpointResult bool
+	IsMountpointErr    error
+	IsMountpointFunc   func(path string) (bool, error)
 }
 
 func (m *MockManager) CreateSubvolume(path string) error {
@@ -130,4 +136,12 @@ func (m *MockManager) IsBtrfsFilesystem(path string) (bool, error) {
 		return m.IsBtrfsFilesystemFunc(path)
 	}
 	return m.IsBtrfsFilesystemResult, m.IsBtrfsFilesystemErr
+}
+
+func (m *MockManager) IsMountpoint(path string) (bool, error) {
+	m.IsMountpointCalls = append(m.IsMountpointCalls, path)
+	if m.IsMountpointFunc != nil {
+		return m.IsMountpointFunc(path)
+	}
+	return m.IsMountpointResult, m.IsMountpointErr
 }

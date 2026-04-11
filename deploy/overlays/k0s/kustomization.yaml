@@ -19,7 +19,7 @@ patches:
         path: /spec/template/spec/volumes/2/hostPath/path
         value: /var/lib/k0s/kubelet/pods
       - op: replace
-        path: /spec/template/spec/containers/0/volumeMounts/2/mountPath
+        path: /spec/template/spec/containers/0/volumeMounts/1/mountPath
         value: /var/lib/k0s/kubelet/pods
       - op: replace
         path: /spec/template/spec/containers/2/args/1

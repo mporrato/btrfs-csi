@@ -23,6 +23,7 @@ func TestManagerInterface(t *testing.T) {
 		"GetQgroupUsage",
 		"GetFilesystemUsage",
 		"IsBtrfsFilesystem",
+		"IsMountpoint",
 	}
 
 	// Verify all expected methods exist

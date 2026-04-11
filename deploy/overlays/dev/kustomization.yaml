@@ -12,18 +12,7 @@ images:
     newName: localhost/btrfs-csi-driver
     newTag: latest
 patches:
-  # Add the secondary btrfs pool path to the pools ConfigMap.
-  - target:
-      kind: ConfigMap
-      name: btrfs-csi-pools
-    patch: |
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: btrfs-csi-pools
-      data:
-        secondary: /var/lib/btrfs-csi-extra
-  # Use local image, enable verbose logging, and mount the secondary pool into the driver.
+  # Use local image and enable verbose logging.
   - target:
       kind: DaemonSet
       name: btrfs-csi-driver
@@ -34,15 +23,3 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/args/-
         value: --v=4
-      - op: add
-        path: /spec/template/spec/volumes/-
-        value:
-          name: btrfs-data-dir-secondary
-          hostPath:
-            path: /var/lib/btrfs-csi-extra
-            type: DirectoryOrCreate
-      - op: add
-        path: /spec/template/spec/containers/0/volumeMounts/-
-        value:
-          name: btrfs-data-dir-secondary
-          mountPath: /var/lib/btrfs-csi-extra

@@ -284,5 +284,41 @@ func TestMockManagerIsBtrfsFilesystemError(t *testing.T) {
 	}
 }
 
+func TestMockManagerIsMountpoint(t *testing.T) {
+	m := &MockManager{IsMountpointResult: true}
+	got, err := m.IsMountpoint("/mnt/pool")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got {
+		t.Error("expected true for mountpoint")
+	}
+	if len(m.IsMountpointCalls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(m.IsMountpointCalls))
+	}
+	if m.IsMountpointCalls[0] != "/mnt/pool" {
+		t.Errorf("expected path /mnt/pool, got %s", m.IsMountpointCalls[0])
+	}
+}
+
+func TestMockManagerIsMountpointFalse(t *testing.T) {
+	m := &MockManager{IsMountpointResult: false}
+	got, err := m.IsMountpoint("/tmp/notmount")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got {
+		t.Error("expected false for non-mountpoint")
+	}
+}
+
+func TestMockManagerIsMountpointError(t *testing.T) {
+	m := &MockManager{IsMountpointErr: errTest}
+	_, err := m.IsMountpoint("/tmp")
+	if !errors.Is(err, errTest) {
+		t.Fatalf("expected errTest, got %v", err)
+	}
+}
+
 // errTest is a sentinel error used in mock tests.
 var errTest = fmt.Errorf("test error")

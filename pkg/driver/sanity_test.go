@@ -4,6 +4,7 @@ package driver
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,10 +17,11 @@ import (
 )
 
 var (
-	sanityDriver *Driver
-	sanityErrCh  chan error
-	sanityRoot   string
-	sanityConfig = sanity.NewTestConfig()
+	sanityDriver  *Driver
+	sanityErrCh   chan error
+	sanityRoot    string
+	sanityLoopImg string
+	sanityConfig  = sanity.NewTestConfig()
 )
 
 func TestSanity(t *testing.T) {
@@ -27,21 +29,18 @@ func TestSanity(t *testing.T) {
 	RunSpecs(t, "CSI Sanity Suite")
 }
 
-// btrfsBase returns the btrfs mount point to use for tests.
-// Defaults to /var/lib/btrfs-csi (the extra disk mounted by setup-minikube.sh),
-// overridable via BTRFS_ROOT env var.
-func btrfsBase() string {
-	if v := os.Getenv("BTRFS_ROOT"); v != "" {
-		return v
-	}
-	return "/var/lib/btrfs-csi"
-}
-
 var _ = BeforeSuite(func() {
-	var err error
-	// Create a temp directory on the existing btrfs filesystem.
-	sanityRoot, err = os.MkdirTemp(btrfsBase(), "sanity-*")
+	// Create a temporary loopback image and format it as btrfs.
+	f, err := os.CreateTemp("", "btrfs-sanity-*.img")
 	Expect(err).NotTo(HaveOccurred())
+	sanityLoopImg = f.Name()
+	Expect(f.Close()).To(Succeed())
+	Expect(os.Truncate(sanityLoopImg, 256*1024*1024)).To(Succeed()) // 256 MiB
+	Expect(exec.Command("mkfs.btrfs", sanityLoopImg).Run()).To(Succeed())
+
+	sanityRoot, err = os.MkdirTemp("", "btrfs-sanity-mount-*")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(exec.Command("mount", "-o", "loop", sanityLoopImg, sanityRoot).Run()).To(Succeed())
 
 	sockPath := filepath.Join(sanityRoot, "csi.sock")
 
@@ -77,7 +76,11 @@ var _ = AfterSuite(func() {
 		}
 	}
 	if sanityRoot != "" {
-		_ = os.RemoveAll(sanityRoot)
+		_ = exec.Command("umount", sanityRoot).Run()
+		_ = os.Remove(sanityRoot)
+	}
+	if sanityLoopImg != "" {
+		_ = os.Remove(sanityLoopImg)
 	}
 })
 

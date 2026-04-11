@@ -13,7 +13,7 @@ Written in Go. Single binary serving Identity, Controller, and Node gRPC service
 2. **Green**: Write the minimum code to make the test pass
 3. **Gray** (Refactor): Clean up while keeping tests green
 
-Run `go test ./...` after every Green and Gray step.
+Run `make test` after every Green and Gray step.
 
 ## Project Structure
 
@@ -53,9 +53,10 @@ scripts/                         # Cluster setup and test runner scripts
 
 - **Driver name**: `btrfs.csi.local`
 - **Topology key**: `topology.btrfs.csi.local/node`
-- **Pool configuration**: via `--config` directory (ConfigMap mounted in deploy/ base)
-  - Each file's name = pool name, content = absolute path to btrfs filesystem
-  - Example: `/etc/btrfs-csi/pools/default` contains `/var/lib/btrfs-csi`
+- **Pool configuration**: via `--pools-dir` flag (default `/var/lib/btrfs-csi`)
+  - Each immediate subdirectory of `--pools-dir` is a pool; subdirectory name = pool name, path = pool base path
+  - Example: `/var/lib/btrfs-csi/default` is a btrfs mount point → pool named `default`
+  - No ConfigMap needed; the driver discovers pools by scanning subdirectories at startup and every 30 s
 - **Volumes**: btrfs subvolumes under `<poolPath>/volumes/<id>`
 - **Snapshots**: readonly btrfs snapshots under `<poolPath>/snapshots/<id>`
 - **State**: JSON file at `<poolPath>/state.json` (one per pool)
@@ -82,7 +83,7 @@ make minikube-down
 The overlays handle platform-specific kubelet paths and configuration. The `dev` overlay adds:
 - `--v=4` verbose driver logging
 - Local image (`localhost/btrfs-csi-driver:latest`) with `imagePullPolicy: Never`
-- Secondary btrfs pool and StorageClass for multi-pool testing
+- Secondary StorageClass for multi-pool testing (mount btrfs at `/var/lib/btrfs-csi/secondary`)
 
 ## Important Context
 

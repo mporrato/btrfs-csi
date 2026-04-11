@@ -18,38 +18,27 @@ func TestRunVersionFlag(t *testing.T) {
 	}
 }
 
-func TestRunFailsWhenConfigNotProvided(t *testing.T) {
-	tmpDir := t.TempDir()
-	socketPath := filepath.Join(tmpDir, "csi", "csi.sock")
-
-	err := runWithContext(t.Context(), []string{
-		"--endpoint", "unix://" + socketPath,
-		"--nodeid", "test-node",
-	}, &btrfs.MockManager{})
-	if err == nil {
-		t.Fatal("expected error when --config is not provided")
-	}
-}
-
 func TestRunToleratesMissingPoolsButFailsWhenAllPoolsMissing(t *testing.T) {
 	tmpDir := t.TempDir()
-	configDir := filepath.Join(tmpDir, "config")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
+	poolsDir := filepath.Join(tmpDir, "pools")
+	if err := os.MkdirAll(poolsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Write two pool configs: one valid, one missing
-	goodPool := filepath.Join(tmpDir, "good-pool")
-	missingPool := filepath.Join(tmpDir, "missing-pool")
-	if err := os.WriteFile(filepath.Join(configDir, "good"), []byte(goodPool), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(configDir, "missing"), []byte(missingPool), 0o644); err != nil {
-		t.Fatal(err)
+	// Create two pool subdirs: one valid, one that mgr will reject
+	goodPool := filepath.Join(poolsDir, "good")
+	missingPool := filepath.Join(poolsDir, "missing")
+	for _, p := range []string{goodPool, missingPool} {
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	// MockManager returns true only for the good pool
+	// MockManager returns true only for the good pool (both btrfs and mountpoint checks)
 	mgr := &btrfs.MockManager{
 		IsBtrfsFilesystemFunc: func(path string) (bool, error) {
+			return path == goodPool, nil
+		},
+		IsMountpointFunc: func(path string) (bool, error) {
 			return path == goodPool, nil
 		},
 	}
@@ -61,7 +50,7 @@ func TestRunToleratesMissingPoolsButFailsWhenAllPoolsMissing(t *testing.T) {
 	go func() {
 		errCh <- runWithContext(ctx, []string{
 			"--endpoint", "unix://" + filepath.Join(tmpDir, "csi", "csi.sock"),
-			"--config", configDir,
+			"--pools-dir", poolsDir,
 			"--nodeid", "test-node",
 		}, mgr)
 	}()
@@ -80,20 +69,43 @@ func TestRunToleratesMissingPoolsButFailsWhenAllPoolsMissing(t *testing.T) {
 	}
 }
 
-func TestRunFailsWhenAllPoolsMissing(t *testing.T) {
+func TestRunRejectsNonMountpointPools(t *testing.T) {
 	tmpDir := t.TempDir()
-	bpDir := filepath.Join(tmpDir, "pool")
-	configDir := filepath.Join(tmpDir, "config")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
+	poolsDir := filepath.Join(tmpDir, "pools")
+	if err := os.MkdirAll(filepath.Join(poolsDir, "default"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "default"), []byte(bpDir), 0o644); err != nil {
+
+	// Pool subdir exists and is btrfs, but is not a separate mountpoint.
+	mgr := &btrfs.MockManager{
+		IsBtrfsFilesystemResult: true,
+		IsMountpointResult:      false,
+	}
+
+	err := runWithContext(t.Context(), []string{
+		"--endpoint", "unix://" + filepath.Join(tmpDir, "csi", "csi.sock"),
+		"--pools-dir", poolsDir,
+		"--nodeid", "test-node",
+	}, mgr)
+	if err == nil {
+		t.Fatal("expected error when pool subdir is not a mountpoint")
+	}
+}
+
+func TestRunFailsWhenAllPoolsMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	poolsDir := filepath.Join(tmpDir, "pools")
+	if err := os.MkdirAll(poolsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// One pool subdir that mgr will reject
+	if err := os.MkdirAll(filepath.Join(poolsDir, "default"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	err := runWithContext(t.Context(), []string{
 		"--endpoint", "unix://" + filepath.Join(tmpDir, "csi", "csi.sock"),
-		"--config", configDir,
+		"--pools-dir", poolsDir,
 		"--nodeid", "test-node",
 	}, &btrfs.MockManager{IsBtrfsFilesystemResult: false})
 	if err == nil {
@@ -111,16 +123,12 @@ func TestRunCreatesSocketDirectory(t *testing.T) {
 		t.Fatalf("socket directory should not exist yet")
 	}
 
-	bpDir := filepath.Join(tmpDir, "pool")
-	configDir := filepath.Join(tmpDir, "config")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(configDir, "default"), []byte(bpDir), 0o644); err != nil {
+	poolsDir := filepath.Join(tmpDir, "pools")
+	if err := os.MkdirAll(filepath.Join(poolsDir, "default"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	mgr := &btrfs.MockManager{IsBtrfsFilesystemResult: true}
+	mgr := &btrfs.MockManager{IsBtrfsFilesystemResult: true, IsMountpointResult: true}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -129,7 +137,7 @@ func TestRunCreatesSocketDirectory(t *testing.T) {
 	go func() {
 		errCh <- runWithContext(ctx, []string{
 			"--endpoint", endpoint,
-			"--config", configDir,
+			"--pools-dir", poolsDir,
 			"--nodeid", "test-node",
 		}, mgr)
 	}()

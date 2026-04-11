@@ -23,19 +23,15 @@ This is a **single-node** CSI driver designed for local storage. It does not imp
 
 ### Pool-Based Storage
 
-The driver manages one or more btrfs filesystems as **storage pools**. Pools are defined via a configuration directory (typically mounted from a ConfigMap):
+The driver manages one or more btrfs filesystems as **storage pools**. Pools are discovered automatically by scanning a base directory (default `/var/lib/btrfs-csi`):
 
 ```
-/etc/btrfs-csi/pools/
-├── default    # contains: /mnt/btrfs-default
-└── fast       # contains: /mnt/btrfs-nvme
+/var/lib/btrfs-csi/
+├── default/   # btrfs filesystem mounted here → pool named "default"
+└── fast/      # btrfs filesystem mounted here → pool named "fast"
 ```
 
-Each file in the config directory represents a pool:
-- Filename = pool name
-- File content = absolute path to a btrfs filesystem
-
-The driver watches this directory for changes and hot-reloads pool definitions when the ConfigMap updates.
+Each immediate subdirectory that is a separate btrfs mountpoint becomes a pool. The driver watches for new or removed subdirectories every 30 seconds and hot-reloads without restart. No ConfigMap is required.
 
 ### CSI Services
 
@@ -60,7 +56,7 @@ The driver watches this directory for changes and hot-reloads pool definitions w
 
 - **Driver name**: `btrfs.csi.local`
 - **Topology key**: `topology.btrfs.csi.local/node`
-- **Default base path**: None (pools must be configured via `--config`)
+- **Default pools dir**: `/var/lib/btrfs-csi` (override with `--pools-dir`)
 - **State file**: `<poolPath>/state.json` (one per pool)
 
 ## Prerequisites
@@ -77,8 +73,10 @@ The driver watches this directory for changes and hot-reloads pool definitions w
 ```bash
 git clone https://github.com/mporrato/btrfs-csi.git
 cd btrfs-csi
-go build ./cmd/btrfs-csi-driver/
+make build
 ```
+
+Go 1.26+ is required. If your local toolchain is older, `make` uses `GOTOOLCHAIN=auto` to download the right version automatically.
 
 ### Build Container Image
 
@@ -128,7 +126,7 @@ provisioner: btrfs.csi.local
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
 parameters:
-  pool: "default"  # references pool name from --config directory
+  pool: "default"  # references pool name (subdirectory of --pools-dir)
 ```
 
 ### PVC Example
@@ -187,16 +185,16 @@ spec:
 |------|---------|-------------|
 | `--endpoint` | `unix:///csi/csi.sock` | CSI endpoint (Unix socket) |
 | `--nodeid` | (auto-generated UUID) | Node ID for topology |
-| `--config` | (required) | Path to directory with pool definitions |
+| `--pools-dir` | `/var/lib/btrfs-csi` | Base directory containing pool subdirectories |
 | `--version` | (print and exit) | Print version |
 
-The `--config` directory should contain files where each filename is a pool name and the file content is the absolute path to a btrfs filesystem mount point.
+Each immediate subdirectory of `--pools-dir` that is a separate btrfs mountpoint becomes a pool. The subdirectory name is the pool name.
 
 ### StorageClass Parameters
 
 | Parameter | Description |
 |-----------|-------------|
-| `pool` | Pool name to use (must exist in --config directory) |
+| `pool` | Pool name to use (must match a subdirectory of `--pools-dir`) |
 
 ## Development
 
@@ -204,11 +202,13 @@ The `--config` directory should contain files where each filename is a pool name
 
 ```bash
 # Unit tests
-go test ./...
+make test
 
 # Integration tests (requires root + btrfs)
-go test -tags integration ./pkg/btrfs/
+make test-integration
 ```
+
+Both targets use `GOTOOLCHAIN=auto`, so no container or pre-installed Go 1.26 is needed.
 
 ### Project Structure
 
@@ -241,15 +241,15 @@ btrfs-csi/
 
 ### Driver Not Starting
 
-- Ensure the `--config` flag points to a valid directory with pool definitions
+- Ensure `--pools-dir` exists and contains at least one btrfs mountpoint subdirectory
 - Verify the socket directory exists and is writable
 - Check that `--nodeid` is provided (or accept auto-generated UUID)
 - Verify btrfs-progs is installed: `btrfs --version`
 
 ### Pool Configuration Issues
 
-- Each pool file must contain an absolute path to a btrfs filesystem
-- Verify the path is mounted: `mount | grep btrfs`
+- Each pool must be a **separate btrfs mount** at `<pools-dir>/<pool-name>` (a full filesystem or a subvolume mounted with `-o subvol=`)
+- Verify the mount: `mount | grep btrfs`
 - Ensure quota is enabled on each btrfs filesystem: `btrfs quota enable <path>`
 - Check the pool path is a btrfs filesystem: `btrfs filesystem df <path>`
 - Pool changes are detected automatically (30s polling interval)
@@ -280,7 +280,7 @@ This is free and unencumbered software released into the public domain. See [LIC
 ## Contributing
 
 Contributions are welcome. Please ensure:
-- All tests pass (`go test ./...`)
+- All tests pass (`make test`)
 - Code follows Go style conventions (`gofmt`, `go vet`)
 - New features include corresponding tests
 

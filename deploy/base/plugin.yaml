@@ -28,13 +28,10 @@ spec:
           hostPath:
             path: /var/lib/kubelet/pods
             type: DirectoryOrCreate
-        - name: btrfs-data-dir
+        - name: pools-base-dir
           hostPath:
             path: /var/lib/btrfs-csi
             type: DirectoryOrCreate
-        - name: pools-config
-          configMap:
-            name: btrfs-csi-pools
       containers:
         - name: btrfs-csi-driver
           image: ghcr.io/mporrato/btrfs-csi-driver
@@ -48,7 +45,6 @@ spec:
               type: RuntimeDefault
           args:
             - --endpoint=unix:///csi/csi.sock
-            - --config=/etc/btrfs-csi/pools
             - --nodeid=$(NODE_NAME)
           env:
             - name: NODE_NAME
@@ -76,14 +72,11 @@ spec:
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
-            - name: btrfs-data-dir
-              mountPath: /var/lib/btrfs-csi
             - name: kubelet-pods-dir
               mountPath: /var/lib/kubelet/pods
               mountPropagation: Bidirectional
-            - name: pools-config
-              mountPath: /etc/btrfs-csi/pools
-              readOnly: true
+            - name: pools-base-dir
+              mountPath: /var/lib/btrfs-csi
 
         - name: liveness-probe
           image: registry.k8s.io/sig-storage/livenessprobe:v2.14.0

@@ -24,11 +24,14 @@
 # Secondary extra disk device (for multi-pool testing)
 : "${EXTRA_DISK_2_DEV:=/dev/vdb}"
 
-# Primary btrfs mount point
-: "${BTRFS_MOUNT_1:=/var/lib/btrfs-csi}"
+# Base directory scanned by the driver for pool subdirectories
+: "${POOLS_DIR:=/var/lib/btrfs-csi}"
 
-# Secondary btrfs mount point (for multi-pool testing)
-: "${BTRFS_MOUNT_2:=/var/lib/btrfs-csi-extra}"
+# Primary btrfs mount point (pool named "default")
+: "${BTRFS_MOUNT_1:=${POOLS_DIR}/default}"
+
+# Secondary btrfs mount point (pool named "secondary", for multi-pool testing)
+: "${BTRFS_MOUNT_2:=${POOLS_DIR}/secondary}"
 
 # ─── Kubernetes and CSI Configuration ────────────────────────────────────────
 
@@ -41,15 +44,6 @@
 # Secondary storage class name (for multi-pool tests)
 : "${SECONDARY_STORAGECLASS:=btrfs-secondary}"
 
-# ─── Go Toolchain ────────────────────────────────────────────────────────────
-
-# Go version from go.mod
-COMMON_SH="$(readlink -f "${BASH_SOURCE[0]}")"
-COMMON_DIR="$(dirname "${COMMON_SH}")"
-GOVERSION="$(grep '^go ' "${COMMON_DIR}/../go.mod" | awk '{print $2}')"
-GOIMAGE="golang:${GOVERSION}-alpine"
-GOCACHE="btrfs-csi-gocache"
-
 # ─── Shorthand Commands ──────────────────────────────────────────────────────
 
 # These are exported so they're available to subprocesses
@@ -58,7 +52,3 @@ export RUNTIME
 export MK="minikube --profile=${CLUSTER}"
 export K="kubectl --context=${CLUSTER}"
 export EXEC="${MK} ssh --"
-
-
-# Run Go commands in container with cached module deps
-RUNGO="${RUNTIME} run --rm --security-opt label=disable -v '${COMMON_DIR}/..:/src' -v '${GOCACHE}:/go/pkg/mod' -w /src ${GOIMAGE}"

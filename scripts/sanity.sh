@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# sanity.sh — builds the CSI sanity integration test binary in a container,
-# copies it into the minikube VM, and runs it there (root + btrfs provided by the VM).
+# sanity.sh — builds the CSI sanity integration test binary, copies it into
+# the minikube VM, and runs it there. The test creates its own loopback btrfs
+# filesystem and cleans it up on exit; no extra disk mounts are required.
 #
-# Prerequisites: minikube cluster running with --extra-disks=1.
+# Prerequisites: minikube cluster running (no --extra-disks needed).
 #
 # Usage:
 #   bash scripts/sanity.sh
@@ -15,12 +16,15 @@ source "${SCRIPT_DIR}/common.sh"
 BINARY="bin/btrfs-csi-sanity.test"
 VERBOSE="${VERBOSE:-0}"
 
-echo "==> Ensuring ${BTRFS_MOUNT_1} is mounted inside the VM..."
-${EXEC} "mountpoint -q ${BTRFS_MOUNT_1} || sudo mount ${BTRFS_MOUNT_1}"
+cleanup() {
+    echo "==> Cleaning up..."
+    ${EXEC} "sudo rm -f /tmp/btrfs-csi-sanity.test" || true
+}
+trap cleanup EXIT
 
 echo "==> Building sanity test binary (linux/amd64)..."
 mkdir -p bin
-eval ${RUNGO} go test -trimpath -c -tags integration ./pkg/driver/ -o "${BINARY}"
+GOTOOLCHAIN=auto go test -trimpath -c -tags integration ./pkg/driver/ -o "${BINARY}"
 
 echo "==> Copying binary to minikube VM..."
 ${MK} cp "${BINARY}" /tmp/btrfs-csi-sanity.test

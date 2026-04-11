@@ -5,7 +5,6 @@ resources:
   - namespace.yaml
   - csi-driver.yaml
   - rbac.yaml
-  - basepaths.yaml
   - plugin.yaml
   - storageclass.yaml
   - snapshotclass.yaml

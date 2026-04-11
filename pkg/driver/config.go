@@ -9,14 +9,14 @@ import (
 	"time"
 )
 
-// ParsePoolConfig reads a directory (typically a mounted ConfigMap) where each
-// regular file represents a storage pool: the filename is the pool name and the
-// file content (trimmed) is the absolute path. Hidden files (starting with '.')
-// and directories are skipped. Returns an error if any path is not absolute.
-func ParsePoolConfig(dir string) (map[string]string, error) {
-	entries, err := os.ReadDir(dir)
+// DiscoverPools scans baseDir for immediate subdirectories. Each subdirectory
+// represents a storage pool: the directory name is the pool name and its path
+// is the pool base path. Hidden entries (starting with '.') and non-directories
+// are skipped.
+func DiscoverPools(baseDir string) (map[string]string, error) {
+	entries, err := os.ReadDir(baseDir)
 	if err != nil {
-		return nil, fmt.Errorf("read pool config dir: %w", err)
+		return nil, fmt.Errorf("read pools dir: %w", err)
 	}
 	pools := make(map[string]string)
 	for _, e := range entries {
@@ -24,32 +24,23 @@ func ParsePoolConfig(dir string) (map[string]string, error) {
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
-		if e.IsDir() {
+		if !e.IsDir() {
 			continue
 		}
-		//nolint:gosec // reading from mounted ConfigMap, not user input
-		raw, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			return nil, fmt.Errorf("read pool %q: %w", name, err)
-		}
-		p := strings.TrimSpace(string(raw))
-		if !filepath.IsAbs(p) {
-			return nil, fmt.Errorf("pool %q contains non-absolute path: %q", name, p)
-		}
-		pools[name] = p
+		pools[name] = filepath.Join(baseDir, name)
 	}
 	return pools, nil
 }
 
-// WatchPoolConfig polls dir every intervalMs milliseconds. On each poll it
-// parses the pool config directory and compares the result to the last-seen
-// pool map; if it changed (or on first call), it calls reload with the new map.
-func WatchPoolConfig(dir string, intervalMs int, reload func(map[string]string)) chan<- struct{} {
+// WatchPools polls baseDir every intervalMs milliseconds. On each poll it
+// discovers pools and compares the result to the last-seen pool map; if it
+// changed, it calls reload with the new map.
+func WatchPools(baseDir string, intervalMs int, reload func(map[string]string)) chan<- struct{} {
 	stop := make(chan struct{})
 	go func() {
 		// Seed lastPools so the first tick doesn't redundantly fire reload
 		// for config that initializeStores already processed at startup.
-		lastPools, _ := ParsePoolConfig(dir)
+		lastPools, _ := DiscoverPools(baseDir)
 		tick := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
 		defer tick.Stop()
 		for {
@@ -58,7 +49,7 @@ func WatchPoolConfig(dir string, intervalMs int, reload func(map[string]string))
 				return
 			case <-tick.C:
 			}
-			if pools, err := ParsePoolConfig(dir); err == nil {
+			if pools, err := DiscoverPools(baseDir); err == nil {
 				if !maps.Equal(pools, lastPools) {
 					lastPools = pools
 					reload(pools)

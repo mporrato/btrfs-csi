@@ -62,4 +62,8 @@ type Manager interface {
 	// IsBtrfsFilesystem reports whether path (or its nearest existing ancestor)
 	// resides on a btrfs filesystem.
 	IsBtrfsFilesystem(path string) (bool, error)
+
+	// IsMountpoint reports whether path is the root of a separate filesystem
+	// mount (i.e. its device ID differs from its parent directory's device ID).
+	IsMountpoint(path string) (bool, error)
 }
