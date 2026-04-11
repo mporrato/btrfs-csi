@@ -105,7 +105,6 @@ func (d *Driver) ListVolumes(_ context.Context, req *csi.ListVolumesRequest) (*c
 // ListSnapshots returns snapshots known to this driver, with optional filtering
 // by snapshot ID or source volume ID. Supports max_entries and starting_token
 // for pagination; the token is a numeric offset into the sorted snapshot list.
-// (TODO: consider cursor-based tokens if snapshot ordering changes under load.)
 func (d *Driver) ListSnapshots(_ context.Context, req *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
 	// Fast path: single snapshot lookup by ID.
 	if req.SnapshotId != "" {
