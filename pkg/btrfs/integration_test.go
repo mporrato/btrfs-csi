@@ -196,6 +196,11 @@ func TestClearStaleQgroups(t *testing.T) {
 	if err := m.DeleteSubvolume(subvol); err != nil {
 		t.Fatalf("DeleteSubvolume: %v", err)
 	}
+	// Wait for the kernel to finish background subvolume cleanup;
+	// otherwise the qgroup may still be busy when clear-stale runs.
+	if _, err := runCommand("btrfs", "subvolume", "sync", mnt); err != nil {
+		t.Fatalf("subvolume sync: %v", err)
+	}
 
 	// After deletion without cleanup, a stale qgroup should exist.
 	out, err := runCommand("btrfs", "qgroup", "show", "--raw", mnt)
