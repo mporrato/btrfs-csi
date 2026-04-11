@@ -1,6 +1,6 @@
 module github.com/mporrato/btrfs-csi
 
-go 1.25.8
+go 1.26
 
 require (
 	github.com/container-storage-interface/spec v1.12.0

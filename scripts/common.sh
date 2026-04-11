@@ -41,6 +41,15 @@
 # Secondary storage class name (for multi-pool tests)
 : "${SECONDARY_STORAGECLASS:=btrfs-secondary}"
 
+# ─── Go Toolchain ────────────────────────────────────────────────────────────
+
+# Go version from go.mod
+COMMON_SH="$(readlink -f "${BASH_SOURCE[0]}")"
+COMMON_DIR="$(dirname "${COMMON_SH}")"
+GOVERSION="$(grep '^go ' "${COMMON_DIR}/../go.mod" | awk '{print $2}')"
+GOIMAGE="golang:${GOVERSION}-alpine"
+GOCACHE="btrfs-csi-gocache"
+
 # ─── Shorthand Commands ──────────────────────────────────────────────────────
 
 # These are exported so they're available to subprocesses
@@ -48,3 +57,6 @@ export CLUSTER
 export RUNTIME
 export MK="minikube --profile=${CLUSTER}"
 export K="kubectl --context=${CLUSTER}"
+
+# Run Go commands in container with cached module deps
+RUNGO="${RUNTIME} run --rm --security-opt label=disable -v '${COMMON_DIR}/..:/src' -v '${GOCACHE}:/go/pkg/mod' -w /src ${GOIMAGE}"

@@ -65,7 +65,7 @@ The driver watches this directory for changes and hot-reloads pool definitions w
 
 ## Prerequisites
 
-- Go 1.25.8+
+- Go 1.26+
 - btrfs-progs utilities
 - Kubernetes cluster (single-node like k0s recommended)
 - Root access (required for btrfs operations and mount)

@@ -1,24 +1,32 @@
-CLUSTER   ?= btrfs-csi
-OVERLAY   ?= minikube
-RUNTIME   ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
-PRECOMMIT ?= $(shell command -v prek 2>/dev/null || command -v pre-commit 2>/dev/null)
+CLUSTER    ?= btrfs-csi
+OVERLAY    ?= minikube
+RUNTIME    ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+PRECOMMIT  ?= $(shell command -v prek 2>/dev/null || command -v pre-commit 2>/dev/null)
+GOVERSION  ?= $(shell grep '^go ' go.mod | awk '{print $$2}')
+GOIMAGE    := golang:$(GOVERSION)-alpine
 
-.PHONY: build test test-integration lint image deploy \
+GOCACHE    := gocache
+RUNGO      := $(RUNTIME) run --rm --security-opt label=disable -v '$(shell pwd):/src' -v '$(GOCACHE):/go/pkg/mod' -w /src $(GOIMAGE)
+
+.PHONY: build test test-integration lint mod image deploy \
         minikube-up minikube-down minikube-sanity minikube-e2e
 
 lint:
 	$(PRECOMMIT) run --all-files
 
+mod:
+	$(RUNGO) go mod tidy
+
 build:
-	go build -o bin/btrfs-csi-driver ./cmd/btrfs-csi-driver/
+	$(RUNGO) go build -trimpath -o bin/btrfs-csi-driver ./cmd/btrfs-csi-driver/
 
 test:
-	go test ./...
+	$(RUNGO) go test ./...
 
 # Runs btrfs integration tests — requires root + btrfs on the local machine.
 # Use minikube-sanity instead to run without host root.
 test-integration:
-	go test -tags integration ./pkg/btrfs/
+	$(RUNGO) go test -tags integration ./pkg/btrfs/
 
 image:
 	$(RUNTIME) build -t localhost/btrfs-csi-driver:latest .
