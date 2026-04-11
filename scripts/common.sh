@@ -57,6 +57,8 @@ export CLUSTER
 export RUNTIME
 export MK="minikube --profile=${CLUSTER}"
 export K="kubectl --context=${CLUSTER}"
+export EXEC="${MK} ssh --"
+
 
 # Run Go commands in container with cached module deps
 RUNGO="${RUNTIME} run --rm --security-opt label=disable -v '${COMMON_DIR}/..:/src' -v '${GOCACHE}:/go/pkg/mod' -w /src ${GOIMAGE}"

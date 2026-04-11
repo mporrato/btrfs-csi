@@ -11,9 +11,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
-# Use EXEC for commands that need to run inside the VM via minikube ssh
-EXEC="${MK} ssh --"
-
 echo "==> Starting minikube cluster '${CLUSTER}' (qemu, 2 extra disks)..."
 ${MK} start --driver=qemu --extra-disks=2
 

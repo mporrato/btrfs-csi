@@ -16,8 +16,7 @@ BINARY="bin/btrfs-csi-sanity.test"
 VERBOSE="${VERBOSE:-0}"
 
 echo "==> Ensuring ${BTRFS_MOUNT_1} is mounted inside the VM..."
-${MK} ssh -- \
-    "mountpoint -q ${BTRFS_MOUNT_1} || sudo mount ${BTRFS_MOUNT_1}"
+${EXEC} "mountpoint -q ${BTRFS_MOUNT_1} || sudo mount ${BTRFS_MOUNT_1}"
 
 echo "==> Building sanity test binary (linux/amd64)..."
 mkdir -p bin
@@ -30,5 +29,4 @@ TEST_FLAGS="-test.timeout=10m"
 [ "${VERBOSE}" = "1" ] && TEST_FLAGS="${TEST_FLAGS} -test.v"
 
 echo "==> Running sanity tests inside the VM..."
-${MK} ssh -- \
-    "sudo chmod +x /tmp/btrfs-csi-sanity.test && sudo /tmp/btrfs-csi-sanity.test ${TEST_FLAGS}"
+${EXEC} "sudo chmod +x /tmp/btrfs-csi-sanity.test && sudo /tmp/btrfs-csi-sanity.test ${TEST_FLAGS}"
