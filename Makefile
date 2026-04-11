@@ -5,7 +5,7 @@ PRECOMMIT  ?= $(shell command -v prek 2>/dev/null || command -v pre-commit 2>/de
 
 GO         := GOTOOLCHAIN=auto go
 
-.PHONY: build test test-integration lint mod image deploy \
+.PHONY: build test test-integration lint mod image deploy deploy-snapshot-crds \
         minikube-up minikube-down minikube-sanity minikube-e2e
 
 lint:
@@ -27,6 +27,9 @@ test-integration:
 
 image:
 	$(RUNTIME) build -t localhost/btrfs-csi-driver:latest .
+
+deploy-snapshot-crds:
+	kubectl apply -k deploy/overlays/snapshot-crds/
 
 deploy:
 	kubectl apply -k deploy/overlays/$(OVERLAY)/

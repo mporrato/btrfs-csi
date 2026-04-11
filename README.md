@@ -86,31 +86,40 @@ make image
 
 ### Deploy to Kubernetes
 
-The deployment uses kustomize with environment-specific overlays for different Kubernetes flavors. Each overlay configures the correct kubelet path and other environment-specific settings.
+A full deployment involves three steps:
 
-**Choose your environment:**
+**1. Mount the btrfs pool(s)** on the node before deploying the driver. Each pool must be a btrfs filesystem mounted under `/var/lib/btrfs-csi/<pool-name>`:
 
 ```bash
-# Minikube (default)
-make deploy OVERLAY=minikube
+# Example: mount a btrfs partition as the "default" pool
+mkdir -p /var/lib/btrfs-csi/default
+mount /dev/sdX /var/lib/btrfs-csi/default
+btrfs quota enable /var/lib/btrfs-csi/default
+```
 
-# Kind (standard kubelet path, same as minikube)
-make deploy OVERLAY=kind
+**2. Install the VolumeSnapshot CRDs and controller** (required for snapshot support; skip if already installed):
 
+```bash
+make deploy-snapshot-crds
+```
+
+**3. Deploy the driver** using the overlay for your environment:
+
+```bash
 # k0s (uses /var/lib/k0s/kubelet)
 make deploy OVERLAY=k0s
 
 # k3s (uses /var/lib/rancher/k3s/agent/kubelet)
 make deploy OVERLAY=k3s
 
+# Minikube
+make deploy OVERLAY=minikube
+
+# Kind
+make deploy OVERLAY=kind
+
 # Development (minikube + verbose logging + secondary pool for testing)
 make deploy OVERLAY=dev
-```
-
-Or manually:
-
-```bash
-kubectl apply -k deploy/overlays/minikube/  # or k3s, kind, k0s, dev
 ```
 
 ## Usage

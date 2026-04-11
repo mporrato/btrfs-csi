@@ -10,4 +10,4 @@ resources:
   - snapshotclass.yaml
 images:
   - name: ghcr.io/mporrato/btrfs-csi-driver
-    newTag: v0.1.0
+    newTag: 0.1.0
