@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // setupLoopbackBtrfs creates a temporary loopback btrfs filesystem for integration tests.
@@ -178,6 +179,20 @@ func TestQuotaEnableAndLimit(t *testing.T) {
 	}
 }
 
+// hasStaleQgroups checks whether any stale qgroups exist on the given mountpoint.
+func hasStaleQgroups(mnt string) (bool, error) {
+	out, err := runCommand("btrfs", "qgroup", "show", "--raw", mnt)
+	if err != nil {
+		return false, err
+	}
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		if strings.Contains(line, "<stale>") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func TestClearStaleQgroups(t *testing.T) {
 	mnt := setupLoopbackBtrfs(t)
 
@@ -203,38 +218,37 @@ func TestClearStaleQgroups(t *testing.T) {
 	}
 
 	// After deletion without cleanup, a stale qgroup should exist.
-	out, err := runCommand("btrfs", "qgroup", "show", "--raw", mnt)
+	stale, err := hasStaleQgroups(mnt)
 	if err != nil {
 		t.Skipf("qgroup show failed (quotas unavailable on this kernel): %v", err)
 	}
-	hasStale := false
-	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		if strings.Contains(line, "<stale>") {
-			hasStale = true
-			break
-		}
-	}
-	if !hasStale {
+	if !stale {
 		t.Skip("no stale qgroups present (may be using squota); skipping cleanup test")
 	}
 
-	// ClearStaleQgroups should remove it.
-	count, err := m.ClearStaleQgroups(mnt)
-	if err != nil {
-		t.Fatalf("ClearStaleQgroups: %v", err)
+	// ClearStaleQgroups should eventually remove all stale qgroups.
+	// The kernel may keep them busy briefly after subvolume deletion,
+	// so retry a few times.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		count, err := m.ClearStaleQgroups(mnt)
+		if err != nil {
+			t.Fatalf("ClearStaleQgroups: %v", err)
+		}
+		if count > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("ClearStaleQgroups did not remove any stale qgroups within timeout")
+		}
+		time.Sleep(1 * time.Second)
 	}
-	if count == 0 {
-		t.Error("expected ClearStaleQgroups to remove at least 1 qgroup")
-	}
-	out, err = runCommand("btrfs", "qgroup", "show", "--raw", mnt)
+	stale, err = hasStaleQgroups(mnt)
 	if err != nil {
 		t.Fatalf("qgroup show after ClearStaleQgroups: %v", err)
 	}
-	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		if strings.Contains(line, "<stale>") {
-			t.Errorf("stale qgroup still present after ClearStaleQgroups:\n%s", out)
-			break
-		}
+	if stale {
+		t.Error("stale qgroup still present after ClearStaleQgroups")
 	}
 }
 

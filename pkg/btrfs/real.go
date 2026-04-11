@@ -57,6 +57,13 @@ func (m *RealManager) ClearStaleQgroups(mountpoint string) (int, error) {
 		if strings.Contains(msg, "quotas not enabled") {
 			return 0, nil
 		}
+		// "Device or resource busy" means some qgroups could not be
+		// removed yet (kernel still cleaning up).  This is a best-effort
+		// operation, so treat it as a partial success — the next
+		// scheduled cleanup will pick up the remainder.
+		if strings.Contains(msg, "device or resource busy") {
+			return 0, nil
+		}
 		return 0, fmt.Errorf("clear stale qgroups on %s: %w", mountpoint, err)
 	}
 	// Count the number of removed qgroups by counting output lines.
