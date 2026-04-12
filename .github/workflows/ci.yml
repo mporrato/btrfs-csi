@@ -75,10 +75,10 @@ jobs:
       - name: Run integration tests
         run: sudo -E GOTOOLCHAIN=auto go test -tags integration ./pkg/btrfs/
 
-  sanity-e2e:
-    name: Sanity & E2E Tests
+  sanity:
+    name: Sanity Tests
     if: github.event_name == 'pull_request'
-    needs: code-checks
+    needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -103,7 +103,7 @@ jobs:
           fi
       - name: Start minikube cluster
         run: |
-          minikube start \
+          sudo minikube start \
             --profile=btrfs-csi \
             --driver=qemu \
             --extra-disks=2 \
@@ -115,6 +115,20 @@ jobs:
         run: CLUSTER=btrfs-csi bash scripts/minikube-up.sh
       - name: Run sanity tests
         run: CLUSTER=btrfs-csi bash scripts/sanity.sh
+
+  e2e:
+    name: E2E Tests
+    if: github.event_name == 'pull_request'
+    needs: [sanity]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v5
       - name: Run e2e tests
         run: KUBECTL="kubectl --context=btrfs-csi" bash scripts/e2e.sh
 
