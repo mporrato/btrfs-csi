@@ -18,6 +18,22 @@ func TestRunVersionFlag(t *testing.T) {
 	}
 }
 
+// waitForSocket polls for the gRPC socket to appear, providing a proper
+// readiness probe instead of a fixed sleep.
+func waitForSocket(t *testing.T, socketPath string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for driver socket to appear")
+		}
+		if _, err := os.Stat(socketPath); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestRunToleratesMissingPoolsButFailsWhenAllPoolsMissing(t *testing.T) {
 	tmpDir := t.TempDir()
 	poolsDir := filepath.Join(tmpDir, "pools")
@@ -43,20 +59,22 @@ func TestRunToleratesMissingPoolsButFailsWhenAllPoolsMissing(t *testing.T) {
 		},
 	}
 
+	socketPath := filepath.Join(tmpDir, "csi", "csi.sock")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- runWithContext(ctx, []string{
-			"--endpoint", "unix://" + filepath.Join(tmpDir, "csi", "csi.sock"),
+			"--endpoint", "unix://" + socketPath,
 			"--pools-dir", poolsDir,
 			"--nodeid", "test-node",
 		}, mgr)
 	}()
 
-	// Wait briefly to allow driver to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the socket to appear (proper readiness probe, no fixed sleep)
+	waitForSocket(t, socketPath)
 	cancel()
 
 	select {
@@ -65,7 +83,7 @@ func TestRunToleratesMissingPoolsButFailsWhenAllPoolsMissing(t *testing.T) {
 			t.Errorf("expected driver to tolerate missing pool, got error: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("test timed out waiting for driver to start")
+		t.Fatal("test timed out waiting for driver to stop")
 	}
 }
 
@@ -122,21 +140,23 @@ func TestRunPassesKubeletDirToDriver(t *testing.T) {
 
 	mgr := &btrfs.MockManager{IsBtrfsFilesystemResult: true, IsMountpointResult: true}
 
+	socketPath := filepath.Join(tmpDir, "csi", "csi.sock")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- runWithContext(ctx, []string{
-			"--endpoint", "unix://" + filepath.Join(tmpDir, "csi", "csi.sock"),
+			"--endpoint", "unix://" + socketPath,
 			"--pools-dir", poolsDir,
 			"--nodeid", "test-node",
 			"--kubelet-dir", "/var/lib/k0s/kubelet",
 		}, mgr)
 	}()
 
-	// Wait briefly to allow driver to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the socket to appear (proper readiness probe, no fixed sleep)
+	waitForSocket(t, socketPath)
 	cancel()
 
 	select {
@@ -145,7 +165,7 @@ func TestRunPassesKubeletDirToDriver(t *testing.T) {
 			t.Errorf("expected driver to start with --kubelet-dir, got error: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("test timed out")
+		t.Fatal("test timed out waiting for driver to stop")
 	}
 }
 
@@ -158,6 +178,8 @@ func TestRunDefaultKubeletDir(t *testing.T) {
 
 	mgr := &btrfs.MockManager{IsBtrfsFilesystemResult: true, IsMountpointResult: true}
 
+	socketPath := filepath.Join(tmpDir, "csi", "csi.sock")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -165,13 +187,14 @@ func TestRunDefaultKubeletDir(t *testing.T) {
 	go func() {
 		// No --kubelet-dir flag — should use default without error
 		errCh <- runWithContext(ctx, []string{
-			"--endpoint", "unix://" + filepath.Join(tmpDir, "csi", "csi.sock"),
+			"--endpoint", "unix://" + socketPath,
 			"--pools-dir", poolsDir,
 			"--nodeid", "test-node",
 		}, mgr)
 	}()
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the socket to appear (proper readiness probe, no fixed sleep)
+	waitForSocket(t, socketPath)
 	cancel()
 
 	select {
@@ -180,7 +203,7 @@ func TestRunDefaultKubeletDir(t *testing.T) {
 			t.Errorf("expected driver to start with default kubelet-dir, got error: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("test timed out")
+		t.Fatal("test timed out waiting for driver to stop")
 	}
 }
 
@@ -214,16 +237,7 @@ func TestRunCreatesSocketDirectory(t *testing.T) {
 	}()
 
 	// Wait for the socket to appear (proper readiness probe, no fixed sleep)
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for driver socket to appear")
-		}
-		if _, err := os.Stat(socketPath); err == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForSocket(t, socketPath)
 
 	if _, err := os.Stat(socketDir); os.IsNotExist(err) {
 		t.Errorf("socket directory should have been created")
