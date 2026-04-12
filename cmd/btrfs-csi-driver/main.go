@@ -39,10 +39,11 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 	klog.InitFlags(fs)
 
 	var (
-		endpoint = fs.String("endpoint", "unix:///csi/csi.sock", "CSI endpoint")
-		nodeID   = fs.String("nodeid", "", "Node ID")
-		poolsDir = fs.String("pools-dir", "/var/lib/btrfs-csi", "Base directory containing pool subdirectories")
-		version  = fs.Bool("version", false, "Print version and exit")
+		endpoint   = fs.String("endpoint", "unix:///csi/csi.sock", "CSI endpoint")
+		nodeID     = fs.String("nodeid", "", "Node ID")
+		poolsDir   = fs.String("pools-dir", "/var/lib/btrfs-csi", "Base directory containing pool subdirectories")
+		kubeletDir = fs.String("kubelet-dir", "/var/lib/kubelet", "Kubelet base directory for target path validation")
+		version    = fs.Bool("version", false, "Print version and exit")
 	)
 
 	if err := fs.Parse(args); err != nil {
@@ -58,7 +59,9 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 		*nodeID = uuid.New().String()
 	}
 
-	klog.InfoS("Starting btrfs-csi-driver", "endpoint", *endpoint, "nodeID", *nodeID, "poolsDir", *poolsDir)
+	klog.InfoS("Starting btrfs-csi-driver",
+		"endpoint", *endpoint, "nodeID", *nodeID,
+		"poolsDir", *poolsDir, "kubeletDir", *kubeletDir)
 
 	// Ensure socket directory exists with restrictive permissions
 	socketPath := strings.TrimPrefix(*endpoint, "unix://")
@@ -79,6 +82,9 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 		return err
 	}
 	drv.SetPools(pools)
+	if err := drv.SetKubeletPath(*kubeletDir); err != nil {
+		return fmt.Errorf("set kubelet path: %w", err)
+	}
 
 	// Watch for pool subdirectory changes — 30 s poll interval.
 	configStop := driver.WatchPools(*poolsDir, 30000, func(newPools map[string]string) {

@@ -28,8 +28,16 @@ test-integration:
 image:
 	$(RUNTIME) build -t localhost/btrfs-csi-driver:latest .
 
+KUBELET_DIR ?= /var/lib/kubelet
+
 deploy:
+ifeq ($(KUBELET_DIR),/var/lib/kubelet)
 	kubectl apply -k deploy/overlays/$(OVERLAY)/
+else
+	kubectl kustomize deploy/overlays/$(OVERLAY)/ | \
+		sed 's|/var/lib/kubelet|$(KUBELET_DIR)|g' | \
+		kubectl apply -f -
+endif
 
 # Start a minikube cluster with QEMU driver, set up btrfs on the extra disks,
 # load the driver image, and deploy all manifests.

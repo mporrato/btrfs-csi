@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -102,6 +103,12 @@ func (d *Driver) SetKubeletPath(path string) error {
 	if path == "" {
 		d.kubeletPath = ""
 		return nil
+	}
+	if !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("kubelet path %q must be absolute", path)
+	}
+	if slices.Contains(strings.Split(path, "/"), "..") {
+		return fmt.Errorf("kubelet path %q contains invalid traversal sequence", path)
 	}
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {

@@ -65,19 +65,25 @@ scripts/                         # Cluster setup and test runner scripts
 Use kustomize overlays to deploy to different environments:
 
 ```bash
+# Production deployment (standard kubelet path)
+make deploy OVERLAY=snapshot     # VolumeSnapshot CRDs + controller (apply first)
+make deploy                      # Driver + StorageClass + VolumeSnapshotClass
+
+# Custom kubelet path (e.g., k0s)
+make deploy OVERLAY=snapshot KUBELET_DIR=/var/lib/k0s/kubelet
+make deploy KUBELET_DIR=/var/lib/k0s/kubelet
+
 # Development (minikube with verbose logging and secondary pool)
 make minikube-up        # Automatically uses deploy/overlays/dev/
 make minikube-e2e       # Run end-to-end tests
-
-# Production deployment
-make deploy OVERLAY=snapshot     # VolumeSnapshot CRDs + controller (apply first)
-make deploy                      # Driver + StorageClass + VolumeSnapshotClass
 
 # Teardown dev cluster
 make minikube-down
 ```
 
-Three overlays: `snapshot` (CRDs + controller, no driver; apply first), `default` (driver + StorageClass + VolumeSnapshotClass), `dev` (like default + local image + verbose logging + secondary classes for e2e). Manifests default to `/var/lib/kubelet`; for non-standard kubelet paths, render with `kubectl kustomize` and pipe through `sed`.
+Three overlays: `snapshot` (CRDs + controller, no driver; apply first), `default` (driver + StorageClass + VolumeSnapshotClass), `dev` (like default + local image + verbose logging + secondary classes for e2e).
+
+Manifests default to `/var/lib/kubelet`. Set `KUBELET_DIR` to override this for distributions that use a different path (e.g., k0s uses `/var/lib/k0s/kubelet`). This replaces all kubelet paths in the rendered manifests — hostPath volumes, container mountPaths, registration path, and the driver's `--kubelet-dir` flag — in one step.
 
 ## Toolchain and Pre-commit Checks
 

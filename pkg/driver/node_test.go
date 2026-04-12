@@ -965,6 +965,24 @@ func TestSetKubeletPath_InvalidPath(t *testing.T) {
 	}
 }
 
+func TestSetKubeletPath_RejectsRelativePath(t *testing.T) {
+	d, _, _, _ := newTestDriverWithMounter()
+
+	err := d.SetKubeletPath("relative/path")
+	if err == nil {
+		t.Error("SetKubeletPath should reject relative path")
+	}
+}
+
+func TestSetKubeletPath_RejectsTraversal(t *testing.T) {
+	d, _, _, _ := newTestDriverWithMounter()
+
+	err := d.SetKubeletPath("/var/lib/../etc")
+	if err == nil {
+		t.Error("SetKubeletPath should reject path with traversal")
+	}
+}
+
 func TestNodePublishVolume_BindMountOption(t *testing.T) {
 	d, _, mounter, store := newTestDriverWithMounter()
 

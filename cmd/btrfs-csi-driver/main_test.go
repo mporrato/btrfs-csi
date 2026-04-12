@@ -113,6 +113,77 @@ func TestRunFailsWhenAllPoolsMissing(t *testing.T) {
 	}
 }
 
+func TestRunPassesKubeletDirToDriver(t *testing.T) {
+	tmpDir := t.TempDir()
+	poolsDir := filepath.Join(tmpDir, "pools")
+	if err := os.MkdirAll(filepath.Join(poolsDir, "default"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := &btrfs.MockManager{IsBtrfsFilesystemResult: true, IsMountpointResult: true}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runWithContext(ctx, []string{
+			"--endpoint", "unix://" + filepath.Join(tmpDir, "csi", "csi.sock"),
+			"--pools-dir", poolsDir,
+			"--nodeid", "test-node",
+			"--kubelet-dir", "/var/lib/k0s/kubelet",
+		}, mgr)
+	}()
+
+	// Wait briefly to allow driver to start
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("expected driver to start with --kubelet-dir, got error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("test timed out")
+	}
+}
+
+func TestRunDefaultKubeletDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	poolsDir := filepath.Join(tmpDir, "pools")
+	if err := os.MkdirAll(filepath.Join(poolsDir, "default"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := &btrfs.MockManager{IsBtrfsFilesystemResult: true, IsMountpointResult: true}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		// No --kubelet-dir flag — should use default without error
+		errCh <- runWithContext(ctx, []string{
+			"--endpoint", "unix://" + filepath.Join(tmpDir, "csi", "csi.sock"),
+			"--pools-dir", poolsDir,
+			"--nodeid", "test-node",
+		}, mgr)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("expected driver to start with default kubelet-dir, got error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("test timed out")
+	}
+}
+
 func TestRunCreatesSocketDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	socketDir := filepath.Join(tmpDir, "csi")

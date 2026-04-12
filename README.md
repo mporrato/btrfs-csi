@@ -137,19 +137,28 @@ make deploy
 
 #### Custom kubelet path
 
-The manifests default to `/var/lib/kubelet`, which is correct for standard Kubernetes, minikube, and kind clusters. Some distributions use a different kubelet root directory (e.g. k3s uses `/var/lib/rancher/k3s/agent/kubelet`). To check your kubelet root:
+The manifests default to `/var/lib/kubelet`, which is correct for standard Kubernetes, minikube, and kind clusters. Some distributions use a different kubelet root directory:
+
+| Distribution | Kubelet path |
+|---|---|
+| Standard / minikube / kind | `/var/lib/kubelet` (default) |
+| k0s | `/var/lib/k0s/kubelet` |
+| k3s | `/var/lib/rancher/k3s/agent/kubelet` |
+
+To check your kubelet root:
 
 ```bash
 ps aux | grep kubelet | grep -o '\--root-dir=[^ ]*'
 ```
 
-If this prints a path other than `/var/lib/kubelet` (or prints nothing, which means the default is used), render the manifests and substitute:
+If this prints nothing, the default `/var/lib/kubelet` is used. Otherwise, pass `KUBELET_DIR` when deploying:
 
 ```bash
-kubectl kustomize deploy/overlays/default/ \
-  | sed 's|/var/lib/kubelet|/your/kubelet/root|g' \
-  | kubectl apply -f -
+make deploy OVERLAY=snapshot KUBELET_DIR=/var/lib/k0s/kubelet
+make deploy KUBELET_DIR=/var/lib/k0s/kubelet
 ```
+
+This automatically replaces all kubelet paths in the rendered manifests (hostPath volumes, container mountPaths, registration path, and the driver's `--kubelet-dir` flag).
 
 ## Usage
 
@@ -224,6 +233,7 @@ spec:
 | `--endpoint` | `unix:///csi/csi.sock` | CSI endpoint (Unix socket) |
 | `--nodeid` | (auto-generated UUID) | Node ID for topology |
 | `--pools-dir` | `/var/lib/btrfs-csi` | Base directory containing pool subdirectories |
+| `--kubelet-dir` | `/var/lib/kubelet` | Kubelet base directory for target path validation |
 | `--version` | (print and exit) | Print version |
 
 Each immediate subdirectory of `--pools-dir` that is a separate btrfs mountpoint becomes a pool. The subdirectory name is the pool name.
