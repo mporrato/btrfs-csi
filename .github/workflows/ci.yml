@@ -94,7 +94,13 @@ jobs:
       - name: Install kubectl
         uses: azure/setup-kubectl@v5
       - name: Install QEMU and UEFI firmware
-        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 ovmf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+          # Ubuntu 24.04 OVMF uses 4M firmware files; create symlink for minikube
+          if [ -f /usr/share/OVMF/OVMF_CODE_4M.fd ] && [ ! -f /usr/share/OVMF/OVMF_CODE.fd ]; then
+            sudo ln -s OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd
+          fi
       - name: Start minikube cluster
         run: |
           minikube start \
