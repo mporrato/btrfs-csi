@@ -33,7 +33,7 @@ ${EXEC} "sudo bash -c '
 '"
 
 echo "==> Building driver image..."
-docker build -t "${IMAGE}" .
+${RUNTIME} build -t "${IMAGE}" .
 
 echo "==> Deploying driver..."
 bash "${SCRIPT_DIR}/../deploy.sh"
