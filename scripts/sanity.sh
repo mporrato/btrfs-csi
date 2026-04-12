@@ -18,7 +18,7 @@ VERBOSE="${VERBOSE:-0}"
 
 cleanup() {
     echo "==> Cleaning up..."
-    ${EXEC} "sudo rm -f /tmp/btrfs-csi-sanity.test" || true
+    ${EXEC} "sudo rm -f /usr/local/bin/btrfs-csi-sanity.test" || true
 }
 trap cleanup EXIT
 
@@ -27,10 +27,10 @@ mkdir -p bin
 GOTOOLCHAIN=auto go test -trimpath -c -tags integration ./pkg/driver/ -o "${BINARY}"
 
 echo "==> Copying binary to minikube VM..."
-${MK} cp "${BINARY}" /tmp/btrfs-csi-sanity.test
+${MK} cp "${BINARY}" /usr/local/bin/btrfs-csi-sanity.test
 
 TEST_FLAGS="-test.timeout=10m"
 [ "${VERBOSE}" = "1" ] && TEST_FLAGS="${TEST_FLAGS} -test.v"
 
 echo "==> Running sanity tests inside the VM..."
-${EXEC} "sudo chmod +x /tmp/btrfs-csi-sanity.test && sudo /tmp/btrfs-csi-sanity.test ${TEST_FLAGS}"
+${EXEC} "sudo chmod +x /usr/local/bin/btrfs-csi-sanity.test && sudo /usr/local/bin/btrfs-csi-sanity.test ${TEST_FLAGS}"
