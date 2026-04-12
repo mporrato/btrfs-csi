@@ -3,7 +3,15 @@ name: CI
 on:
   push:
     branches: ['**']
+    tags: ['v*']
   pull_request:
+
+env:
+  IMAGE_NAME: ghcr.io/mporrato/btrfs-csi-driver
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   code-checks:
@@ -84,7 +92,7 @@ jobs:
           chmod +x minikube
           sudo mv minikube /usr/local/bin/
       - name: Install kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@v5
       - name: Start minikube cluster
         run: |
           minikube start \
@@ -101,3 +109,66 @@ jobs:
         run: CLUSTER=btrfs-csi bash scripts/sanity.sh
       - name: Run e2e tests
         run: KUBECTL="kubectl --context=btrfs-csi" bash scripts/e2e.sh
+
+  build:
+    name: Build Image
+    if: github.event_name == 'push'
+    needs: [unit-test, integration-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build image (no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  push:
+    name: Push Image
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
