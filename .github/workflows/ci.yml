@@ -88,7 +88,7 @@ jobs:
       - name: Start minikube cluster
         run: |
           minikube start \
-            --cluster=btrfs-csi \
+            --profile=btrfs-csi \
             --driver=qemu \
             --extra-disks=2 \
             --memory=4096 \

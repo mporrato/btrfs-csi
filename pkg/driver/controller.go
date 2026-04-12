@@ -236,6 +236,24 @@ func (d *Driver) applyCapacityLimit(basePath, volPath string, capacityBytes int6
 	return nil
 }
 
+// validateCreateVolumeCapabilities validates that all requested capabilities are supported.
+func validateCreateVolumeCapabilities(caps []*csi.VolumeCapability) error {
+	if len(caps) == 0 {
+		return status.Error(codes.InvalidArgument, "volume capabilities are required")
+	}
+	if !isSupportedCapabilities(caps) {
+		return status.Error(codes.InvalidArgument,
+			"unsupported volume capability: only single-node access modes are supported")
+	}
+	for _, cap := range caps {
+		if cap.GetBlock() != nil {
+			return status.Error(codes.InvalidArgument,
+				"block volume access type is not supported")
+		}
+	}
+	return nil
+}
+
 func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, status.FromContextError(err).Err()
@@ -243,8 +261,8 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume name is required")
 	}
-	if len(req.VolumeCapabilities) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "volume capabilities are required")
+	if err := validateCreateVolumeCapabilities(req.VolumeCapabilities); err != nil {
+		return nil, err
 	}
 
 	d.controllerMu.Lock()

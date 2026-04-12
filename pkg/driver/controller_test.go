@@ -151,6 +151,42 @@ func TestCreateVolume_MissingCapabilities(t *testing.T) {
 	}
 }
 
+func TestCreateVolume_UnsupportedAccessMode(t *testing.T) {
+	d, _, _ := newTestDriverWithMock()
+
+	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:          "test-pvc",
+		CapacityRange: &csi.CapacityRange{RequiredBytes: 1 << 30},
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{
+				AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER},
+			},
+		},
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument for unsupported access mode, got %v", code)
+	}
+}
+
+func TestCreateVolume_BlockAccessNotSupported(t *testing.T) {
+	d, _, _ := newTestDriverWithMock()
+
+	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:          "test-pvc",
+		CapacityRange: &csi.CapacityRange{RequiredBytes: 1 << 30},
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{
+				AccessType: &csi.VolumeCapability_Block{Block: &csi.VolumeCapability_BlockVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER},
+			},
+		},
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument for block access type, got %v", code)
+	}
+}
+
 func TestCreateVolume_WithPoolParam(t *testing.T) {
 	basePath := t.TempDir()
 	d, mock, _ := newTestDriverWithMock()

@@ -5,6 +5,7 @@ import (
 	"maps"
 	"net"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -50,6 +51,8 @@ type Driver struct {
 
 	quotaEnabledMu sync.Mutex
 	quotaEnabled   map[string]bool // basePath → true if quota already enabled
+
+	kubeletPath string // base directory for target path validation (default /var/lib/kubelet)
 }
 
 // NewDriver creates a new Driver with the given btrfs manager, state store, and node ID.
@@ -88,6 +91,27 @@ func (d *Driver) SetPools(pools map[string]string) {
 	d.poolsMu.Lock()
 	defer d.poolsMu.Unlock()
 	d.pools = pools
+}
+
+// SetKubeletPath sets the base directory for target path validation.
+// The path is resolved (symlinks followed) at set time so that later
+// comparisons against resolved target paths are consistent.
+// If the path does not exist yet, it is stored as-is (symlink resolution
+// is deferred to validateTargetPath).
+func (d *Driver) SetKubeletPath(path string) error {
+	if path == "" {
+		d.kubeletPath = ""
+		return nil
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		// Path doesn't exist yet; store as-is. validateTargetPath will
+		// resolve individual target paths and compare against this prefix.
+		d.kubeletPath = path
+		return nil
+	}
+	d.kubeletPath = resolved
+	return nil
 }
 
 // getPools returns a snapshot of the current pool map.

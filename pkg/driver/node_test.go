@@ -422,6 +422,27 @@ func TestNodeGetVolumeStats_EmptyVolumePath_UnknownVolume(t *testing.T) {
 	}
 }
 
+func TestNodeGetVolumeStats_PathOutsideKubelet(t *testing.T) {
+	d, _, _, store := newTestDriverWithMounter()
+	kubeletDir := t.TempDir()
+	if err := d.SetKubeletPath(kubeletDir); err != nil {
+		t.Fatalf("SetKubeletPath: %v", err)
+	}
+
+	vol := &state.Volume{ID: "vol-1", Name: "pvc-1", BasePath: testRootPath}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	_, err := d.NodeGetVolumeStats(context.Background(), &csi.NodeGetVolumeStatsRequest{
+		VolumeId:   "vol-1",
+		VolumePath: "/etc/evil",
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument for path outside kubelet, got %v: %v", code, err)
+	}
+}
+
 func TestNodeGetVolumeStats_VolumeNotFound(t *testing.T) {
 	d, _, _, _ := newTestDriverWithMounter()
 
@@ -842,6 +863,105 @@ func TestValidatePath_RelativePath(t *testing.T) {
 				t.Errorf("validatePath(%q) = %v, want InvalidArgument", tt.path, code)
 			}
 		})
+	}
+}
+
+func TestNodePublishVolume_PathOutsideKubelet(t *testing.T) {
+	d, _, _, store := newTestDriverWithMounter()
+	kubeletDir := t.TempDir()
+	if err := d.SetKubeletPath(kubeletDir); err != nil {
+		t.Fatalf("SetKubeletPath: %v", err)
+	}
+
+	vol := &state.Volume{
+		ID:       "vol-outside",
+		Name:     "test-pvc",
+		BasePath: "/tmp/btrfs-csi-test",
+	}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		targetPath string
+	}{
+		{"absolute outside", "/etc/evil"},
+		{"tmp path", "/tmp/malicious"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := d.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
+				VolumeId:   "vol-outside",
+				TargetPath: tt.targetPath,
+				VolumeCapability: &csi.VolumeCapability{
+					AccessType: &csi.VolumeCapability_Mount{
+						Mount: &csi.VolumeCapability_MountVolume{},
+					},
+					AccessMode: &csi.VolumeCapability_AccessMode{
+						Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+					},
+				},
+			})
+			if code := status.Code(err); code != codes.InvalidArgument {
+				t.Errorf("expected InvalidArgument for path %q outside kubelet, got %v: %v", tt.targetPath, code, err)
+			}
+		})
+	}
+}
+
+func TestNodeUnpublishVolume_PathOutsideKubelet(t *testing.T) {
+	d, _, _, _ := newTestDriverWithMounter()
+	kubeletDir := t.TempDir()
+	if err := d.SetKubeletPath(kubeletDir); err != nil {
+		t.Fatalf("SetKubeletPath: %v", err)
+	}
+
+	_, err := d.NodeUnpublishVolume(context.Background(), &csi.NodeUnpublishVolumeRequest{
+		VolumeId:   "vol-123",
+		TargetPath: "/etc/evil",
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument for path outside kubelet, got %v: %v", code, err)
+	}
+}
+
+func TestSetKubeletPath_ResolvesSymlinks(t *testing.T) {
+	d, _, _, _ := newTestDriverWithMounter()
+
+	// Create a temp dir structure: realDir <- symlink
+	realDir := t.TempDir()
+	symlinkDir := filepath.Join(t.TempDir(), "kubelet-link")
+	if err := os.Symlink(realDir, symlinkDir); err != nil {
+		t.Fatalf("os.Symlink: %v", err)
+	}
+
+	if err := d.SetKubeletPath(symlinkDir); err != nil {
+		t.Fatalf("SetKubeletPath: %v", err)
+	}
+
+	// Path under the real directory should be accepted (symlink resolved)
+	targetPath := filepath.Join(realDir, "pods", "abc", "volumes")
+	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := d.validateTargetPath(targetPath); err != nil {
+		t.Errorf("validateTargetPath(%q) should succeed after symlink resolution, got: %v", targetPath, err)
+	}
+}
+
+func TestSetKubeletPath_InvalidPath(t *testing.T) {
+	d, _, _, _ := newTestDriverWithMounter()
+
+	// Non-existent path is stored as-is (no error), so validation still works
+	err := d.SetKubeletPath("/nonexistent/path/that/does/not/exist")
+	if err != nil {
+		t.Errorf("SetKubeletPath should not fail for non-existent path, got: %v", err)
+	}
+	// Path outside the configured kubelet dir should still be rejected
+	if err := d.validateTargetPath("/etc/evil"); err == nil {
+		t.Error("validateTargetPath should reject path outside kubelet dir")
 	}
 }
 

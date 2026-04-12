@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -24,6 +25,33 @@ func validatePath(path string) error {
 	// Check for path traversal patterns before cleaning
 	if slices.Contains(strings.Split(path, "/"), "..") {
 		return status.Errorf(codes.InvalidArgument, "path %q contains invalid traversal sequence", path)
+	}
+	return nil
+}
+
+// validateTargetPath validates that a target path is safe and within the allowed kubelet directory.
+func (d *Driver) validateTargetPath(path string) error {
+	if err := validatePath(path); err != nil {
+		return err
+	}
+	if d.kubeletPath == "" {
+		return nil // no kubelet path configured; skip base directory check
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		// If the path doesn't exist yet, resolve the parent directory.
+		resolved, err = filepath.EvalSymlinks(filepath.Dir(path))
+		if err != nil {
+			return status.Errorf(codes.InvalidArgument, "cannot resolve path %q: %v", path, err)
+		}
+		resolved = filepath.Join(resolved, filepath.Base(path))
+	}
+	kubeletBase := d.kubeletPath
+	if !strings.HasSuffix(kubeletBase, "/") {
+		kubeletBase += "/"
+	}
+	if !strings.HasPrefix(resolved, kubeletBase) && resolved != strings.TrimSuffix(kubeletBase, "/") {
+		return status.Errorf(codes.InvalidArgument, "path %q is outside allowed directory %q", path, d.kubeletPath)
 	}
 	return nil
 }
@@ -76,7 +104,7 @@ func (d *Driver) NodePublishVolume(_ context.Context,
 	if req.GetTargetPath() == "" {
 		return nil, status.Error(codes.InvalidArgument, "target path is required")
 	}
-	if err := validatePath(req.GetTargetPath()); err != nil {
+	if err := d.validateTargetPath(req.GetTargetPath()); err != nil {
 		return nil, err
 	}
 	if req.GetVolumeCapability() == nil {
@@ -139,7 +167,7 @@ func (d *Driver) NodeUnpublishVolume(_ context.Context,
 	if req.GetTargetPath() == "" {
 		return nil, status.Error(codes.InvalidArgument, "target path is required")
 	}
-	if err := validatePath(req.GetTargetPath()); err != nil {
+	if err := d.validateTargetPath(req.GetTargetPath()); err != nil {
 		return nil, err
 	}
 
@@ -231,6 +259,9 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context,
 
 	if req.GetVolumePath() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume path is required")
+	}
+	if err := d.validateTargetPath(req.GetVolumePath()); err != nil {
+		return nil, err
 	}
 
 	vol, ok := d.store.GetVolume(req.GetVolumeId())
