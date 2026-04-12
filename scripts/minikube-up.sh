@@ -26,9 +26,8 @@ echo "==> Loading driver image into minikube..."
 ${RUNTIME} save "${IMAGE}" | ${MK} image load -
 
 echo "==> Installing VolumeSnapshot CRDs and controller..."
-${K} apply -k "${SCRIPT_DIR}/../deploy/components/snapshotter/"
+${K} apply -k "${SCRIPT_DIR}/../deploy/overlays/snapshot/"
 
-# Wait for CRDs to be established before creating VolumeSnapshotClass resources
 ${K} wait --for condition=established --timeout=60s \
     crd/volumesnapshotclasses.snapshot.storage.k8s.io \
     crd/volumesnapshotcontents.snapshot.storage.k8s.io \

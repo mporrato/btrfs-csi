@@ -23,13 +23,12 @@ pkg/driver/                      # CSI gRPC service implementations
 pkg/btrfs/                       # btrfs CLI wrapper (Manager interface)
 pkg/state/                       # JSON-backed volume/snapshot metadata
 deploy/
-  base/                          # Common Kubernetes manifests (CSIDriver, RBAC, etc.)
+  base/                          # Core manifests (DaemonSet, RBAC, StorageClass, etc.)
+  components/snapshotter/        # Upstream VolumeSnapshot CRDs + controller (kustomize Component)
   overlays/
-    minikube/                    # Minikube cluster (standard /var/lib/kubelet)
-    kind/                        # Kind cluster (standard /var/lib/kubelet)
-    k0s/                         # k0s cluster (patches to /var/lib/k0s/kubelet)
-    k3s/                         # k3s cluster (patches to /var/lib/rancher/k3s/agent/kubelet)
-    dev/                         # Development: minikube + verbose logging + secondary pool
+    snapshot/                    # VolumeSnapshot CRDs + controller (no driver; apply first)
+    default/                     # Driver + StorageClass + VolumeSnapshotClass (production)
+    dev/                         # Like default + local image + verbose logging + secondary e2e classes
 scripts/                         # Cluster setup and test runner scripts
 ```
 
@@ -70,20 +69,15 @@ Use kustomize overlays to deploy to different environments:
 make minikube-up        # Automatically uses deploy/overlays/dev/
 make minikube-e2e       # Run end-to-end tests
 
-# Production deployment (choose your platform)
-make deploy OVERLAY=k0s         # Deploy to k0s cluster
-make deploy OVERLAY=k3s         # Deploy to k3s cluster
-make deploy OVERLAY=minikube    # Deploy to minikube
-make deploy OVERLAY=kind        # Deploy to kind cluster
+# Production deployment
+make deploy OVERLAY=snapshot     # VolumeSnapshot CRDs + controller (apply first)
+make deploy                      # Driver + StorageClass + VolumeSnapshotClass
 
 # Teardown dev cluster
 make minikube-down
 ```
 
-The overlays handle platform-specific kubelet paths and configuration. The `dev` overlay adds:
-- `--v=4` verbose driver logging
-- Local image (`localhost/btrfs-csi-driver:latest`) with `imagePullPolicy: Never`
-- Secondary StorageClass for multi-pool testing (mount btrfs at `/var/lib/btrfs-csi/secondary`)
+Three overlays: `snapshot` (CRDs + controller, no driver; apply first), `default` (driver + StorageClass + VolumeSnapshotClass), `dev` (like default + local image + verbose logging + secondary classes for e2e). Manifests default to `/var/lib/kubelet`; for non-standard kubelet paths, render with `kubectl kustomize` and pipe through `sed`.
 
 ## Toolchain and Pre-commit Checks
 

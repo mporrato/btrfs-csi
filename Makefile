@@ -1,11 +1,11 @@
 CLUSTER    ?= btrfs-csi
-OVERLAY    ?= minikube
+OVERLAY    ?= default
 RUNTIME    ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 PRECOMMIT  ?= $(shell command -v prek 2>/dev/null || command -v pre-commit 2>/dev/null)
 
 GO         := GOTOOLCHAIN=auto go
 
-.PHONY: build test test-integration lint mod image deploy deploy-snapshot-crds \
+.PHONY: build test test-integration lint mod image deploy \
         minikube-up minikube-down minikube-sanity minikube-e2e
 
 lint:
@@ -27,9 +27,6 @@ test-integration:
 
 image:
 	$(RUNTIME) build -t localhost/btrfs-csi-driver:latest .
-
-deploy-snapshot-crds:
-	kubectl apply -k deploy/overlays/snapshot-crds/
 
 deploy:
 	kubectl apply -k deploy/overlays/$(OVERLAY)/

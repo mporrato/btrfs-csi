@@ -1,10 +1,11 @@
 ---
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# Development overlay: inherits minikube settings, enables verbose logging,
-# and wires up the secondary btrfs pool for multi-pool testing.
+# Development overlay: locally built image, verbose logging, and
+# StorageClass/VolumeSnapshotClass resources for multi-pool e2e testing.
+# Expects the snapshot overlay to be applied first.
 resources:
-  - ../minikube
+  - ../../base
   - storageclass-secondary.yaml
   - snapshotclass-secondary.yaml
 images:
@@ -12,7 +13,6 @@ images:
     newName: localhost/btrfs-csi-driver
     newTag: latest
 patches:
-  # Use local image and enable verbose logging.
   - target:
       kind: DaemonSet
       name: btrfs-csi-driver

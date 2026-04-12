@@ -86,40 +86,69 @@ make image
 
 ### Deploy to Kubernetes
 
-A full deployment involves three steps:
+Deployment uses kustomize overlays. Three overlays are provided:
 
-**1. Mount the btrfs pool(s)** on the node before deploying the driver. Each pool must be a btrfs filesystem mounted under `/var/lib/btrfs-csi/<pool-name>`:
+| Overlay | Description |
+|---------|-------------|
+| `snapshot` | VolumeSnapshot CRDs + snapshot-controller (no driver); apply first |
+| `default` | Driver + StorageClass + VolumeSnapshotClass (requires `snapshot` overlay) |
+| `dev` | Like `default`, but uses a locally built image, verbose logging, and adds secondary StorageClass/VolumeSnapshotClass for multi-pool e2e testing |
+
+**1. Prepare the node.** Mount the btrfs pool(s) and ensure the root filesystem has shared mount propagation (required for CSI bind mounts).
+
+Check the current propagation mode:
 
 ```bash
-# Example: mount a btrfs partition as the "default" pool
+findmnt -o TARGET,PROPAGATION /
+```
+
+If the output shows `private` instead of `shared`, enable it:
+
+```bash
+mount --make-rshared /
+```
+
+Most distributions (Fedora, Ubuntu, Debian) default to `shared`. Alpine Linux defaults to `private` and needs this step. To persist across reboots on Alpine:
+
+```bash
+echo "mount --make-rshared /" > /etc/local.d/shared-mounts.start
+chmod +x /etc/local.d/shared-mounts.start
+```
+
+Mount a btrfs partition as a storage pool:
+
+```bash
 mkdir -p /var/lib/btrfs-csi/default
 mount /dev/sdX /var/lib/btrfs-csi/default
 btrfs quota enable /var/lib/btrfs-csi/default
 ```
 
-**2. Install the VolumeSnapshot CRDs and controller** (required for snapshot support; skip if already installed):
+**2. Install VolumeSnapshot CRDs and controller:**
 
 ```bash
-make deploy-snapshot-crds
+make deploy OVERLAY=snapshot
 ```
 
-**3. Deploy the driver** using the overlay for your environment:
+**3. Deploy the driver** (requires the snapshot CRDs from step 2):
 
 ```bash
-# k0s (uses /var/lib/k0s/kubelet)
-make deploy OVERLAY=k0s
+make deploy
+```
 
-# k3s (uses /var/lib/rancher/k3s/agent/kubelet)
-make deploy OVERLAY=k3s
+#### Custom kubelet path
 
-# Minikube
-make deploy OVERLAY=minikube
+The manifests default to `/var/lib/kubelet`, which is correct for standard Kubernetes, minikube, and kind clusters. Some distributions use a different kubelet root directory (e.g. k3s uses `/var/lib/rancher/k3s/agent/kubelet`). To check your kubelet root:
 
-# Kind
-make deploy OVERLAY=kind
+```bash
+ps aux | grep kubelet | grep -o '\--root-dir=[^ ]*'
+```
 
-# Development (minikube + verbose logging + secondary pool for testing)
-make deploy OVERLAY=dev
+If this prints a path other than `/var/lib/kubelet` (or prints nothing, which means the default is used), render the manifests and substitute:
+
+```bash
+kubectl kustomize deploy/overlays/default/ \
+  | sed 's|/var/lib/kubelet|/your/kubelet/root|g' \
+  | kubectl apply -f -
 ```
 
 ## Usage
@@ -223,13 +252,19 @@ Both targets use `GOTOOLCHAIN=auto`, so no container or pre-installed Go 1.26 is
 
 ```
 btrfs-csi/
-├── cmd/btrfs-csi-driver/    # Entry point
+├── cmd/btrfs-csi-driver/        # Entry point
 ├── pkg/
-│   ├── driver/              # CSI gRPC services
-│   ├── btrfs/               # btrfs CLI wrapper
-│   └── state/               # JSON-backed metadata (MultiStore/FileStore)
-├── deploy/                  # Kubernetes manifests
-└── scripts/                  # Cluster setup and test runner scripts
+│   ├── driver/                  # CSI gRPC services
+│   ├── btrfs/                   # btrfs CLI wrapper
+│   └── state/                   # JSON-backed metadata (MultiStore/FileStore)
+├── deploy/
+│   ├── base/                    # Core manifests (DaemonSet, RBAC, StorageClass, etc.)
+│   ├── components/snapshotter/  # Upstream VolumeSnapshot CRDs + controller
+│   └── overlays/
+│       ├── default/             # Driver only (production)
+│       ├── snapshot/            # VolumeSnapshot CRDs + controller (no driver)
+│       └── dev/                 # Driver + local image + verbose logging + e2e classes
+└── scripts/                     # Cluster setup and test runner scripts
 ```
 
 ### Key Interfaces
