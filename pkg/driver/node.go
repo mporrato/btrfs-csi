@@ -56,6 +56,32 @@ func (d *Driver) validateTargetPath(path string) error {
 	return nil
 }
 
+// validatePathInKubeletDir checks that a path is within the allowed kubelet directory.
+// Unlike validateTargetPath, it does not validate path format (absolute, no traversal)
+// so that callers like NodeGetVolumeStats can return NotFound for invalid paths per CSI spec.
+func (d *Driver) validatePathInKubeletDir(path string) error {
+	if d.kubeletPath == "" || path == "" {
+		return nil
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		// If the path doesn't exist yet, resolve the parent directory.
+		resolved, err = filepath.EvalSymlinks(filepath.Dir(path))
+		if err != nil {
+			return nil // can't resolve; let downstream handle it
+		}
+		resolved = filepath.Join(resolved, filepath.Base(path))
+	}
+	kubeletBase := d.kubeletPath
+	if !strings.HasSuffix(kubeletBase, "/") {
+		kubeletBase += "/"
+	}
+	if !strings.HasPrefix(resolved, kubeletBase) && resolved != strings.TrimSuffix(kubeletBase, "/") {
+		return status.Errorf(codes.InvalidArgument, "path %q is outside allowed directory %q", path, d.kubeletPath)
+	}
+	return nil
+}
+
 // Mounter abstracts mount/unmount operations for testability.
 type Mounter interface {
 	// Mount binds source to target with the given filesystem type and options.
@@ -260,7 +286,7 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context,
 	if req.GetVolumePath() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume path is required")
 	}
-	if err := d.validateTargetPath(req.GetVolumePath()); err != nil {
+	if err := d.validatePathInKubeletDir(req.GetVolumePath()); err != nil {
 		return nil, err
 	}
 
