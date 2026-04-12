@@ -53,7 +53,7 @@ minikube-sanity:
 
 # Run end-to-end tests against the deployed cluster.
 minikube-e2e:
-	KUBECTL="kubectl --context=$(CLUSTER)" bash scripts/e2e.sh
+	CLUSTER=$(CLUSTER) bash scripts/e2e.sh
 
 clean:
 	rm -rf bin/

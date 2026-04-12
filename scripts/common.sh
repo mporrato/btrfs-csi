@@ -46,9 +46,9 @@
 
 # ─── Shorthand Commands ──────────────────────────────────────────────────────
 
-# These are exported so they're available to subprocesses
-export CLUSTER
-export RUNTIME
-export MK="minikube --profile=${CLUSTER}"
-export K="kubectl --context=${CLUSTER}"
-export EXEC="${MK} ssh --"
+# These can be overridden via environment variables (e.g., CI sets sudo prefixes).
+: "${MK:=minikube --profile=${CLUSTER}}"
+: "${K:=kubectl --context=${CLUSTER}}"
+: "${EXEC:=${MK} ssh --}"
+
+export CLUSTER RUNTIME MK K EXEC

@@ -75,8 +75,8 @@ jobs:
       - name: Run integration tests
         run: sudo -E GOTOOLCHAIN=auto go test -tags integration ./pkg/btrfs/
 
-  sanity:
-    name: Sanity Tests
+  sanity-e2e:
+    name: Sanity & E2E Tests
     if: github.event_name == 'pull_request'
     needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
@@ -86,52 +86,19 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
-      - name: Install minikube
-        run: |
-          curl -Lo minikube https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
-          chmod +x minikube
-          sudo mv minikube /usr/local/bin/
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v5
-      - name: Install QEMU and UEFI firmware
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 ovmf
-          # Ubuntu 24.04 OVMF uses 4M firmware files; create symlink for minikube
-          if [ -f /usr/share/OVMF/OVMF_CODE_4M.fd ] && [ ! -f /usr/share/OVMF/OVMF_CODE.fd ]; then
-            sudo ln -s OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd
-          fi
       - name: Start minikube cluster
-        run: |
-          sudo minikube start \
-            --profile=btrfs-csi \
-            --driver=qemu \
-            --force \
-            --extra-disks=2 \
-            --memory=4096 \
-            --cpus=4
-      - name: Build driver image
-        run: docker build -t localhost/btrfs-csi-driver:latest .
-      - name: Set up cluster with driver
-        run: CLUSTER=btrfs-csi bash scripts/minikube-up.sh
-      - name: Run sanity tests
-        run: CLUSTER=btrfs-csi bash scripts/sanity.sh
-
-  e2e:
-    name: E2E Tests
-    if: github.event_name == 'pull_request'
-    needs: [sanity]
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+        uses: medyagh/setup-minikube@latest
         with:
-          go-version: '1.26'
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v5
+          driver: docker
+          cpus: 2
+          memory: 4096
+          start-args: --profile=btrfs-csi
+      - name: Set up btrfs and deploy driver
+        run: bash scripts/ci/setup.sh
+      - name: Run sanity tests
+        run: bash scripts/sanity.sh
       - name: Run e2e tests
-        run: KUBECTL="kubectl --context=btrfs-csi" bash scripts/e2e.sh
+        run: bash scripts/e2e.sh
 
   build:
     name: Build Image
