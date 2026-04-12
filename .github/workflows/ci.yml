@@ -93,6 +93,8 @@ jobs:
           sudo mv minikube /usr/local/bin/
       - name: Install kubectl
         uses: azure/setup-kubectl@v5
+      - name: Install QEMU
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86
       - name: Start minikube cluster
         run: |
           minikube start \
