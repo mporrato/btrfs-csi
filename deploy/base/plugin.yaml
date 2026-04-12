@@ -46,7 +46,6 @@ spec:
           args:
             - --endpoint=unix:///csi/csi.sock
             - --nodeid=$(NODE_NAME)
-            - --kubelet-dir=/var/lib/kubelet
           env:
             - name: NODE_NAME
               valueFrom:
