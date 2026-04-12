@@ -1,0 +1,93 @@
+name: PR
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  code-checks:
+    name: Code Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11.3
+      - name: go fmt
+        run: |
+          if ! go fmt ./...; then
+            echo "go fmt failed"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: go mod tidy
+        run: |
+          go mod tidy
+          if ! git diff --quiet go.mod go.sum; then
+            echo "go.mod or go.sum not tidy"
+            git diff go.mod go.sum
+            exit 1
+          fi
+
+  unit-test:
+    name: Unit Tests
+    needs: code-checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+      - name: Run unit tests
+        run: GOTOOLCHAIN=auto go test ./...
+
+  integration-test:
+    name: Integration Tests
+    needs: code-checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+      - name: Set up btrfs loop device
+        run: |
+          sudo modprobe btrfs
+          dd if=/dev/zero bs=1M count=512 of=/tmp/btrfs.img
+          LOOP=$(sudo losetup -f)
+          sudo losetup "$LOOP" /tmp/btrfs.img
+          sudo mkfs.btrfs "$LOOP"
+          sudo mkdir -p /var/lib/btrfs-csi/default
+          sudo mount "$LOOP" /var/lib/btrfs-csi/default
+      - name: Run integration tests
+        run: sudo -E GOTOOLCHAIN=auto go test -tags integration ./pkg/btrfs/
+
+  sanity-e2e:
+    name: Sanity & E2E Tests
+    needs: [unit-test, integration-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+      - name: Start minikube cluster
+        uses: medyagh/setup-minikube@latest
+        with:
+          driver: docker
+          cpus: 2
+          memory: 4096
+          start-args: --profile=btrfs-csi
+      - name: Set up btrfs and deploy driver
+        run: bash scripts/ci/setup.sh
+      - name: Run sanity tests
+        run: bash scripts/sanity.sh
+      - name: Run e2e tests
+        run: bash scripts/e2e.sh
