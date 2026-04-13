@@ -100,8 +100,8 @@ This document consolidates findings from a thorough multi-agent review of the bt
       type: RuntimeDefault
   ```
 - **Effort**: Medium (5 containers × security context blocks)
-- **Owner**: TBD
-- **Status**: 🟠 Open
+- **Owner**: Done
+- **Status**: ✅ Fixed
 
 ### DEP-002: Add CPU Limits to All Containers
 - **Location**: `deploy/base/plugin.yaml` (all containers)
@@ -118,8 +118,8 @@ This document consolidates findings from a thorough multi-agent review of the bt
       memory: 128Mi
   ```
 - **Effort**: Small (add limits.cpu to all containers)
-- **Owner**: TBD
-- **Status**: 🟠 Open
+- **Owner**: Done
+- **Status**: ✅ Fixed
 
 ### DEP-003: Add Readiness Probe
 - **Location**: `deploy/base/plugin.yaml:58-65`
@@ -135,8 +135,8 @@ This document consolidates findings from a thorough multi-agent review of the bt
     periodSeconds: 10
   ```
 - **Effort**: Small (add probe configuration)
-- **Owner**: TBD
-- **Status**: 🟠 Open
+- **Owner**: Done
+- **Status**: ✅ Fixed
 
 ### BUILD-001: Fix Pre-commit gofmt GOTOOLCHAIN
 - **Location**: `.pre-commit-config.yaml:31`
@@ -555,8 +555,8 @@ This document consolidates findings from a thorough multi-agent review of the bt
 - ✅ RBAC follows principle of least privilege
 
 ### Gaps
-- ⚠️ Sidecar containers lack security contexts
-- ⚠️ No CPU limits on containers
+- ~~⚠️ Sidecar containers lack security contexts~~ ✅ Fixed
+- ~~⚠️ No CPU limits on containers~~ ✅ Fixed
 - ⚠️ Host path volumes use `DirectoryOrCreate` (can mask errors)
 
 ---
@@ -590,9 +590,9 @@ This document consolidates findings from a thorough multi-agent review of the bt
 4. Add package doc.go files (DOC-001)
 5. Create CONTRIBUTING.md (DOC-002)
 6. Fix Go version documentation (DOC-003)
-7. Add security contexts to sidecars (DEP-001)
-8. Add CPU limits (DEP-002)
-9. Add readiness probe (DEP-003)
+7. ~~Add security contexts to sidecars (DEP-001)~~ ✅
+8. ~~Add CPU limits (DEP-002)~~ ✅
+9. ~~Add readiness probe (DEP-003)~~ ✅
 10. Fix pre-commit gofmt (BUILD-001)
 11. Make minikube-up idempotent (BUILD-002)
 12. Add runtime validation (BUILD-003)
@@ -629,4 +629,4 @@ This document consolidates findings from a thorough multi-agent review of the bt
 
 ---
 
-*Last Updated: 2026-04-12*
+*Last Updated: 2026-04-13*

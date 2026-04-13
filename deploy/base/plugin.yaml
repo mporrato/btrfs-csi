@@ -64,11 +64,20 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               cpu: 10m
               memory: 32Mi
             limits:
+              cpu: 40m
               memory: 128Mi
           volumeMounts:
             - name: socket-dir
@@ -81,6 +90,12 @@ spec:
 
         - name: liveness-probe
           image: registry.k8s.io/sig-storage/livenessprobe:v2.14.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           args:
             - --csi-address=/csi/csi.sock
             - --health-port=9808
@@ -89,6 +104,7 @@ spec:
               cpu: 5m
               memory: 16Mi
             limits:
+              cpu: 20m
               memory: 64Mi
           volumeMounts:
             - name: socket-dir
@@ -96,6 +112,12 @@ spec:
 
         - name: node-driver-registrar
           image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.11.1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           args:
             - --csi-address=/csi/csi.sock
             - --kubelet-registration-path=/var/lib/kubelet/plugins/btrfs.csi.local/csi.sock
@@ -104,6 +126,7 @@ spec:
               cpu: 5m
               memory: 16Mi
             limits:
+              cpu: 20m
               memory: 64Mi
           volumeMounts:
             - name: socket-dir
@@ -113,6 +136,12 @@ spec:
 
         - name: external-provisioner
           image: registry.k8s.io/sig-storage/csi-provisioner:v4.0.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           args:
             - --csi-address=/csi/csi.sock
             - --extra-create-metadata
@@ -134,6 +163,7 @@ spec:
               cpu: 5m
               memory: 32Mi
             limits:
+              cpu: 20m
               memory: 128Mi
           volumeMounts:
             - name: socket-dir
@@ -141,6 +171,12 @@ spec:
 
         - name: external-snapshotter
           image: registry.k8s.io/sig-storage/csi-snapshotter:v8.0.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           args:
             - --csi-address=/csi/csi.sock
             - --leader-election
@@ -150,6 +186,7 @@ spec:
               cpu: 5m
               memory: 32Mi
             limits:
+              cpu: 20m
               memory: 128Mi
           volumeMounts:
             - name: socket-dir
@@ -157,6 +194,12 @@ spec:
 
         - name: external-resizer
           image: registry.k8s.io/sig-storage/csi-resizer:v1.14.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           args:
             - --csi-address=/csi/csi.sock
             - --leader-election
@@ -166,6 +209,7 @@ spec:
               cpu: 5m
               memory: 32Mi
             limits:
+              cpu: 20m
               memory: 128Mi
           volumeMounts:
             - name: socket-dir
