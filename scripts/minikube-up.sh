@@ -20,11 +20,11 @@ fi
 
 echo "==> Formatting ${EXTRA_DISK_1_DEV} as btrfs and mounting to ${BTRFS_MOUNT_1}..."
 ${EXEC} "sudo mkfs.btrfs -f ${EXTRA_DISK_1_DEV}"
-${EXEC} "sudo mkdir -p ${BTRFS_MOUNT_1} && echo '${EXTRA_DISK_1_DEV} ${BTRFS_MOUNT_1} btrfs defaults 0 0' | sudo tee -a /etc/fstab && sudo mount ${BTRFS_MOUNT_1}"
+${EXEC} "sudo mkdir -p ${BTRFS_MOUNT_1} && grep -q '# btrfs-csi:${BTRFS_MOUNT_1}' /etc/fstab || echo '${EXTRA_DISK_1_DEV} ${BTRFS_MOUNT_1} btrfs defaults 0 0 # btrfs-csi:${BTRFS_MOUNT_1}' | sudo tee -a /etc/fstab && sudo mount ${BTRFS_MOUNT_1}"
 
 echo "==> Formatting ${EXTRA_DISK_2_DEV} as btrfs and mounting to ${BTRFS_MOUNT_2}..."
 ${EXEC} "sudo mkfs.btrfs -f ${EXTRA_DISK_2_DEV}"
-${EXEC} "sudo mkdir -p ${BTRFS_MOUNT_2} && echo '${EXTRA_DISK_2_DEV} ${BTRFS_MOUNT_2} btrfs defaults 0 0' | sudo tee -a /etc/fstab && sudo mount ${BTRFS_MOUNT_2}"
+${EXEC} "sudo mkdir -p ${BTRFS_MOUNT_2} && grep -q '# btrfs-csi:${BTRFS_MOUNT_2}' /etc/fstab || echo '${EXTRA_DISK_2_DEV} ${BTRFS_MOUNT_2} btrfs defaults 0 0 # btrfs-csi:${BTRFS_MOUNT_2}' | sudo tee -a /etc/fstab && sudo mount ${BTRFS_MOUNT_2}"
 
 bash "${SCRIPT_DIR}/deploy.sh"
 

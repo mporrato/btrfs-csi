@@ -148,7 +148,7 @@ This document consolidates findings from a thorough multi-agent review of the bt
 - **Status**: 🟠 Open
 
 ### BUILD-002: Make /etc/fstab Entries Idempotent
-- **Location**: `scripts/minikube-up.sh:19,23`
+- **Location**: `scripts/minikube-up.sh:23,27`
 - **Issue**: Running script twice appends duplicate entries to /etc/fstab
 - **Impact**: Duplicate entries can cause mount issues
 - **Recommendation**: Add check before appending:
@@ -156,8 +156,9 @@ This document consolidates findings from a thorough multi-agent review of the bt
   grep -q "${EXTRA_DISK_1_DEV}" /etc/fstab || echo "${EXTRA_DISK_1_DEV} ..." >> /etc/fstab
   ```
 - **Effort**: Small (add grep check)
-- **Owner**: TBD
-- **Status**: 🟠 Open
+- **Owner**: Done
+- **Status**: ✅ Fixed
+- **Notes**: Added `grep -q '# btrfs-csi:<mountpoint>'` guard with comment marker for precise identification. Prevents duplicates even if the device path appears elsewhere in fstab.
 
 ### BUILD-003: Add Container Runtime Validation
 - **Location**: `scripts/common.sh:14`
@@ -171,8 +172,9 @@ This document consolidates findings from a thorough multi-agent review of the bt
   fi
   ```
 - **Effort**: Small (add validation block)
-- **Owner**: TBD
-- **Status**: 🟠 Open
+- **Owner**: Done
+- **Status**: ✅ Fixed
+- **Notes**: Added immediate validation after runtime auto-detection. Error message goes to stderr.
 
 ### CODE-001: Document Driver Struct Fields
 - **Location**: `pkg/driver/driver.go:28-53`
@@ -594,8 +596,8 @@ This document consolidates findings from a thorough multi-agent review of the bt
 8. ~~Add CPU limits (DEP-002)~~ ✅
 9. ~~Add readiness probe (DEP-003)~~ ✅
 10. Fix pre-commit gofmt (BUILD-001)
-11. Make minikube-up idempotent (BUILD-002)
-12. Add runtime validation (BUILD-003)
+11. ~~Make minikube-up idempotent (BUILD-002)~~ ✅
+12. ~~Add runtime validation (BUILD-003)~~ ✅
 13. Document Driver struct (CODE-001)
 14. Document sendReceive (CODE-002)
 
@@ -629,4 +631,4 @@ This document consolidates findings from a thorough multi-agent review of the bt
 
 ---
 
-*Last Updated: 2026-04-13*
+*Last Updated: 2026-04-14*

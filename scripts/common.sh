@@ -13,6 +13,11 @@
 # Container runtime (auto-detect: prefer podman over docker)
 : "${RUNTIME:=$(command -v podman 2>/dev/null || command -v docker 2>/dev/null)}"
 
+if [ -z "${RUNTIME}" ]; then
+    echo "Error: No container runtime found (podman or docker required)" >&2
+    exit 1
+fi
+
 # Driver image for loading into minikube
 : "${IMAGE:=localhost/btrfs-csi-driver:latest}"
 
