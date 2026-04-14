@@ -5,7 +5,9 @@ PRECOMMIT  ?= $(shell command -v prek 2>/dev/null || command -v pre-commit 2>/de
 
 GO         := GOTOOLCHAIN=auto go
 
-.PHONY: build test test-integration lint mod image deploy \
+FUZZTIME ?= 30s
+
+.PHONY: build test test-fuzz test-integration lint mod image deploy \
         minikube-up minikube-down minikube-sanity minikube-e2e
 
 lint:
@@ -19,6 +21,13 @@ build:
 
 test:
 	$(GO) test ./...
+
+# Run all fuzz tests. Override duration with FUZZTIME=60s.
+test-fuzz:
+	@for fuzz in $$($(GO) test -list 'Fuzz.*' ./pkg/driver/ 2>/dev/null | grep '^Fuzz'); do \
+		echo "=== $$fuzz ==="; \
+		$(GO) test -v ./pkg/driver/ -run '^$$' -fuzz "^$$fuzz$$" -fuzztime $(FUZZTIME) || exit 1; \
+	done
 
 # Runs btrfs integration tests — requires root + btrfs on the local machine.
 # Use minikube-sanity instead to run without host root.
