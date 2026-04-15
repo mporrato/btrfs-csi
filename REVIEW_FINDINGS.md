@@ -334,7 +334,7 @@ This document consolidates findings from a thorough multi-agent review of the bt
 - **Status**: 🟡 Open
 
 ### DEP-004: Add Common Labels via Kustomize
-- **Location**: `deploy/base/kustomization.yaml`
+- **Location**: `deploy/components/labels/kustomization.yaml`
 - **Issue**: Resources lack standard Kubernetes labels
 - **Impact**: Harder to query and manage resources
 - **Recommendation**: Add commonLabels:
@@ -346,8 +346,9 @@ This document consolidates findings from a thorough multi-agent review of the bt
     app.kubernetes.io/component: csi-driver
   ```
 - **Effort**: Small (add labels)
-- **Owner**: TBD
-- **Status**: 🟡 Open
+- **Owner**: Done
+- **Status**: ✅ Fixed
+- **Notes**: Created reusable `deploy/components/labels` kustomize component. Base kustomization includes this component. Version bumps only require changing one file. Snapshot overlay intentionally excluded (deploys upstream third-party resources).
 
 ### DEP-005: Add Pod Security Labels to Namespace
 - **Location**: `deploy/base/namespace.yaml`
@@ -361,8 +362,9 @@ This document consolidates findings from a thorough multi-agent review of the bt
     pod-security.kubernetes.io/warn: privileged
   ```
 - **Effort**: Small (add labels)
-- **Owner**: TBD
-- **Status**: 🟡 Open
+- **Owner**: Done
+- **Status**: ✅ Fixed
+- **Notes**: Added pod security labels to namespace. Driver requires privileged access for bind mounts and btrfs operations.
 
 ### DEP-006: Document Overlay Dependencies
 - **Location**: `deploy/overlays/default/kustomization.yaml`
@@ -373,8 +375,9 @@ This document consolidates findings from a thorough multi-agent review of the bt
   # NOTE: Apply deploy/overlays/snapshot/ first to install VolumeSnapshot CRDs
   ```
 - **Effort**: 1 line change
-- **Owner**: TBD
-- **Status**: 🟡 Open
+- **Owner**: Done
+- **Status**: ✅ Fixed
+- **Notes**: Added comment documenting snapshot overlay dependency.
 
 ### BUILD-004: Add Makefile Help Target
 - **Location**: `Makefile`
@@ -609,7 +612,7 @@ This document consolidates findings from a thorough multi-agent review of the bt
 19. Add performance docs (DOC-007)
 20. Add troubleshooting (DOC-008)
 21. Add security docs (DOC-009)
-22. Add kustomize labels (DEP-004, DEP-005, DEP-006)
+22. ~~Add kustomize labels (DEP-004, DEP-005, DEP-006)~~ ✅
 23. Add Makefile help (BUILD-004)
 
 ### Phase 4: Low Priority (Backlog)

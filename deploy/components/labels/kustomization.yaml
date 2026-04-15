@@ -1,0 +1,13 @@
+---
+# Reusable component that applies standard Kubernetes labels to all resources.
+# Include this component in any kustomization that needs consistent labeling.
+# Update the version here when bumping releases - all consumers pick it up.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+labels:
+  - pairs:
+      app.kubernetes.io/name: btrfs-csi-driver
+      app.kubernetes.io/instance: btrfs-csi
+      app.kubernetes.io/version: "0.1.0"
+      app.kubernetes.io/component: csi-driver
+    includeSelectors: false
