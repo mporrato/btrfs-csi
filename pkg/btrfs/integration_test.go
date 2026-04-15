@@ -16,7 +16,7 @@ func setupLoopbackBtrfs(t *testing.T) string {
 	t.Helper()
 
 	if os.Getuid() != 0 {
-		t.Skip("integration tests require root")
+		t.Fatal("integration tests require root")
 	}
 
 	dir := t.TempDir()

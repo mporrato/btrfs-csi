@@ -51,7 +51,7 @@ jobs:
         with:
           go-version: '1.26'
       - name: Run unit tests
-        run: GOTOOLCHAIN=auto go test ./...
+        run: make test
 
   integration-test:
     name: Integration Tests
@@ -72,7 +72,7 @@ jobs:
           sudo mkdir -p /var/lib/btrfs-csi/default
           sudo mount "$LOOP" /var/lib/btrfs-csi/default
       - name: Run integration tests
-        run: sudo -E GOTOOLCHAIN=auto go test -tags integration ./pkg/btrfs/
+        run: sudo -E make test-integration
 
   build:
     name: Build Image

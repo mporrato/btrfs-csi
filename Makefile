@@ -29,10 +29,11 @@ test-fuzz:
 		$(GO) test -v ./pkg/driver/ -run '^$$' -fuzz "^$$fuzz$$" -fuzztime $(FUZZTIME) || exit 1; \
 	done
 
-# Runs btrfs integration tests — requires root + btrfs on the local machine.
+# Runs integration tests — requires root + btrfs on the local machine.
 # Use minikube-sanity instead to run without host root.
 test-integration:
-	$(GO) test -tags integration ./pkg/btrfs/
+	@[ $$(id -u) -eq 0 ] || { echo "ERROR: integration tests require root"; exit 1; }
+	$(GO) test -tags integration ./...
 
 image:
 	$(RUNTIME) build -t localhost/btrfs-csi-driver:latest .
