@@ -847,6 +847,25 @@ func TestNodeExpandVolume_ReturnsCapacity(t *testing.T) {
 	}
 }
 
+func TestNodeExpandVolume_PathOutsideKubeletDir(t *testing.T) {
+	d, _, _, store := newTestDriverWithMounter()
+	if err := d.SetKubeletPath("/tmp"); err != nil {
+		t.Fatalf("SetKubeletPath: %v", err)
+	}
+	vol := &state.Volume{ID: "vol-expand-path", Name: "test-pvc", CapacityBytes: 1 << 30, BasePath: "/tmp"}
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	_, err := d.NodeExpandVolume(context.Background(), &csi.NodeExpandVolumeRequest{
+		VolumeId:   "vol-expand-path",
+		VolumePath: "/etc/passwd",
+	})
+	if code := status.Code(err); code != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument for path outside kubelet dir, got %v", code)
+	}
+}
+
 func TestValidatePath_RelativePath(t *testing.T) {
 	tests := []struct {
 		name string

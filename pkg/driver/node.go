@@ -357,6 +357,9 @@ func (d *Driver) NodeExpandVolume(_ context.Context,
 	if req.GetVolumePath() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume path is required")
 	}
+	if err := d.validatePathInKubeletDir(req.GetVolumePath()); err != nil {
+		return nil, err
+	}
 
 	vol, ok := d.store.GetVolume(req.GetVolumeId())
 	if !ok {

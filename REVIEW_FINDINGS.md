@@ -107,7 +107,7 @@ Add a regression test that calls `ensureQuotaEnabled`, then `SetPools`, then ver
 
 > **Should fix. These cause incorrect behavior under specific conditions.**
 
-### [ ] B-1: ValidateVolumeCapabilities does not reject block access type
+### [x] B-1: ValidateVolumeCapabilities does not reject block access type
 
 **File**: `pkg/driver/controller.go:186–208`
 
@@ -140,7 +140,7 @@ for _, c := range req.VolumeCapabilities {
 }
 ```
 
-**Status**: Open
+**Status**: Fixed
 
 ---
 
@@ -197,7 +197,7 @@ Additionally, close `sendStdout` on the error path to unblock any in-flight writ
 
 ---
 
-### [ ] B-4: Race window in reloadPoolConfig
+### [x] B-4: Race window in reloadPoolConfig
 
 **File**: `cmd/btrfs-csi-driver/main.go:179–180`
 
@@ -233,11 +233,11 @@ func (d *Driver) ApplyPoolConfig(pools map[string]string, paths []string, ms sta
 
 Swapping the order alone, as originally suggested, is not sufficient.
 
-**Status**: Open
+**Status**: Fixed
 
 ---
 
-### [ ] B-5: NodeExpandVolume lacks path validation
+### [x] B-5: NodeExpandVolume lacks path validation
 
 **File**: `pkg/driver/node.go:350–368`
 
@@ -255,7 +255,7 @@ if err := d.validatePathInKubeletDir(req.GetVolumePath()); err != nil {
 
 This also ensures fuzz coverage on `validatePathInKubeletDir` exercises this call site.
 
-**Status**: Open
+**Status**: Fixed
 
 ---
 
@@ -615,7 +615,7 @@ The existing `scripts/` runner already has patterns for loopback btrfs setup tha
 - [ ] **B-2**: Move version to a single exported `driver.Version` variable; inject via `-ldflags` at build time; use `git describe` for version string
 - [x] **B-3**: Call `receiveCmd.Wait()` after `receiveCmd.Process.Kill()` in `doSendReceive` to reap the child
 - [x] **B-4**: Introduce a shared reconfiguration lock so `ReloadPaths` and `SetPools` are atomic from the RPC handler's perspective (simply swapping order is not sufficient)
-- [ ] **B-5**: Add `validatePathInKubeletDir(req.GetVolumePath())` to `NodeExpandVolume` for consistency with other node RPCs
+- [x] **B-5**: Add `validatePathInKubeletDir(req.GetVolumePath())` to `NodeExpandVolume` for consistency with other node RPCs
 - [ ] **B-6**: Replace `all[:0:0]` with `make([]*state.Snapshot, 0, len(all))` in `ListSnapshots`
 
 ### Security Concerns
