@@ -89,7 +89,7 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 
 	// Watch for pool subdirectory changes — 30 s poll interval.
 	configStop := driver.WatchPools(*poolsDir, 30000, func(newPools map[string]string) {
-		reloadPoolConfig(newPools, mgr, ms, drv)
+		reloadPoolConfig(newPools, mgr, drv)
 	})
 	defer close(configStop)
 
@@ -165,7 +165,7 @@ func initializeStores(poolsDir string, mgr btrfs.Manager) (map[string]string, st
 }
 
 // reloadPoolConfig handles configuration changes during runtime.
-func reloadPoolConfig(newPools map[string]string, mgr btrfs.Manager, ms state.Store, drv *driver.Driver) {
+func reloadPoolConfig(newPools map[string]string, mgr btrfs.Manager, drv *driver.Driver) {
 	validPools := make(map[string]string)
 	validPaths := make([]string, 0, len(newPools))
 	for name, p := range newPools {
@@ -187,6 +187,5 @@ func reloadPoolConfig(newPools map[string]string, mgr btrfs.Manager, ms state.St
 		validPools[name] = p
 		validPaths = append(validPaths, p)
 	}
-	ms.ReloadPaths(validPaths)
-	drv.SetPools(validPools)
+	drv.ApplyPoolConfig(validPools, validPaths)
 }

@@ -357,3 +357,46 @@ func TestRunRemovesStaleSocket(t *testing.T) {
 		t.Fatal("timed out waiting for Run() to return after Stop()")
 	}
 }
+
+// TestApplyPoolConfig_Atomicity verifies that ApplyPoolConfig updates pools
+// atomically, preventing concurrent readers from seeing partial updates.
+func TestApplyPoolConfig_Atomicity(t *testing.T) {
+	d, _, _ := newTestDriverWithMock()
+
+	basePath1 := "/tmp/btrfs-csi-test-pool1"
+	basePath2 := "/tmp/btrfs-csi-test-pool2"
+
+	pools := map[string]string{
+		"pool1": basePath1,
+		"pool2": basePath2,
+	}
+	paths := []string{basePath1, basePath2}
+
+	done := make(chan struct{})
+	var raceDetected bool
+
+	go func() {
+		for range 100 {
+			p := d.getPools()
+			if len(p) > 0 && len(p) != len(paths) {
+				raceDetected = true
+				t.Logf("race detected: got %d pools, expected %d or 0", len(p), len(paths))
+				break
+			}
+		}
+		close(done)
+	}()
+
+	d.ApplyPoolConfig(pools, paths)
+
+	<-done
+
+	if raceDetected {
+		t.Error("race condition detected: concurrent reader saw partial pool update")
+	}
+
+	finalPools := d.getPools()
+	if len(finalPools) != 2 {
+		t.Errorf("expected 2 pools after ApplyPoolConfig, got %d", len(finalPools))
+	}
+}

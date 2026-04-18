@@ -45,8 +45,11 @@ type Driver struct {
 	// to prevent races between concurrent modifications (e.g. delete + clone).
 	controllerMu sync.Mutex
 
-	poolsMu sync.RWMutex
-	pools   map[string]string // pool name → base path
+	// configMu protects pool configuration updates and reads to ensure
+	// ReloadPaths and SetPools are atomic from the RPC handler's perspective.
+	configMu sync.RWMutex
+	poolsMu  sync.RWMutex
+	pools    map[string]string // pool name → base path
 
 	qgroupCleanupMu     sync.Mutex
 	qgroupCleanupTimers map[string]*time.Timer // keyed by basePath
@@ -88,8 +91,36 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) (*Driver, er
 	return d, nil
 }
 
-// SetPools replaces the pool map atomically.
+// ApplyPoolConfig atomically updates the pool configuration and store paths.
+// This ensures that RPC handlers see a consistent view of pools and store paths.
+// Note: after getPools() returns, a concurrent reload may still remove a store
+// path; RPC handlers must tolerate transient store lookup failures (CSI
+// idempotency guarantees safe retries).
+func (d *Driver) ApplyPoolConfig(pools map[string]string, paths []string) {
+	d.configMu.Lock()
+	defer d.configMu.Unlock()
+
+	d.store.ReloadPaths(paths)
+
+	d.poolsMu.Lock()
+	d.pools = pools
+	d.poolsMu.Unlock()
+
+	// Invalidate the quotaEnabled cache when pools are replaced.
+	// This ensures quota is re-enabled if a pool is reformatted.
+	d.quotaEnabledMu.Lock()
+	d.quotaEnabled = make(map[string]bool)
+	d.quotaEnabledMu.Unlock()
+}
+
+// SetPools replaces the pool map atomically. It does NOT update the store
+// path registry — use ApplyPoolConfig for runtime reconfiguration that
+// keeps pools and store in sync. SetPools is intended for initialization
+// only, before the gRPC server starts.
 func (d *Driver) SetPools(pools map[string]string) {
+	d.configMu.Lock()
+	defer d.configMu.Unlock()
+
 	d.poolsMu.Lock()
 	d.pools = pools
 	d.poolsMu.Unlock()
@@ -130,8 +161,12 @@ func (d *Driver) SetKubeletPath(path string) error {
 
 // getPools returns a snapshot of the current pool map.
 func (d *Driver) getPools() map[string]string {
+	d.configMu.RLock()
+	defer d.configMu.RUnlock()
+
 	d.poolsMu.RLock()
 	defer d.poolsMu.RUnlock()
+
 	return maps.Clone(d.pools)
 }
 

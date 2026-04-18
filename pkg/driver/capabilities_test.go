@@ -164,6 +164,32 @@ func TestValidateVolumeCapabilities_VolumeNotFound(t *testing.T) {
 	}
 }
 
+func TestValidateVolumeCapabilities_BlockAccessRejected(t *testing.T) {
+	d, _, store := newTestDriverWithMock()
+	if err := store.SaveVolume(&state.Volume{ID: "vol-123", Name: "test-pvc"}); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	blockCap := []*csi.VolumeCapability{
+		{
+			AccessType: &csi.VolumeCapability_Block{Block: &csi.VolumeCapability_BlockVolume{}},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	resp, err := d.ValidateVolumeCapabilities(context.Background(), &csi.ValidateVolumeCapabilitiesRequest{
+		VolumeId:           "vol-123",
+		VolumeCapabilities: blockCap,
+	})
+	if err != nil {
+		t.Fatalf("ValidateVolumeCapabilities: %v", err)
+	}
+	if resp.Confirmed != nil {
+		t.Errorf("expected Confirmed to be nil for block access type, got %v", resp.Confirmed)
+	}
+}
+
 func TestGetCapacity_Success(t *testing.T) {
 	d, mock, _ := newTestDriverWithMock()
 	mock.GetFilesystemUsageResult = &btrfs.FsUsage{Total: 10 << 30, Used: 2 << 30, Available: 8 << 30}

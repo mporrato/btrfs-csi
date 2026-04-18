@@ -210,13 +210,24 @@ func (d *Driver) ValidateVolumeCapabilities(_ context.Context,
 	}, nil
 }
 
-// isSupportedCapabilities returns true if all access modes in caps are supported.
+// isConfirmableCapability returns true if the driver can serve this capability.
+func isConfirmableCapability(c *csi.VolumeCapability) bool {
+	if c.GetBlock() != nil {
+		return false
+	}
+	if am := c.GetAccessMode(); am != nil {
+		if _, ok := supportedAccessModes[am.Mode]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// isSupportedCapabilities returns true if all capabilities can be confirmed
+// (i.e., mount access type and supported access modes).
 func isSupportedCapabilities(caps []*csi.VolumeCapability) bool {
 	for _, cap := range caps {
-		if cap.GetAccessMode() == nil {
-			continue
-		}
-		if _, ok := supportedAccessModes[cap.AccessMode.Mode]; !ok {
+		if !isConfirmableCapability(cap) {
 			return false
 		}
 	}
@@ -244,14 +255,10 @@ func validateCreateVolumeCapabilities(caps []*csi.VolumeCapability) error {
 	if len(caps) == 0 {
 		return status.Error(codes.InvalidArgument, "volume capabilities are required")
 	}
-	if !isSupportedCapabilities(caps) {
-		return status.Error(codes.InvalidArgument,
-			"unsupported volume capability: only single-node access modes are supported")
-	}
 	for _, cap := range caps {
-		if cap.GetBlock() != nil {
+		if !isConfirmableCapability(cap) {
 			return status.Error(codes.InvalidArgument,
-				"block volume access type is not supported")
+				"unsupported volume capability: only mount access type and single-node access modes are supported")
 		}
 	}
 	return nil
