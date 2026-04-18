@@ -3,12 +3,11 @@ package driver
 import (
 	"context"
 	"sync"
+	"testing"
 
 	"github.com/mporrato/btrfs-csi/pkg/btrfs"
 	"github.com/mporrato/btrfs-csi/pkg/state"
 )
-
-const testRootPath = "/tmp/btrfs-csi-test"
 
 // memStore is a simple in-memory implementation of state.Store for testing.
 // dir is the basePath this store represents; it is hydrated onto returned values.
@@ -136,6 +135,10 @@ func (s *memStore) DeleteSnapshot(id string) error {
 	return nil
 }
 
+func (s *memStore) root() string {
+	return s.dir
+}
+
 func (s *memStore) Dirs() []string {
 	return []string{s.dir}
 }
@@ -168,13 +171,15 @@ func newTestMultiStore(dir string) (*state.MultiStore, *memStore) {
 }
 
 // newTestDriver creates a Driver wired with a MockManager and in-memory store for testing.
-func newTestDriver() *Driver {
-	ms, _ := newTestMultiStore(testRootPath)
+func newTestDriver(t *testing.T) *Driver {
+	t.Helper()
+	root := t.TempDir()
+	ms, _ := newTestMultiStore(root)
 	d, err := NewDriver(&btrfs.MockManager{}, ms, "test-node")
 	if err != nil {
-		panic(err)
+		t.Fatalf("NewDriver: %v", err)
 	}
-	d.SetPools(map[string]string{"default": testRootPath})
+	d.SetPools(map[string]string{"default": root})
 	return d
 }
 
@@ -190,27 +195,31 @@ func newTestDriverWithPath(path string) *Driver {
 }
 
 // newTestDriverWithMock creates a Driver and returns the mock and store for assertion in tests.
-func newTestDriverWithMock() (*Driver, *btrfs.MockManager, *memStore) {
+func newTestDriverWithMock(t *testing.T) (*Driver, *btrfs.MockManager, *memStore) {
+	t.Helper()
+	root := t.TempDir()
 	mock := &btrfs.MockManager{}
-	ms, mem := newTestMultiStore(testRootPath)
+	ms, mem := newTestMultiStore(root)
 	d, err := NewDriver(mock, ms, "test-node")
 	if err != nil {
-		panic(err)
+		t.Fatalf("NewDriver: %v", err)
 	}
-	d.SetPools(map[string]string{"default": testRootPath})
+	d.SetPools(map[string]string{"default": root})
 	return d, mock, mem
 }
 
 // newTestDriverWithMounter creates a Driver with mock btrfs, mock mounter, and in-memory store.
-func newTestDriverWithMounter() (*Driver, *btrfs.MockManager, *MockMounter, *memStore) {
+func newTestDriverWithMounter(t *testing.T) (*Driver, *btrfs.MockManager, *MockMounter, *memStore) {
+	t.Helper()
+	root := t.TempDir()
 	mock := &btrfs.MockManager{}
 	mounter := &MockMounter{}
-	ms, mem := newTestMultiStore(testRootPath)
+	ms, mem := newTestMultiStore(root)
 	d, err := NewDriver(mock, ms, "test-node")
 	if err != nil {
-		panic(err)
+		t.Fatalf("NewDriver: %v", err)
 	}
-	d.SetPools(map[string]string{"default": testRootPath})
+	d.SetPools(map[string]string{"default": root})
 	d.mounter = mounter
 	return d, mock, mounter, mem
 }

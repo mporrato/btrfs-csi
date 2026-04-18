@@ -10,7 +10,7 @@ import (
 )
 
 func TestGetPluginInfo(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 	resp, err := d.GetPluginInfo(context.Background(), &csi.GetPluginInfoRequest{})
 	if err != nil {
 		t.Fatalf("GetPluginInfo returned error: %v", err)
@@ -26,7 +26,7 @@ func TestGetPluginInfo(t *testing.T) {
 }
 
 func TestGetPluginCapabilities(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 	resp, err := d.GetPluginCapabilities(context.Background(), &csi.GetPluginCapabilitiesRequest{})
 	if err != nil {
 		t.Fatalf("GetPluginCapabilities returned error: %v", err)
@@ -121,7 +121,7 @@ func TestProbeUnhealthy(t *testing.T) {
 }
 
 func TestNewDriverValidation(t *testing.T) {
-	ms, _ := newTestMultiStore(testRootPath)
+	ms, _ := newTestMultiStore(t.TempDir())
 
 	t.Run("nil manager", func(t *testing.T) {
 		_, err := NewDriver(nil, ms, "node1")
@@ -140,7 +140,8 @@ func TestNewDriverValidation(t *testing.T) {
 
 func TestNewDriverSetsFields(t *testing.T) {
 	mgr := &btrfs.MockManager{}
-	ms, _ := newTestMultiStore(testRootPath)
+	root := t.TempDir()
+	ms, _ := newTestMultiStore(root)
 	nodeID := "test-node"
 
 	d, err := NewDriver(mgr, ms, nodeID)
@@ -153,8 +154,8 @@ func TestNewDriverSetsFields(t *testing.T) {
 	}
 
 	paths := d.basePaths()
-	if len(paths) != 1 || paths[0] != testRootPath {
-		t.Errorf("basePaths = %v, want [%q]", paths, testRootPath)
+	if len(paths) != 1 || paths[0] != root {
+		t.Errorf("basePaths = %v, want [%q]", paths, root)
 	}
 }
 
@@ -163,7 +164,7 @@ func TestGetPluginInfoUsesPackageVersion(t *testing.T) {
 	Version = "test-1.2.3"
 	t.Cleanup(func() { Version = old })
 
-	d := newTestDriver()
+	d := newTestDriver(t)
 	resp, err := d.GetPluginInfo(context.Background(), &csi.GetPluginInfoRequest{})
 	if err != nil {
 		t.Fatalf("GetPluginInfo: %v", err)
@@ -174,7 +175,7 @@ func TestGetPluginInfoUsesPackageVersion(t *testing.T) {
 }
 
 func TestGetPluginInfoWithNodeID(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 	resp, err := d.GetPluginInfo(context.Background(), &csi.GetPluginInfoRequest{})
 	if err != nil {
 		t.Fatalf("GetPluginInfo returned error: %v", err)

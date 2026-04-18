@@ -25,7 +25,7 @@ func singleNodeWriterCap() []*csi.VolumeCapability {
 }
 
 func TestCreateVolume_NewVolume(t *testing.T) {
-	d, mock, store := newTestDriverWithMock()
+	d, mock, store := newTestDriverWithMock(t)
 
 	resp, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
 		Name:               "test-pvc",
@@ -43,8 +43,8 @@ func TestCreateVolume_NewVolume(t *testing.T) {
 	if len(mock.EnsureQuotaEnabledCalls) != 1 {
 		t.Fatalf("expected 1 EnsureQuotaEnabled call, got %d", len(mock.EnsureQuotaEnabledCalls))
 	}
-	if got := mock.EnsureQuotaEnabledCalls[0]; got != "/tmp/btrfs-csi-test" {
-		t.Errorf("EnsureQuotaEnabled mountpoint = %q, want %q", got, "/tmp/btrfs-csi-test")
+	if got := mock.EnsureQuotaEnabledCalls[0]; got != store.root() {
+		t.Errorf("EnsureQuotaEnabled mountpoint = %q, want %q", got, store.root())
 	}
 
 	if len(mock.SetQgroupLimitCalls) != 1 {
@@ -71,7 +71,7 @@ func TestCreateVolume_NewVolume(t *testing.T) {
 }
 
 func TestCreateVolume_Idempotent(t *testing.T) {
-	d, mock, _ := newTestDriverWithMock()
+	d, mock, _ := newTestDriverWithMock(t)
 
 	req := &csi.CreateVolumeRequest{
 		Name:               "test-pvc",
@@ -99,7 +99,7 @@ func TestCreateVolume_Idempotent(t *testing.T) {
 }
 
 func TestCreateVolume_CancelledContext(t *testing.T) {
-	d, _, _ := newTestDriverWithMock()
+	d, _, _ := newTestDriverWithMock(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -114,7 +114,7 @@ func TestCreateVolume_CancelledContext(t *testing.T) {
 }
 
 func TestCreateVolume_MissingName(t *testing.T) {
-	d, _, _ := newTestDriverWithMock()
+	d, _, _ := newTestDriverWithMock(t)
 
 	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
 		VolumeCapabilities: singleNodeWriterCap(),
@@ -125,7 +125,7 @@ func TestCreateVolume_MissingName(t *testing.T) {
 }
 
 func TestCreateVolume_LimitBytesExceeded(t *testing.T) {
-	d, _, _ := newTestDriverWithMock()
+	d, _, _ := newTestDriverWithMock(t)
 
 	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
 		Name:               "test-pvc",
@@ -141,7 +141,7 @@ func TestCreateVolume_LimitBytesExceeded(t *testing.T) {
 }
 
 func TestCreateVolume_MissingCapabilities(t *testing.T) {
-	d, _, _ := newTestDriverWithMock()
+	d, _, _ := newTestDriverWithMock(t)
 
 	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
 		Name: "test-pvc",
@@ -152,7 +152,7 @@ func TestCreateVolume_MissingCapabilities(t *testing.T) {
 }
 
 func TestCreateVolume_UnsupportedAccessMode(t *testing.T) {
-	d, _, _ := newTestDriverWithMock()
+	d, _, _ := newTestDriverWithMock(t)
 
 	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
 		Name:          "test-pvc",
@@ -170,7 +170,7 @@ func TestCreateVolume_UnsupportedAccessMode(t *testing.T) {
 }
 
 func TestCreateVolume_BlockAccessNotSupported(t *testing.T) {
-	d, _, _ := newTestDriverWithMock()
+	d, _, _ := newTestDriverWithMock(t)
 
 	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
 		Name:          "test-pvc",
@@ -189,7 +189,7 @@ func TestCreateVolume_BlockAccessNotSupported(t *testing.T) {
 
 func TestCreateVolume_WithPoolParam(t *testing.T) {
 	basePath := t.TempDir()
-	d, mock, _ := newTestDriverWithMock()
+	d, mock, _ := newTestDriverWithMock(t)
 	// Register the extra basePath so the MultiStore can route saves there.
 	d.store.(*state.MultiStore).AddStoreForTest(basePath, newMemStore(basePath))
 	d.SetPools(map[string]string{"fast": basePath})
@@ -221,7 +221,7 @@ func TestCreateVolume_WithPoolParam(t *testing.T) {
 }
 
 func TestCreateVolume_EnsureQuotaCachedPerBasePath(t *testing.T) {
-	d, mock, _ := newTestDriverWithMock()
+	d, mock, _ := newTestDriverWithMock(t)
 
 	for i, name := range []string{"pvc-a", "pvc-b"} {
 		_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
@@ -242,7 +242,7 @@ func TestCreateVolume_EnsureQuotaCachedPerBasePath(t *testing.T) {
 // TestCreateVolume_QuotaCacheInvalidatedOnSetPools verifies that the
 // quotaEnabled cache is cleared when SetPools is called (C-3 regression test).
 func TestCreateVolume_QuotaCacheInvalidatedOnSetPools(t *testing.T) {
-	d, mock, _ := newTestDriverWithMock()
+	d, mock, store := newTestDriverWithMock(t)
 
 	// Create first volume - this should call EnsureQuotaEnabled
 	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
@@ -258,8 +258,8 @@ func TestCreateVolume_QuotaCacheInvalidatedOnSetPools(t *testing.T) {
 		t.Fatalf("EnsureQuotaEnabled called %d times after first volume, want 1", got)
 	}
 
-	// SetPools should invalidate the cache
-	d.SetPools(map[string]string{"default": testRootPath})
+	// SetPools should invalidate the cache (the call itself clears it, path is unchanged)
+	d.SetPools(map[string]string{"default": store.root()})
 
 	// Create second volume - this should call EnsureQuotaEnabled again
 	_, err = d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
@@ -278,20 +278,21 @@ func TestCreateVolume_QuotaCacheInvalidatedOnSetPools(t *testing.T) {
 }
 
 func TestResolveBasePath_SinglePoolNoParam(t *testing.T) {
-	d := newTestDriver()
-	d.SetPools(map[string]string{"mypool": testRootPath})
+	d := newTestDriver(t)
+	poolPath := t.TempDir()
+	d.SetPools(map[string]string{"mypool": poolPath})
 
 	got, err := d.resolveBasePath(nil)
 	if err != nil {
 		t.Fatalf("resolveBasePath: %v", err)
 	}
-	if got != testRootPath {
-		t.Errorf("got %q, want %q", got, testRootPath)
+	if got != poolPath {
+		t.Errorf("got %q, want %q", got, poolPath)
 	}
 }
 
 func TestResolveBasePath_MultiplePoolsWithDefault(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 	d.SetPools(map[string]string{
 		"default": "/mnt/default",
 		"fast":    "/mnt/fast",
@@ -307,7 +308,7 @@ func TestResolveBasePath_MultiplePoolsWithDefault(t *testing.T) {
 }
 
 func TestResolveBasePath_MultiplePoolsNoDefaultFails(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 	d.SetPools(map[string]string{
 		"fast":    "/mnt/fast",
 		"archive": "/mnt/archive",
@@ -323,7 +324,7 @@ func TestResolveBasePath_MultiplePoolsNoDefaultFails(t *testing.T) {
 }
 
 func TestResolveBasePath_ExplicitPoolParam(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 	d.SetPools(map[string]string{
 		"default": "/mnt/default",
 		"fast":    "/mnt/fast",
@@ -339,7 +340,7 @@ func TestResolveBasePath_ExplicitPoolParam(t *testing.T) {
 }
 
 func TestResolveBasePath_UnknownPoolFails(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 	d.SetPools(map[string]string{"default": "/mnt/default"})
 
 	_, err := d.resolveBasePath(map[string]string{"pool": "nonexistent"})
@@ -352,7 +353,7 @@ func TestResolveBasePath_UnknownPoolFails(t *testing.T) {
 }
 
 func TestResolveBasePath_NoPools(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 	d.SetPools(map[string]string{})
 
 	_, err := d.resolveBasePath(nil)
@@ -365,13 +366,13 @@ func TestResolveBasePath_NoPools(t *testing.T) {
 }
 
 func TestDeleteVolume_Exists(t *testing.T) {
-	d, mock, store := newTestDriverWithMock()
+	d, mock, store := newTestDriverWithMock(t)
 	mock.SubvolumeExistsResult = true
 
 	vol := &state.Volume{
 		ID:       "vol-abc",
 		Name:     "test-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -395,13 +396,13 @@ func TestDeleteVolume_Exists(t *testing.T) {
 }
 
 func TestDeleteVolume_SubvolumeGoneButStateRemains(t *testing.T) {
-	d, mock, store := newTestDriverWithMock()
+	d, mock, store := newTestDriverWithMock(t)
 	mock.SubvolumeExistsResult = false // subvolume already gone
 
 	vol := &state.Volume{
 		ID:       "vol-partial",
 		Name:     "test-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -422,7 +423,7 @@ func TestDeleteVolume_SubvolumeGoneButStateRemains(t *testing.T) {
 }
 
 func TestDeleteVolume_NotFound(t *testing.T) {
-	d, mock, _ := newTestDriverWithMock()
+	d, mock, _ := newTestDriverWithMock(t)
 
 	_, err := d.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: "vol-nonexistent"})
 	if err != nil {
@@ -435,7 +436,7 @@ func TestDeleteVolume_NotFound(t *testing.T) {
 }
 
 func TestDeleteVolume_MissingID(t *testing.T) {
-	d, _, _ := newTestDriverWithMock()
+	d, _, _ := newTestDriverWithMock(t)
 
 	_, err := d.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{})
 	if code := status.Code(err); code != codes.InvalidArgument {
@@ -444,14 +445,14 @@ func TestDeleteVolume_MissingID(t *testing.T) {
 }
 
 func TestControllerExpandVolume_Success(t *testing.T) {
-	d, mock, store := newTestDriverWithMock()
+	d, mock, store := newTestDriverWithMock(t)
 
 	// First create a volume
 	vol := &state.Volume{
 		ID:            "vol-expand",
 		Name:          "test-pvc",
 		CapacityBytes: 1 << 30, // 1 GiB
-		BasePath:      "/tmp/btrfs-csi-test",
+		BasePath:      store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -488,13 +489,13 @@ func TestControllerExpandVolume_Success(t *testing.T) {
 }
 
 func TestControllerExpandVolume_LimitBytesExceeded(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 
 	vol := &state.Volume{
 		ID:            "vol-limit",
 		Name:          "test-pvc",
 		CapacityBytes: 1 << 30, // 1 GiB
-		BasePath:      "/tmp/btrfs-csi-test",
+		BasePath:      store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -513,7 +514,7 @@ func TestControllerExpandVolume_LimitBytesExceeded(t *testing.T) {
 }
 
 func TestControllerExpandVolume_VolumeNotFound(t *testing.T) {
-	d, _, _ := newTestDriverWithMock()
+	d, _, _ := newTestDriverWithMock(t)
 
 	_, err := d.ControllerExpandVolume(context.Background(), &csi.ControllerExpandVolumeRequest{
 		VolumeId:      "vol-nonexistent",
@@ -525,14 +526,14 @@ func TestControllerExpandVolume_VolumeNotFound(t *testing.T) {
 }
 
 func TestControllerExpandVolume_ShrinkRejected(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 
 	// First create a volume with 2 GiB
 	vol := &state.Volume{
 		ID:            "vol-shrink",
 		Name:          "test-pvc",
 		CapacityBytes: 2 << 30, // 2 GiB
-		BasePath:      "/tmp/btrfs-csi-test",
+		BasePath:      store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -549,7 +550,7 @@ func TestControllerExpandVolume_ShrinkRejected(t *testing.T) {
 }
 
 func TestListVolumes_Empty(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 
 	resp, err := d.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
 	if err != nil {
@@ -561,10 +562,10 @@ func TestListVolumes_Empty(t *testing.T) {
 }
 
 func TestListVolumes_ReturnsAll(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 	vols := []*state.Volume{
-		{ID: "vol-1", Name: "pvc-1", CapacityBytes: 1 << 30, BasePath: "/tmp/btrfs-csi-test"},
-		{ID: "vol-2", Name: "pvc-2", CapacityBytes: 2 << 30, BasePath: "/tmp/btrfs-csi-test"},
+		{ID: "vol-1", Name: "pvc-1", CapacityBytes: 1 << 30, BasePath: store.root()},
+		{ID: "vol-2", Name: "pvc-2", CapacityBytes: 2 << 30, BasePath: store.root()},
 	}
 	for _, v := range vols {
 		if err := store.SaveVolume(v); err != nil {
@@ -591,11 +592,11 @@ func TestListVolumes_ReturnsAll(t *testing.T) {
 }
 
 func TestListVolumes_MaxEntries(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 	for _, v := range []*state.Volume{
-		{ID: "vol-a", Name: "pvc-a", BasePath: testRootPath},
-		{ID: "vol-b", Name: "pvc-b", BasePath: testRootPath},
-		{ID: "vol-c", Name: "pvc-c", BasePath: testRootPath},
+		{ID: "vol-a", Name: "pvc-a", BasePath: store.root()},
+		{ID: "vol-b", Name: "pvc-b", BasePath: store.root()},
+		{ID: "vol-c", Name: "pvc-c", BasePath: store.root()},
 	} {
 		if err := store.SaveVolume(v); err != nil {
 			t.Fatalf("SaveVolume: %v", err)
@@ -615,10 +616,10 @@ func TestListVolumes_MaxEntries(t *testing.T) {
 }
 
 func TestListVolumes_PaginationFullWalk(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 	ids := []string{"vol-a", "vol-b", "vol-c", "vol-d", "vol-e"}
 	for _, id := range ids {
-		if err := store.SaveVolume(&state.Volume{ID: id, Name: id, BasePath: testRootPath}); err != nil {
+		if err := store.SaveVolume(&state.Volume{ID: id, Name: id, BasePath: store.root()}); err != nil {
 			t.Fatalf("SaveVolume: %v", err)
 		}
 	}
@@ -647,7 +648,7 @@ func TestListVolumes_PaginationFullWalk(t *testing.T) {
 }
 
 func TestListVolumes_InvalidStartingToken(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 
 	_, err := d.ListVolumes(context.Background(), &csi.ListVolumesRequest{StartingToken: "not-a-number"})
 	if code := status.Code(err); code != codes.Aborted {
@@ -656,8 +657,8 @@ func TestListVolumes_InvalidStartingToken(t *testing.T) {
 }
 
 func TestListVolumes_StartingTokenBeyondEnd(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
-	if err := store.SaveVolume(&state.Volume{ID: "vol-1", Name: "pvc-1", BasePath: testRootPath}); err != nil {
+	d, _, store := newTestDriverWithMock(t)
+	if err := store.SaveVolume(&state.Volume{ID: "vol-1", Name: "pvc-1", BasePath: store.root()}); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}
 
@@ -671,10 +672,10 @@ func TestListVolumes_StartingTokenBeyondEnd(t *testing.T) {
 }
 
 func TestListVolumes_NoMaxEntriesNoToken(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 	for _, v := range []*state.Volume{
-		{ID: "vol-a", Name: "pvc-a", BasePath: testRootPath},
-		{ID: "vol-b", Name: "pvc-b", BasePath: testRootPath},
+		{ID: "vol-a", Name: "pvc-a", BasePath: store.root()},
+		{ID: "vol-b", Name: "pvc-b", BasePath: store.root()},
 	} {
 		if err := store.SaveVolume(v); err != nil {
 			t.Fatalf("SaveVolume: %v", err)
@@ -694,12 +695,12 @@ func TestListVolumes_NoMaxEntriesNoToken(t *testing.T) {
 }
 
 func TestControllerGetVolume_Success(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 	vol := &state.Volume{
 		ID:            "vol-abc",
 		Name:          "test-pvc",
 		CapacityBytes: 1 << 30,
-		BasePath:      "/tmp/btrfs-csi-test",
+		BasePath:      store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -718,7 +719,7 @@ func TestControllerGetVolume_Success(t *testing.T) {
 }
 
 func TestControllerGetVolume_NotFound(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 
 	_, err := d.ControllerGetVolume(context.Background(), &csi.ControllerGetVolumeRequest{VolumeId: "vol-nonexistent"})
 	if code := status.Code(err); code != codes.NotFound {
@@ -727,7 +728,7 @@ func TestControllerGetVolume_NotFound(t *testing.T) {
 }
 
 func TestControllerGetVolume_MissingID(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 
 	_, err := d.ControllerGetVolume(context.Background(), &csi.ControllerGetVolumeRequest{})
 	if code := status.Code(err); code != codes.InvalidArgument {
@@ -736,7 +737,7 @@ func TestControllerGetVolume_MissingID(t *testing.T) {
 }
 
 func TestControllerGetVolume_AbnormalWhenPathMissing(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 	vol := &state.Volume{
 		ID:       "vol-missing",
 		Name:     "test-pvc",
@@ -756,12 +757,11 @@ func TestControllerGetVolume_AbnormalWhenPathMissing(t *testing.T) {
 }
 
 func TestControllerGetVolume_NormalWhenPathExists(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
-	// Use testRootPath so the memStore hydrates BasePath correctly on GetVolume.
+	d, _, store := newTestDriverWithMock(t)
 	vol := &state.Volume{
 		ID:       "vol-exists",
 		Name:     "test-pvc",
-		BasePath: testRootPath,
+		BasePath: store.root(),
 	}
 	// Create the subvolume directory so os.Stat succeeds.
 	if err := os.MkdirAll(vol.Path(), 0o755); err != nil {
@@ -782,7 +782,7 @@ func TestControllerGetVolume_NormalWhenPathExists(t *testing.T) {
 }
 
 func TestCreateVolume_ConcurrentSameNameIdempotent(t *testing.T) {
-	d, mock, _ := newTestDriverWithMock()
+	d, mock, _ := newTestDriverWithMock(t)
 
 	req := &csi.CreateVolumeRequest{
 		Name:               "test-pvc-concurrent",
@@ -826,12 +826,12 @@ func TestCreateVolume_ConcurrentSameNameIdempotent(t *testing.T) {
 }
 
 func TestCreateSnapshot_ConcurrentSameNameIdempotent(t *testing.T) {
-	d, mock, store := newTestDriverWithMock()
+	d, mock, store := newTestDriverWithMock(t)
 
 	vol := &state.Volume{
 		ID:       "vol-src",
 		Name:     "source-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -879,7 +879,7 @@ func TestCreateSnapshot_ConcurrentSameNameIdempotent(t *testing.T) {
 }
 
 func TestCreateVolume_CleansUpSubvolumeOnSetQgroupLimitFailure(t *testing.T) {
-	d, mock, _ := newTestDriverWithMock()
+	d, mock, _ := newTestDriverWithMock(t)
 
 	mock.SetQgroupLimitErr = fmt.Errorf("quota not enabled")
 
@@ -905,13 +905,13 @@ func TestCreateVolume_CleansUpSubvolumeOnSetQgroupLimitFailure(t *testing.T) {
 }
 
 func TestControllerExpandVolume_CallsEnsureQuotaEnabled(t *testing.T) {
-	d, mock, store := newTestDriverWithMock()
+	d, mock, store := newTestDriverWithMock(t)
 
 	vol := &state.Volume{
 		ID:            "vol-expand-quota",
 		Name:          "test-pvc",
 		CapacityBytes: 0, // created without a quota limit
-		BasePath:      testRootPath,
+		BasePath:      store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -928,23 +928,23 @@ func TestControllerExpandVolume_CallsEnsureQuotaEnabled(t *testing.T) {
 	if len(mock.EnsureQuotaEnabledCalls) != 1 {
 		t.Fatalf("expected 1 EnsureQuotaEnabled call, got %d", len(mock.EnsureQuotaEnabledCalls))
 	}
-	if got := mock.EnsureQuotaEnabledCalls[0]; got != testRootPath {
-		t.Errorf("EnsureQuotaEnabled called with %q, want %q", got, testRootPath)
+	if got := mock.EnsureQuotaEnabledCalls[0]; got != store.root() {
+		t.Errorf("EnsureQuotaEnabled called with %q, want %q", got, store.root())
 	}
 }
 
 func TestDeleteVolumeAndCreateFromSnapshot_ConcurrentSafe(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 
-	srcVol := &state.Volume{ID: "vol-src", Name: "src-pvc", BasePath: testRootPath}
+	srcVol := &state.Volume{ID: "vol-src", Name: "src-pvc", BasePath: store.root()}
 	if err := store.SaveVolume(srcVol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}
-	snap := &state.Snapshot{ID: "snap-1", Name: "snap-1", SourceVolID: "vol-src", BasePath: testRootPath, ReadyToUse: true}
+	snap := &state.Snapshot{ID: "snap-1", Name: "snap-1", SourceVolID: "vol-src", BasePath: store.root(), ReadyToUse: true}
 	if err := store.SaveSnapshot(snap); err != nil {
 		t.Fatalf("SaveSnapshot: %v", err)
 	}
-	delVol := &state.Volume{ID: "vol-del", Name: "del-pvc", BasePath: testRootPath}
+	delVol := &state.Volume{ID: "vol-del", Name: "del-pvc", BasePath: store.root()}
 	if err := store.SaveVolume(delVol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}
@@ -979,17 +979,17 @@ func TestDeleteVolumeAndCreateFromSnapshot_ConcurrentSafe(t *testing.T) {
 }
 
 func TestDeleteSnapshotAndCreateFromSnapshot_ConcurrentSafe(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 
-	srcVol := &state.Volume{ID: "vol-src", Name: "src-pvc", BasePath: testRootPath}
+	srcVol := &state.Volume{ID: "vol-src", Name: "src-pvc", BasePath: store.root()}
 	if err := store.SaveVolume(srcVol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}
-	delSnap := &state.Snapshot{ID: "snap-del", Name: "snap-del", SourceVolID: "vol-src", BasePath: testRootPath, ReadyToUse: true}
+	delSnap := &state.Snapshot{ID: "snap-del", Name: "snap-del", SourceVolID: "vol-src", BasePath: store.root(), ReadyToUse: true}
 	if err := store.SaveSnapshot(delSnap); err != nil {
 		t.Fatalf("SaveSnapshot: %v", err)
 	}
-	cloneSnap := &state.Snapshot{ID: "snap-clone", Name: "snap-clone", SourceVolID: "vol-src", BasePath: testRootPath, ReadyToUse: true}
+	cloneSnap := &state.Snapshot{ID: "snap-clone", Name: "snap-clone", SourceVolID: "vol-src", BasePath: store.root(), ReadyToUse: true}
 	if err := store.SaveSnapshot(cloneSnap); err != nil {
 		t.Fatalf("SaveSnapshot: %v", err)
 	}

@@ -13,7 +13,7 @@ import (
 )
 
 func TestControllerGetCapabilities(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 
 	resp, err := d.ControllerGetCapabilities(context.Background(), &csi.ControllerGetCapabilitiesRequest{})
 	if err != nil {
@@ -52,7 +52,7 @@ func TestControllerGetCapabilities(t *testing.T) {
 }
 
 func TestValidateVolumeCapabilities_Supported(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 	if err := store.SaveVolume(&state.Volume{ID: "vol-123", Name: "test-pvc"}); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestValidateVolumeCapabilities_Supported(t *testing.T) {
 }
 
 func TestValidateVolumeCapabilities_SingleNodeSingleWriter(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 	if err := store.SaveVolume(&state.Volume{ID: "vol-123", Name: "test-pvc"}); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestValidateVolumeCapabilities_SingleNodeSingleWriter(t *testing.T) {
 }
 
 func TestValidateVolumeCapabilities_SingleNodeMultiWriter(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 	if err := store.SaveVolume(&state.Volume{ID: "vol-123", Name: "test-pvc"}); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestValidateVolumeCapabilities_SingleNodeMultiWriter(t *testing.T) {
 }
 
 func TestValidateVolumeCapabilities_Unsupported(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 	if err := store.SaveVolume(&state.Volume{ID: "vol-123", Name: "test-pvc"}); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestValidateVolumeCapabilities_Unsupported(t *testing.T) {
 }
 
 func TestValidateVolumeCapabilities_VolumeNotFound(t *testing.T) {
-	d := newTestDriver()
+	d := newTestDriver(t)
 
 	_, err := d.ValidateVolumeCapabilities(context.Background(), &csi.ValidateVolumeCapabilitiesRequest{
 		VolumeId:           "vol-nonexistent",
@@ -165,7 +165,7 @@ func TestValidateVolumeCapabilities_VolumeNotFound(t *testing.T) {
 }
 
 func TestValidateVolumeCapabilities_BlockAccessRejected(t *testing.T) {
-	d, _, store := newTestDriverWithMock()
+	d, _, store := newTestDriverWithMock(t)
 	if err := store.SaveVolume(&state.Volume{ID: "vol-123", Name: "test-pvc"}); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestValidateVolumeCapabilities_BlockAccessRejected(t *testing.T) {
 }
 
 func TestGetCapacity_Success(t *testing.T) {
-	d, mock, _ := newTestDriverWithMock()
+	d, mock, store := newTestDriverWithMock(t)
 	mock.GetFilesystemUsageResult = &btrfs.FsUsage{Total: 10 << 30, Used: 2 << 30, Available: 8 << 30}
 
 	resp, err := d.GetCapacity(context.Background(), &csi.GetCapacityRequest{})
@@ -205,13 +205,13 @@ func TestGetCapacity_Success(t *testing.T) {
 	if len(mock.GetFilesystemUsageCalls) != 1 {
 		t.Fatalf("expected 1 GetFilesystemUsage call, got %d", len(mock.GetFilesystemUsageCalls))
 	}
-	if mock.GetFilesystemUsageCalls[0] != "/tmp/btrfs-csi-test" {
-		t.Errorf("GetFilesystemUsage path = %q, want /tmp/btrfs-csi-test", mock.GetFilesystemUsageCalls[0])
+	if mock.GetFilesystemUsageCalls[0] != store.root() {
+		t.Errorf("GetFilesystemUsage path = %q, want %q", mock.GetFilesystemUsageCalls[0], store.root())
 	}
 }
 
 func TestGetCapacity_Error(t *testing.T) {
-	d, mock, _ := newTestDriverWithMock()
+	d, mock, _ := newTestDriverWithMock(t)
 	mock.GetFilesystemUsageErr = errors.New("statfs failed")
 
 	_, err := d.GetCapacity(context.Background(), &csi.GetCapacityRequest{})

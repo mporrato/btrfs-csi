@@ -61,13 +61,13 @@ func (m *MockMounter) IsMountPoint(file string) (bool, error) {
 }
 
 func TestNodePublishVolume_Success(t *testing.T) {
-	d, _, mounter, store := newTestDriverWithMounter()
+	d, _, mounter, store := newTestDriverWithMounter(t)
 
 	// Create a volume in state
 	vol := &state.Volume{
 		ID:       "vol-123",
 		Name:     "test-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -115,12 +115,12 @@ func TestNodePublishVolume_Success(t *testing.T) {
 }
 
 func TestNodePublishVolume_Readonly(t *testing.T) {
-	d, _, mounter, store := newTestDriverWithMounter()
+	d, _, mounter, store := newTestDriverWithMounter(t)
 
 	vol := &state.Volume{
 		ID:       "vol-readonly",
 		Name:     "test-pvc-ro",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -159,7 +159,7 @@ func TestNodePublishVolume_Readonly(t *testing.T) {
 }
 
 func TestNodePublishVolume_MissingVolumeID(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	_, err := d.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
 		TargetPath: "/tmp/target",
@@ -178,7 +178,7 @@ func TestNodePublishVolume_MissingVolumeID(t *testing.T) {
 }
 
 func TestNodePublishVolume_MissingTargetPath(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	_, err := d.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
 		VolumeId: "vol-123",
@@ -197,7 +197,7 @@ func TestNodePublishVolume_MissingTargetPath(t *testing.T) {
 }
 
 func TestNodeUnpublishVolume_Success(t *testing.T) {
-	d, _, mounter, _ := newTestDriverWithMounter()
+	d, _, mounter, _ := newTestDriverWithMounter(t)
 
 	// Set up mock: target is a mount point
 	mounter.IsMountPointResult = true
@@ -233,7 +233,7 @@ func TestNodeUnpublishVolume_Success(t *testing.T) {
 }
 
 func TestNodeUnpublishVolume_NotMounted(t *testing.T) {
-	d, _, mounter, _ := newTestDriverWithMounter()
+	d, _, mounter, _ := newTestDriverWithMounter(t)
 
 	// Set up mock: target is NOT a mount point
 	mounter.IsMountPointResult = false
@@ -262,7 +262,7 @@ func TestNodeUnpublishVolume_NotMounted(t *testing.T) {
 }
 
 func TestNodeGetInfo(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	resp, err := d.NodeGetInfo(context.Background(), &csi.NodeGetInfoRequest{})
 	if err != nil {
@@ -293,7 +293,7 @@ func TestNodeGetInfo(t *testing.T) {
 }
 
 func TestNodeGetCapabilities(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	resp, err := d.NodeGetCapabilities(context.Background(), &csi.NodeGetCapabilitiesRequest{})
 	if err != nil {
@@ -322,13 +322,13 @@ func TestNodeGetCapabilities(t *testing.T) {
 }
 
 func TestNodeGetVolumeStats(t *testing.T) {
-	d, mock, mounter, store := newTestDriverWithMounter()
+	d, mock, mounter, store := newTestDriverWithMounter(t)
 
 	// Create a volume in state
 	vol := &state.Volume{
 		ID:       "vol-stats",
 		Name:     "test-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -394,9 +394,9 @@ func TestNodeGetVolumeStats(t *testing.T) {
 }
 
 func TestNodeGetVolumeStats_EmptyVolumePath(t *testing.T) {
-	d, _, _, store := newTestDriverWithMounter()
+	d, _, _, store := newTestDriverWithMounter(t)
 
-	vol := &state.Volume{ID: "vol-1", Name: "pvc-1", BasePath: testRootPath}
+	vol := &state.Volume{ID: "vol-1", Name: "pvc-1", BasePath: store.root()}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestNodeGetVolumeStats_EmptyVolumePath(t *testing.T) {
 }
 
 func TestNodeGetVolumeStats_EmptyVolumePath_UnknownVolume(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	_, err := d.NodeGetVolumeStats(context.Background(), &csi.NodeGetVolumeStatsRequest{
 		VolumeId:   "vol-unknown",
@@ -423,13 +423,13 @@ func TestNodeGetVolumeStats_EmptyVolumePath_UnknownVolume(t *testing.T) {
 }
 
 func TestNodeGetVolumeStats_PathOutsideKubelet(t *testing.T) {
-	d, _, _, store := newTestDriverWithMounter()
+	d, _, _, store := newTestDriverWithMounter(t)
 	kubeletDir := t.TempDir()
 	if err := d.SetKubeletPath(kubeletDir); err != nil {
 		t.Fatalf("SetKubeletPath: %v", err)
 	}
 
-	vol := &state.Volume{ID: "vol-1", Name: "pvc-1", BasePath: testRootPath}
+	vol := &state.Volume{ID: "vol-1", Name: "pvc-1", BasePath: store.root()}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestNodeGetVolumeStats_PathOutsideKubelet(t *testing.T) {
 }
 
 func TestNodeGetVolumeStats_VolumeNotFound(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	targetPath := filepath.Join(t.TempDir(), "target")
 	if err := os.MkdirAll(targetPath, 0o755); err != nil {
@@ -461,7 +461,7 @@ func TestNodeGetVolumeStats_VolumeNotFound(t *testing.T) {
 }
 
 func TestNodePublishVolume_VolumeNotFound(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	targetPath := filepath.Join(t.TempDir(), "target")
 	if err := os.MkdirAll(targetPath, 0o755); err != nil {
@@ -486,12 +486,12 @@ func TestNodePublishVolume_VolumeNotFound(t *testing.T) {
 }
 
 func TestNodePublishVolume_AlreadyMounted(t *testing.T) {
-	d, _, mounter, store := newTestDriverWithMounter()
+	d, _, mounter, store := newTestDriverWithMounter(t)
 
 	vol := &state.Volume{
 		ID:       "vol-already",
 		Name:     "test-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -534,12 +534,12 @@ func TestNodePublishVolume_AlreadyMounted(t *testing.T) {
 }
 
 func TestNodePublishVolume_PathTraversal(t *testing.T) {
-	d, _, _, store := newTestDriverWithMounter()
+	d, _, _, store := newTestDriverWithMounter(t)
 
 	vol := &state.Volume{
 		ID:       "vol-traversal",
 		Name:     "test-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -550,7 +550,7 @@ func TestNodePublishVolume_PathTraversal(t *testing.T) {
 		targetPath string
 	}{
 		{"dotdot prefix", "../../../etc/evil"},
-		{"dotdot middle", "/tmp/btrfs-csi-test/../../etc/evil"},
+		{"dotdot middle", "/tmp/dotdot-test/../../etc/evil"},
 		{"dotdot end", "/tmp/target/.."},
 	}
 
@@ -576,7 +576,7 @@ func TestNodePublishVolume_PathTraversal(t *testing.T) {
 }
 
 func TestNodeUnpublishVolume_PathTraversal(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	_, err := d.NodeUnpublishVolume(context.Background(), &csi.NodeUnpublishVolumeRequest{
 		VolumeId:   "vol-123",
@@ -588,7 +588,7 @@ func TestNodeUnpublishVolume_PathTraversal(t *testing.T) {
 }
 
 func TestNodeUnpublishVolume_UnmountError(t *testing.T) {
-	d, _, mounter, _ := newTestDriverWithMounter()
+	d, _, mounter, _ := newTestDriverWithMounter(t)
 
 	// Set up mock: target is a mount point
 	mounter.IsMountPointResult = true
@@ -609,7 +609,7 @@ func TestNodeUnpublishVolume_UnmountError(t *testing.T) {
 }
 
 func TestNodeUnpublishVolume_IsMountPointError(t *testing.T) {
-	d, _, mounter, _ := newTestDriverWithMounter()
+	d, _, mounter, _ := newTestDriverWithMounter(t)
 
 	// Set up mock: IsMountPoint returns an error
 	mounter.IsMountPointErr = fmt.Errorf("lstat failed: no such file or directory")
@@ -634,12 +634,12 @@ func TestNodeUnpublishVolume_IsMountPointError(t *testing.T) {
 }
 
 func TestNodeGetVolumeStats_VolumeCondition_Abnormal(t *testing.T) {
-	d, mock, mounter, store := newTestDriverWithMounter()
+	d, mock, mounter, store := newTestDriverWithMounter(t)
 
 	vol := &state.Volume{
 		ID:       "vol-condition-abnormal",
 		Name:     "test-pvc",
-		BasePath: testRootPath,
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -653,7 +653,7 @@ func TestNodeGetVolumeStats_VolumeCondition_Abnormal(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	// vol.Path() = /tmp/btrfs-csi-test/volumes/vol-condition-abnormal — does not exist on disk.
+	// vol.Path() does not exist on disk — subvolume directory was never created.
 	resp, err := d.NodeGetVolumeStats(context.Background(), &csi.NodeGetVolumeStatsRequest{
 		VolumeId:   vol.ID,
 		VolumePath: targetPath,
@@ -670,18 +670,17 @@ func TestNodeGetVolumeStats_VolumeCondition_Abnormal(t *testing.T) {
 }
 
 func TestNodeGetVolumeStats_VolumeCondition_Healthy(t *testing.T) {
-	d, mock, mounter, store := newTestDriverWithMounter()
+	d, mock, mounter, store := newTestDriverWithMounter(t)
 
 	vol := &state.Volume{
 		ID:       "vol-condition-healthy",
 		Name:     "test-pvc",
-		BasePath: testRootPath,
+		BasePath: store.root(),
 	}
 	// Create the subvolume directory so vol.Path() exists on disk.
 	if err := os.MkdirAll(vol.Path(), 0o755); err != nil {
 		t.Fatalf("MkdirAll subvol path: %v", err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(vol.Path()) })
 
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -711,12 +710,12 @@ func TestNodeGetVolumeStats_VolumeCondition_Healthy(t *testing.T) {
 }
 
 func TestNodeGetVolumeStats_GetQgroupUsageError(t *testing.T) {
-	d, mock, mounter, store := newTestDriverWithMounter()
+	d, mock, mounter, store := newTestDriverWithMounter(t)
 
 	vol := &state.Volume{
 		ID:       "vol-qgroup-err",
 		Name:     "test-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -743,12 +742,12 @@ func TestNodeGetVolumeStats_GetQgroupUsageError(t *testing.T) {
 }
 
 func TestNodeGetVolumeStats_NoQuotaFallback(t *testing.T) {
-	d, mock, mounter, store := newTestDriverWithMounter()
+	d, mock, mounter, store := newTestDriverWithMounter(t)
 
 	vol := &state.Volume{
 		ID:       "vol-noquota",
 		Name:     "test-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -801,7 +800,7 @@ func TestNodeGetVolumeStats_NoQuotaFallback(t *testing.T) {
 }
 
 func TestNodeExpandVolume_MissingVolumeID(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	_, err := d.NodeExpandVolume(context.Background(), &csi.NodeExpandVolumeRequest{
 		VolumePath: "/var/lib/kubelet/pods/123/volumes/vol",
@@ -812,7 +811,7 @@ func TestNodeExpandVolume_MissingVolumeID(t *testing.T) {
 }
 
 func TestNodeExpandVolume_MissingVolumePath(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	_, err := d.NodeExpandVolume(context.Background(), &csi.NodeExpandVolumeRequest{
 		VolumeId: "vol-expand",
@@ -823,13 +822,13 @@ func TestNodeExpandVolume_MissingVolumePath(t *testing.T) {
 }
 
 func TestNodeExpandVolume_ReturnsCapacity(t *testing.T) {
-	d, _, _, store := newTestDriverWithMounter()
+	d, _, _, store := newTestDriverWithMounter(t)
 
 	vol := &state.Volume{
 		ID:            "vol-expand",
 		Name:          "test-pvc",
 		CapacityBytes: 2 << 30, // 2 GiB
-		BasePath:      "/tmp/btrfs-csi-test",
+		BasePath:      store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -848,7 +847,7 @@ func TestNodeExpandVolume_ReturnsCapacity(t *testing.T) {
 }
 
 func TestNodeExpandVolume_PathOutsideKubeletDir(t *testing.T) {
-	d, _, _, store := newTestDriverWithMounter()
+	d, _, _, store := newTestDriverWithMounter(t)
 	if err := d.SetKubeletPath("/tmp"); err != nil {
 		t.Fatalf("SetKubeletPath: %v", err)
 	}
@@ -886,7 +885,7 @@ func TestValidatePath_RelativePath(t *testing.T) {
 }
 
 func TestNodePublishVolume_PathOutsideKubelet(t *testing.T) {
-	d, _, _, store := newTestDriverWithMounter()
+	d, _, _, store := newTestDriverWithMounter(t)
 	kubeletDir := t.TempDir()
 	if err := d.SetKubeletPath(kubeletDir); err != nil {
 		t.Fatalf("SetKubeletPath: %v", err)
@@ -895,7 +894,7 @@ func TestNodePublishVolume_PathOutsideKubelet(t *testing.T) {
 	vol := &state.Volume{
 		ID:       "vol-outside",
 		Name:     "test-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -931,7 +930,7 @@ func TestNodePublishVolume_PathOutsideKubelet(t *testing.T) {
 }
 
 func TestNodeUnpublishVolume_PathOutsideKubelet(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 	kubeletDir := t.TempDir()
 	if err := d.SetKubeletPath(kubeletDir); err != nil {
 		t.Fatalf("SetKubeletPath: %v", err)
@@ -947,7 +946,7 @@ func TestNodeUnpublishVolume_PathOutsideKubelet(t *testing.T) {
 }
 
 func TestSetKubeletPath_ResolvesSymlinks(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	// Create a temp dir structure: realDir <- symlink
 	realDir := t.TempDir()
@@ -971,7 +970,7 @@ func TestSetKubeletPath_ResolvesSymlinks(t *testing.T) {
 }
 
 func TestSetKubeletPath_InvalidPath(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	// Non-existent path is stored as-is (no error), so validation still works
 	err := d.SetKubeletPath("/nonexistent/path/that/does/not/exist")
@@ -985,7 +984,7 @@ func TestSetKubeletPath_InvalidPath(t *testing.T) {
 }
 
 func TestSetKubeletPath_RejectsRelativePath(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	err := d.SetKubeletPath("relative/path")
 	if err == nil {
@@ -994,7 +993,7 @@ func TestSetKubeletPath_RejectsRelativePath(t *testing.T) {
 }
 
 func TestSetKubeletPath_RejectsTraversal(t *testing.T) {
-	d, _, _, _ := newTestDriverWithMounter()
+	d, _, _, _ := newTestDriverWithMounter(t)
 
 	err := d.SetKubeletPath("/var/lib/../etc")
 	if err == nil {
@@ -1003,12 +1002,12 @@ func TestSetKubeletPath_RejectsTraversal(t *testing.T) {
 }
 
 func TestNodePublishVolume_BindMountOption(t *testing.T) {
-	d, _, mounter, store := newTestDriverWithMounter()
+	d, _, mounter, store := newTestDriverWithMounter(t)
 
 	vol := &state.Volume{
 		ID:       "vol-bind",
 		Name:     "test-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -1056,12 +1055,12 @@ func TestNodePublishVolume_BindMountOption(t *testing.T) {
 }
 
 func TestNodeGetVolumeStats_PathNotMounted(t *testing.T) {
-	d, _, mounter, store := newTestDriverWithMounter()
+	d, _, mounter, store := newTestDriverWithMounter(t)
 
 	vol := &state.Volume{
 		ID:       "vol-notmounted",
 		Name:     "test-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)
@@ -1085,7 +1084,7 @@ func TestNodeGetVolumeStats_PathNotMounted(t *testing.T) {
 }
 
 func TestNodePublishVolume_MountError(t *testing.T) {
-	d, _, mounter, store := newTestDriverWithMounter()
+	d, _, mounter, store := newTestDriverWithMounter(t)
 
 	// Configure mock to return error
 	mounter.MountErr = fmt.Errorf("mount failed: device busy")
@@ -1093,7 +1092,7 @@ func TestNodePublishVolume_MountError(t *testing.T) {
 	vol := &state.Volume{
 		ID:       "vol-mounterr",
 		Name:     "test-pvc",
-		BasePath: "/tmp/btrfs-csi-test",
+		BasePath: store.root(),
 	}
 	if err := store.SaveVolume(vol); err != nil {
 		t.Fatalf("SaveVolume: %v", err)

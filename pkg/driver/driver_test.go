@@ -17,7 +17,7 @@ import (
 )
 
 func TestNewDriver_ClearsStaleQgroupsOnStartup(t *testing.T) {
-	_, mock, _ := newTestDriverWithMock()
+	_, mock, _ := newTestDriverWithMock(t)
 	if len(mock.ClearStaleQgroupsCalls) != 0 {
 		t.Fatalf("expected no ClearStaleQgroups call synchronously on startup, got %d", len(mock.ClearStaleQgroupsCalls))
 	}
@@ -369,7 +369,7 @@ func (m *mockBlockingGRPCServer) GracefulStop() { <-m.unblock }
 func (m *mockBlockingGRPCServer) Stop()         { m.once.Do(func() { close(m.unblock) }) }
 
 func TestStopForcesHardStopOnTimeout(t *testing.T) {
-	d, _, _ := newTestDriverWithMock()
+	d, _, _ := newTestDriverWithMock(t)
 	d.gracefulStopTimeout = 5 * time.Millisecond
 	d.grpcServer = &mockBlockingGRPCServer{unblock: make(chan struct{})}
 
@@ -385,10 +385,10 @@ func TestStopForcesHardStopOnTimeout(t *testing.T) {
 // TestApplyPoolConfig_Atomicity verifies that ApplyPoolConfig updates pools
 // atomically, preventing concurrent readers from seeing partial updates.
 func TestApplyPoolConfig_Atomicity(t *testing.T) {
-	d, _, _ := newTestDriverWithMock()
+	d, _, _ := newTestDriverWithMock(t)
 
-	basePath1 := "/tmp/btrfs-csi-test-pool1"
-	basePath2 := "/tmp/btrfs-csi-test-pool2"
+	basePath1 := "/tmp/pool1"
+	basePath2 := "/tmp/pool2"
 
 	pools := map[string]string{
 		"pool1": basePath1,

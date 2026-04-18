@@ -465,7 +465,7 @@ Invoke with `make deploy KUBELET_DIR=/var/lib/k0s/kubelet` as today, but have th
 
 ---
 
-### [ ] Q-5: Test utilities use hardcoded /tmp path
+### [x] Q-5: Test utilities use hardcoded /tmp path
 
 **File**: `pkg/driver/testutil_test.go:10`
 
@@ -489,7 +489,7 @@ func newTestDriver(t *testing.T) *Driver {
 
 This ripples to every caller of `newTestDriver()`, `newTestDriverWithMock()`, and `newTestDriverWithMounter()` — a mechanical change but broad. Do it in one pass so tests stay green throughout.
 
-**Status**: Open
+**Status**: Fixed — all three helpers now accept `*testing.T` and use `t.TempDir()`; removed the `testRootPath` constant; updated all callers and path-sensitive assertions across capabilities, controller, node, snapshot, identity, fuzz, and driver test files.
 
 ---
 
@@ -620,7 +620,7 @@ The existing `scripts/` runner already has patterns for loopback btrfs setup tha
 
 ### Security Concerns
 
-- [ ] **S-1**: Remove the misleading `drop: ["ALL"]` under `privileged: true`; document why privileged is required; investigate minimal capability set as a follow-up
+- [x] **S-1**: Remove the misleading `drop: ["ALL"]` under `privileged: true`; document why privileged is required; investigate minimal capability set as a follow-up
 - [ ] **S-2**: (Acknowledged — no action) Optionally switch to compact JSON
 - [ ] **S-3**: (Acknowledged — no action) Consider `SO_PEERCRED` if the deployment model changes
 
@@ -630,7 +630,7 @@ The existing `scripts/` runner already has patterns for loopback btrfs setup tha
 - [ ] **Q-2**: Add a unary logging interceptor recording method, duration, and error code; plan for Prometheus interceptor next
 - [ ] **Q-3**: Add opt-in periodic reconciliation of state against on-disk subvolumes; default to log-only, not auto-delete
 - [ ] **Q-4**: Replace `sed` in Makefile `deploy` target with kustomize `replacements` targeting specific field paths
-- [ ] **Q-5**: Refactor `newTestDriver*` helpers to accept `*testing.T` and use `t.TempDir()`; update all callers
+- [x] **Q-5**: Refactor `newTestDriver*` helpers to accept `*testing.T` and use `t.TempDir()`; update all callers
 
 ### Gaps
 

@@ -128,7 +128,7 @@ func FuzzValidateTargetPath(f *testing.F) {
 	addSeeds(f)
 
 	f.Fuzz(func(t *testing.T, path string) {
-		d, _, _, _ := newTestDriverWithMounter()
+		d, _, _, _ := newTestDriverWithMounter(t)
 		kubeletDir := t.TempDir()
 		if err := d.SetKubeletPath(kubeletDir); err != nil {
 			t.Fatalf("SetKubeletPath: %v", err)
@@ -191,7 +191,7 @@ func FuzzValidatePathInKubeletDir(f *testing.F) {
 	addSeeds(f)
 
 	f.Fuzz(func(t *testing.T, path string) {
-		d, _, _, _ := newTestDriverWithMounter()
+		d, _, _, _ := newTestDriverWithMounter(t)
 		kubeletDir := t.TempDir()
 		if err := d.SetKubeletPath(kubeletDir); err != nil {
 			t.Fatalf("SetKubeletPath: %v", err)
@@ -223,13 +223,13 @@ func FuzzNodePublishVolume(f *testing.F) {
 	addSeeds(f)
 
 	f.Fuzz(func(t *testing.T, targetPath string) {
-		d, _, _, store := newTestDriverWithMounter()
+		d, _, _, store := newTestDriverWithMounter(t)
 		kubeletDir := t.TempDir()
 		if err := d.SetKubeletPath(kubeletDir); err != nil {
 			t.Fatalf("SetKubeletPath: %v", err)
 		}
 
-		vol := &state.Volume{ID: "vol-fuzz", Name: "test-pvc", BasePath: "/tmp/btrfs-csi-test"}
+		vol := &state.Volume{ID: "vol-fuzz", Name: "test-pvc", BasePath: store.root()}
 		if err := store.SaveVolume(vol); err != nil {
 			t.Fatalf("SaveVolume: %v", err)
 		}
@@ -268,7 +268,7 @@ func FuzzNodeUnpublishVolume(f *testing.F) {
 	addSeeds(f)
 
 	f.Fuzz(func(t *testing.T, targetPath string) {
-		d, _, _, _ := newTestDriverWithMounter()
+		d, _, _, _ := newTestDriverWithMounter(t)
 		kubeletDir := t.TempDir()
 		if err := d.SetKubeletPath(kubeletDir); err != nil {
 			t.Fatalf("SetKubeletPath: %v", err)
@@ -302,13 +302,13 @@ func FuzzNodeGetVolumeStats(f *testing.F) {
 	addSeeds(f)
 
 	f.Fuzz(func(t *testing.T, volumePath string) {
-		d, _, _, store := newTestDriverWithMounter()
+		d, _, _, store := newTestDriverWithMounter(t)
 		kubeletDir := t.TempDir()
 		if err := d.SetKubeletPath(kubeletDir); err != nil {
 			t.Fatalf("SetKubeletPath: %v", err)
 		}
 
-		vol := &state.Volume{ID: "vol-fuzz", Name: "test-pvc", BasePath: "/tmp/btrfs-csi-test"}
+		vol := &state.Volume{ID: "vol-fuzz", Name: "test-pvc", BasePath: store.root()}
 		if err := store.SaveVolume(vol); err != nil {
 			t.Fatalf("SaveVolume: %v", err)
 		}
@@ -350,7 +350,7 @@ func FuzzSetKubeletPath(f *testing.F) {
 	addSeeds(f)
 
 	f.Fuzz(func(t *testing.T, kubeletPath string) {
-		d, _, _, _ := newTestDriverWithMounter()
+		d, _, _, _ := newTestDriverWithMounter(t)
 
 		err := d.SetKubeletPath(kubeletPath)
 
