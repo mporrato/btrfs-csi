@@ -345,7 +345,7 @@ This reduces the readability of casual inspection (and saves a few bytes per wri
 
 > **Technical debt and polish. These improve long-term maintainability and debuggability.**
 
-### [ ] Q-1: No graceful shutdown timeout
+### [x] Q-1: No graceful shutdown timeout
 
 **File**: `pkg/driver/driver.go:261–273` (`Stop`)
 
@@ -367,7 +367,7 @@ case <-time.After(30 * time.Second):
 
 30 s leaves headroom below the default 60 s `terminationGracePeriodSeconds`. Make the timeout configurable if the driver is deployed with a non-default grace period. This remediation is complementary to C-2: once RPCs carry a context, most stuck calls will unblock on context cancellation and the timeout becomes a safety net.
 
-**Status**: Open
+**Status**: Fixed. Note: in the timeout branch, the `GracefulStop` goroutine is left to run in the background rather than waited on — handler goroutines may be stuck on non-cancellable I/O, so waiting would defeat the timeout. They exit when the handler returns or the process is killed by Kubernetes.
 
 ---
 
@@ -626,7 +626,7 @@ The existing `scripts/` runner already has patterns for loopback btrfs setup tha
 
 ### Quality & Maintainability
 
-- [ ] **Q-1**: Wrap `GracefulStop` with a 30 s timeout that falls back to hard `Stop()` and logs which path was taken
+- [x] **Q-1**: Wrap `GracefulStop` with a 30 s timeout that falls back to hard `Stop()` and logs which path was taken
 - [ ] **Q-2**: Add a unary logging interceptor recording method, duration, and error code; plan for Prometheus interceptor next
 - [ ] **Q-3**: Add opt-in periodic reconciliation of state against on-disk subvolumes; default to log-only, not auto-delete
 - [ ] **Q-4**: Replace `sed` in Makefile `deploy` target with kustomize `replacements` targeting specific field paths

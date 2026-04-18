@@ -30,6 +30,13 @@ const (
 	startupQgroupStagger = 5 * time.Second
 )
 
+// grpcStopper is the subset of *grpc.Server used by Stop(). Extracted as an
+// interface so tests can inject a mock without starting a real gRPC server.
+type grpcStopper interface {
+	GracefulStop()
+	Stop()
+}
+
 // Driver implements the CSI Identity, Controller, and Node services.
 type Driver struct {
 	csi.UnimplementedIdentityServer
@@ -39,7 +46,7 @@ type Driver struct {
 	version    string
 	nodeID     string
 	mounter    Mounter
-	grpcServer *grpc.Server
+	grpcServer grpcStopper
 	manager    btrfs.Manager
 	store      state.Store
 
@@ -59,7 +66,8 @@ type Driver struct {
 	quotaEnabledMu sync.Mutex
 	quotaEnabled   map[string]bool // basePath → true if quota already enabled
 
-	kubeletPath string // base directory for target path validation (default /var/lib/kubelet)
+	kubeletPath         string        // base directory for target path validation (default /var/lib/kubelet)
+	gracefulStopTimeout time.Duration // how long to wait for in-flight RPCs before forcing Stop
 }
 
 // NewDriver creates a new Driver with the given btrfs manager, state store, and node ID.
@@ -79,12 +87,13 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) (*Driver, er
 	)
 
 	d := &Driver{
-		name:    driverName,
-		version: Version,
-		nodeID:  nodeID,
-		mounter: newRealMounter(),
-		manager: mgr,
-		store:   store,
+		name:                driverName,
+		version:             Version,
+		nodeID:              nodeID,
+		mounter:             newRealMounter(),
+		manager:             mgr,
+		store:               store,
+		gracefulStopTimeout: 30 * time.Second,
 	}
 
 	// Schedule initial qgroup cleanup for all known paths, staggered.
@@ -232,16 +241,17 @@ func (d *Driver) Run(endpoint string) error {
 
 	// Cap message sizes to prevent resource exhaustion from oversized requests.
 	const maxMsgSize = 4 * 1024 * 1024 // 4 MiB
-	d.grpcServer = grpc.NewServer(
+	srv := grpc.NewServer(
 		grpc.MaxRecvMsgSize(maxMsgSize),
 		grpc.MaxSendMsgSize(maxMsgSize),
 	)
-	csi.RegisterIdentityServer(d.grpcServer, d)
-	csi.RegisterControllerServer(d.grpcServer, d)
-	csi.RegisterNodeServer(d.grpcServer, d)
+	csi.RegisterIdentityServer(srv, d)
+	csi.RegisterControllerServer(srv, d)
+	csi.RegisterNodeServer(srv, d)
+	d.grpcServer = srv
 
 	klog.InfoS("Starting gRPC server", "endpoint", endpoint)
-	return d.grpcServer.Serve(listener)
+	return srv.Serve(listener)
 }
 
 // scheduleQgroupCleanup schedules a call to ClearStaleQgroups for the given
@@ -313,8 +323,23 @@ func (d *Driver) Stop() {
 	}
 	d.qgroupCleanupMu.Unlock()
 
-	if d.grpcServer != nil {
-		klog.InfoS("Stopping gRPC server")
+	if d.grpcServer == nil {
+		return
+	}
+	klog.InfoS("Stopping gRPC server")
+	done := make(chan struct{})
+	go func() {
 		d.grpcServer.GracefulStop()
+		close(done)
+	}()
+	select {
+	case <-done:
+		klog.InfoS("gRPC server stopped gracefully")
+	case <-time.After(d.gracefulStopTimeout):
+		klog.InfoS("Graceful stop timed out, forcing stop", "timeout", d.gracefulStopTimeout)
+		d.grpcServer.Stop()
+		// Don't wait for the GracefulStop goroutine: handler goroutines may be stuck
+		// on non-cancellable I/O. They'll exit when the handler returns or the process
+		// is killed by Kubernetes after terminationGracePeriodSeconds.
 	}
 }

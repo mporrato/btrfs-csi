@@ -358,6 +358,30 @@ func TestRunRemovesStaleSocket(t *testing.T) {
 	}
 }
 
+// mockBlockingGRPCServer simulates a gRPC server whose GracefulStop blocks
+// until Stop is called, exercising the timeout path in Driver.Stop().
+type mockBlockingGRPCServer struct {
+	unblock chan struct{}
+	once    sync.Once
+}
+
+func (m *mockBlockingGRPCServer) GracefulStop() { <-m.unblock }
+func (m *mockBlockingGRPCServer) Stop()         { m.once.Do(func() { close(m.unblock) }) }
+
+func TestStopForcesHardStopOnTimeout(t *testing.T) {
+	d, _, _ := newTestDriverWithMock()
+	d.gracefulStopTimeout = 5 * time.Millisecond
+	d.grpcServer = &mockBlockingGRPCServer{unblock: make(chan struct{})}
+
+	start := time.Now()
+	d.Stop()
+	elapsed := time.Since(start)
+
+	if elapsed > 200*time.Millisecond {
+		t.Errorf("Stop() took %v with 5ms timeout, expected < 200ms", elapsed)
+	}
+}
+
 // TestApplyPoolConfig_Atomicity verifies that ApplyPoolConfig updates pools
 // atomically, preventing concurrent readers from seeing partial updates.
 func TestApplyPoolConfig_Atomicity(t *testing.T) {

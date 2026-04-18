@@ -21,6 +21,7 @@ type MockManager struct {
 	// CreateSubvolume
 	CreateSubvolumeCalls []string
 	CreateSubvolumeErr   error
+	CreateSubvolumeFunc  func(ctx context.Context, path string) error
 
 	// DeleteSubvolume
 	DeleteSubvolumeCalls []string
@@ -77,6 +78,9 @@ type MockManager struct {
 
 func (m *MockManager) CreateSubvolume(ctx context.Context, path string) error {
 	m.CreateSubvolumeCalls = append(m.CreateSubvolumeCalls, path)
+	if m.CreateSubvolumeFunc != nil {
+		return m.CreateSubvolumeFunc(ctx, path)
+	}
 	return m.CreateSubvolumeErr
 }
 
