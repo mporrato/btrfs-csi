@@ -259,7 +259,7 @@ This also ensures fuzz coverage on `validatePathInKubeletDir` exercises this cal
 
 ---
 
-### [ ] B-6: Misleading slice initialization in ListSnapshots filter
+### [x] B-6: Misleading slice initialization in ListSnapshots filter
 
 **File**: `pkg/driver/controller.go:124`
 
@@ -616,7 +616,7 @@ The existing `scripts/` runner already has patterns for loopback btrfs setup tha
 - [x] **B-3**: Call `receiveCmd.Wait()` after `receiveCmd.Process.Kill()` in `doSendReceive` to reap the child
 - [x] **B-4**: Introduce a shared reconfiguration lock so `ReloadPaths` and `SetPools` are atomic from the RPC handler's perspective (simply swapping order is not sufficient)
 - [x] **B-5**: Add `validatePathInKubeletDir(req.GetVolumePath())` to `NodeExpandVolume` for consistency with other node RPCs
-- [ ] **B-6**: Replace `all[:0:0]` with `make([]*state.Snapshot, 0, len(all))` in `ListSnapshots`
+- [x] **B-6**: Replace `all[:0:0]` with `make([]*state.Snapshot, 0, len(all))` in `ListSnapshots`
 
 ### Security Concerns
 

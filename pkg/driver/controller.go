@@ -124,7 +124,7 @@ func (d *Driver) ListSnapshots(_ context.Context, req *csi.ListSnapshotsRequest)
 
 	// Filter by source volume ID if requested.
 	if req.SourceVolumeId != "" {
-		filtered := all[:0:0] // zero-capacity slice; appends allocate a fresh backing array
+		filtered := make([]*state.Snapshot, 0, len(all))
 		for _, s := range all {
 			if s.SourceVolID == req.SourceVolumeId {
 				filtered = append(filtered, s)
