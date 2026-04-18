@@ -281,7 +281,7 @@ This is clearer to readers, preserves the original reason for the trick (avoid a
 
 > **Design-level observations. Some are inherent to the CSI model; others should be addressed.**
 
-### [ ] S-1: Privileged container with ineffective capability drop
+### [x] S-1: Privileged container with ineffective capability drop
 
 **File**: `deploy/base/plugin.yaml:40–45`
 
@@ -303,7 +303,7 @@ The stated remediation of switching to `SYS_ADMIN` alone is an investigation, no
 
 3. **Harden the surrounding surface** since privileged access is unavoidable: pin the image by digest, use a distroless base, and document the trust boundary in the README (a compromise of this pod equals root on the node).
 
-**Status**: Open
+**Status**: Fixed — removed no-op `capabilities.drop: ["ALL"]` and `seccompProfile` under `privileged: true`; expanded comment to document the trust boundary.
 
 ---
 

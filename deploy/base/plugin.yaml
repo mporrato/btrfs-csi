@@ -36,13 +36,12 @@ spec:
         - name: btrfs-csi-driver
           image: ghcr.io/mporrato/btrfs-csi-driver
           imagePullPolicy: IfNotPresent
-          # privileged is required by kubelet for mountPropagation: Bidirectional
+          # privileged is required for mountPropagation: Bidirectional and btrfs ioctls.
+          # Under privileged: true, capabilities and seccomp/AppArmor are unrestricted;
+          # any capabilities.drop or seccompProfile listed here would be a no-op.
+          # A compromise of this pod equals root on the node — treat it accordingly.
           securityContext:
             privileged: true
-            capabilities:
-              drop: ["ALL"]
-            seccompProfile:
-              type: RuntimeDefault
           args:
             - --endpoint=unix:///csi/csi.sock
             - --nodeid=$(NODE_NAME)
