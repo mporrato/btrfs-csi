@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"net"
@@ -90,8 +91,14 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) (*Driver, er
 // SetPools replaces the pool map atomically.
 func (d *Driver) SetPools(pools map[string]string) {
 	d.poolsMu.Lock()
-	defer d.poolsMu.Unlock()
 	d.pools = pools
+	d.poolsMu.Unlock()
+
+	// Invalidate the quotaEnabled cache when pools are replaced.
+	// This ensures quota is re-enabled if a pool is reformatted.
+	d.quotaEnabledMu.Lock()
+	d.quotaEnabled = make(map[string]bool)
+	d.quotaEnabledMu.Unlock()
 }
 
 // SetKubeletPath sets the base directory for target path validation.
@@ -216,7 +223,10 @@ func (d *Driver) scheduleQgroupCleanup(basePath string, delay time.Duration) {
 		return
 	}
 	d.qgroupCleanupTimers[basePath] = time.AfterFunc(delay, func() {
-		count, err := d.manager.ClearStaleQgroups(basePath)
+		// Use a generous timeout for scheduled cleanup operations.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		count, err := d.manager.ClearStaleQgroups(ctx, basePath)
 		if err != nil {
 			klog.V(4).InfoS("qgroup cleanup failed", "basePath", basePath, "err", err)
 		} else {
@@ -241,13 +251,13 @@ func (d *Driver) scheduleStartupQgroupCleanups(baseDelay, stagger time.Duration)
 
 // ensureQuotaEnabled calls EnsureQuotaEnabled on the manager, caching the
 // result per basePath so repeated volume creations don't shell out each time.
-func (d *Driver) ensureQuotaEnabled(basePath string) error {
+func (d *Driver) ensureQuotaEnabled(ctx context.Context, basePath string) error {
 	d.quotaEnabledMu.Lock()
 	defer d.quotaEnabledMu.Unlock()
 	if d.quotaEnabled[basePath] {
 		return nil
 	}
-	if err := d.manager.EnsureQuotaEnabled(basePath); err != nil {
+	if err := d.manager.EnsureQuotaEnabled(ctx, basePath); err != nil {
 		return err
 	}
 	if d.quotaEnabled == nil {

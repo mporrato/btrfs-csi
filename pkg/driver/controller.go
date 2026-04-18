@@ -57,7 +57,10 @@ func (d *Driver) GetCapacity(_ context.Context, req *csi.GetCapacityRequest) (*c
 	if err != nil {
 		return nil, err
 	}
-	usage, err := d.manager.GetFilesystemUsage(basePath)
+	// GetCapacity doesn't have a request context with timeout, use background with reasonable timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	usage, err := d.manager.GetFilesystemUsage(ctx, basePath)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get filesystem usage: %v", err)
 	}
@@ -222,15 +225,15 @@ func isSupportedCapabilities(caps []*csi.VolumeCapability) bool {
 
 // applyCapacityLimit enables quota on basePath (if not already enabled) and
 // sets a qgroup limit on volPath. It is a no-op when capacityBytes is zero.
-func (d *Driver) applyCapacityLimit(basePath, volPath string, capacityBytes int64) error {
+func (d *Driver) applyCapacityLimit(ctx context.Context, basePath, volPath string, capacityBytes int64) error {
 	if capacityBytes == 0 {
 		return nil
 	}
-	if err := d.ensureQuotaEnabled(basePath); err != nil {
+	if err := d.ensureQuotaEnabled(ctx, basePath); err != nil {
 		return fmt.Errorf("ensure quota enabled: %w", err)
 	}
 	//nolint:gosec // capacity validated positive before conversion
-	if err := d.manager.SetQgroupLimit(volPath, uint64(capacityBytes)); err != nil {
+	if err := d.manager.SetQgroupLimit(ctx, volPath, uint64(capacityBytes)); err != nil {
 		return fmt.Errorf("set qgroup limit: %w", err)
 	}
 	return nil
@@ -303,7 +306,7 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 		return nil, status.Errorf(codes.Internal, "create volumes directory: %v", err)
 	}
 
-	sourceSnapID, sourceVolID, err := d.provisionVolume(vol.Path(), req.VolumeContentSource)
+	sourceSnapID, sourceVolID, err := d.provisionVolume(ctx, vol.Path(), req.VolumeContentSource)
 	if err != nil {
 		return nil, err
 	}
@@ -314,13 +317,16 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 	cleanupNeeded := true
 	defer func() {
 		if cleanupNeeded {
-			if err := d.manager.DeleteSubvolume(vol.Path()); err != nil {
+			// Use a fresh context for cleanup in case the original context was canceled.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := d.manager.DeleteSubvolume(cleanupCtx, vol.Path()); err != nil {
 				klog.ErrorS(err, "CreateVolume: failed to clean up subvolume after error", "path", vol.Path())
 			}
 		}
 	}()
 
-	if err := d.applyCapacityLimit(basePath, vol.Path(), capacityBytes); err != nil {
+	if err := d.applyCapacityLimit(ctx, basePath, vol.Path(), capacityBytes); err != nil {
 		return nil, status.Errorf(codes.Internal, "apply capacity limit: %v", err)
 	}
 
@@ -349,12 +355,12 @@ func (d *Driver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest)
 		return &csi.DeleteVolumeResponse{}, nil
 	}
 
-	exists, err := d.manager.SubvolumeExists(vol.Path())
+	exists, err := d.manager.SubvolumeExists(ctx, vol.Path())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "check subvolume: %v", err)
 	}
 	if exists {
-		if err := d.manager.DeleteSubvolume(vol.Path()); err != nil {
+		if err := d.manager.DeleteSubvolume(ctx, vol.Path()); err != nil {
 			return nil, status.Errorf(codes.Internal, "delete subvolume: %v", err)
 		}
 	}
@@ -402,7 +408,7 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context,
 
 	// Update qgroup limit (ensures quota is enabled first in case the volume
 	// was originally created with zero capacity and no quota set up).
-	if err := d.applyCapacityLimit(vol.BasePath, vol.Path(), newCapacity); err != nil {
+	if err := d.applyCapacityLimit(ctx, vol.BasePath, vol.Path(), newCapacity); err != nil {
 		return nil, status.Errorf(codes.Internal, "apply capacity limit: %v", err)
 	}
 
@@ -421,10 +427,11 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context,
 
 // provisionVolume creates the subvolume at subvolPath, handling content sources for cloning.
 // On success the subvolume exists on disk. Returns the source snapshot and volume IDs when cloning.
-func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource) (string, string, error) {
+func (d *Driver) provisionVolume(ctx context.Context, subvolPath string,
+	src *csi.VolumeContentSource) (string, string, error) {
 	if src == nil {
 		// Fresh empty subvolume.
-		if err := d.manager.CreateSubvolume(subvolPath); err != nil {
+		if err := d.manager.CreateSubvolume(ctx, subvolPath); err != nil {
 			return "", "", status.Errorf(codes.Internal, "create subvolume: %v", err)
 		}
 		return "", "", nil
@@ -437,7 +444,7 @@ func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource
 		if !ok {
 			return "", "", status.Errorf(codes.NotFound, "snapshot %s not found", snapID)
 		}
-		if err := d.manager.CreateSnapshot(snap.Path(), subvolPath, false); err != nil {
+		if err := d.manager.CreateSnapshot(ctx, snap.Path(), subvolPath, false); err != nil {
 			return "", "", status.Errorf(codes.Internal, "clone from snapshot: %v", err)
 		}
 		return snapID, "", nil
@@ -448,7 +455,7 @@ func (d *Driver) provisionVolume(subvolPath string, src *csi.VolumeContentSource
 		if !ok {
 			return "", "", status.Errorf(codes.NotFound, "source volume %s not found", srcVolID)
 		}
-		if err := d.manager.CreateSnapshot(srcVol.Path(), subvolPath, false); err != nil {
+		if err := d.manager.CreateSnapshot(ctx, srcVol.Path(), subvolPath, false); err != nil {
 			return "", "", status.Errorf(codes.Internal, "clone volume: %v", err)
 		}
 		return "", srcVolID, nil
@@ -528,13 +535,13 @@ func (d *Driver) CreateSnapshot(ctx context.Context,
 	// modified. To use snapshot data read-write, create a volume from the
 	// snapshot (CreateVolume with a snapshot content source), which clones it
 	// into a writable subvolume.
-	if err := d.manager.CreateSnapshot(srcVol.Path(), snap.Path(), true); err != nil {
+	if err := d.manager.CreateSnapshot(ctx, srcVol.Path(), snap.Path(), true); err != nil {
 		return nil, status.Errorf(codes.Internal, "create snapshot: %v", err)
 	}
 
 	// Populate SizeBytes from the snapshot's referenced data size. Best-effort:
 	// a failure here is non-fatal; SizeBytes stays 0.
-	if usage, err := d.manager.GetQgroupUsage(snap.Path()); err == nil && usage != nil {
+	if usage, err := d.manager.GetQgroupUsage(ctx, snap.Path()); err == nil && usage != nil {
 		//nolint:gosec // qgroup values always fit in int64
 		snap.SizeBytes = int64(usage.Referenced)
 	}
@@ -543,7 +550,10 @@ func (d *Driver) CreateSnapshot(ctx context.Context,
 	cleanupNeeded := true
 	defer func() {
 		if cleanupNeeded {
-			if err := d.manager.DeleteSubvolume(snap.Path()); err != nil {
+			// Use a fresh context for cleanup in case the original context was canceled.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := d.manager.DeleteSubvolume(cleanupCtx, snap.Path()); err != nil {
 				klog.ErrorS(err, "CreateSnapshot: failed to clean up snapshot after error", "path", snap.Path())
 			}
 		}
@@ -560,7 +570,7 @@ func (d *Driver) CreateSnapshot(ctx context.Context,
 }
 
 //nolint:dupl // DeleteSnapshot and DeleteVolume must have parallel structure per CSI spec
-func (d *Driver) DeleteSnapshot(_ context.Context,
+func (d *Driver) DeleteSnapshot(ctx context.Context,
 	req *csi.DeleteSnapshotRequest) (*csi.DeleteSnapshotResponse, error) {
 	if req.SnapshotId == "" {
 		return nil, status.Error(codes.InvalidArgument, "snapshot ID is required")
@@ -575,12 +585,12 @@ func (d *Driver) DeleteSnapshot(_ context.Context,
 		return &csi.DeleteSnapshotResponse{}, nil
 	}
 
-	exists, err := d.manager.SubvolumeExists(snap.Path())
+	exists, err := d.manager.SubvolumeExists(ctx, snap.Path())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "check snapshot subvolume: %v", err)
 	}
 	if exists {
-		if err := d.manager.DeleteSubvolume(snap.Path()); err != nil {
+		if err := d.manager.DeleteSubvolume(ctx, snap.Path()); err != nil {
 			return nil, status.Errorf(codes.Internal, "delete snapshot subvolume: %v", err)
 		}
 	}

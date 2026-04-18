@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/mporrato/btrfs-csi/pkg/btrfs"
@@ -90,6 +91,7 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 	configStop := driver.WatchPools(*poolsDir, 30000, func(newPools map[string]string) {
 		reloadPoolConfig(newPools, mgr, ms, drv)
 	})
+	defer close(configStop)
 
 	// Start driver in a goroutine
 	errCh := make(chan error, 1)
@@ -100,7 +102,6 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 	// Wait for context cancellation or driver error
 	select {
 	case <-ctx.Done():
-		close(configStop)
 		klog.InfoS("Context canceled, shutting down")
 		drv.Stop()
 		// Wait for Run() to return after Stop()
@@ -128,7 +129,10 @@ func initializeStores(poolsDir string, mgr btrfs.Manager) (map[string]string, st
 	}
 	validPools := make(map[string]string)
 	for name, bp := range pools {
-		ok, err := mgr.IsBtrfsFilesystem(bp)
+		// Use a background context with timeout for initialization checks.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ok, err := mgr.IsBtrfsFilesystem(ctx, bp)
+		cancel()
 		if err != nil {
 			klog.ErrorS(err, "Skipping pool: failed to check if btrfs filesystem", "pool", name, "path", bp)
 			continue
@@ -137,7 +141,9 @@ func initializeStores(poolsDir string, mgr btrfs.Manager) (map[string]string, st
 			klog.InfoS("Skipping pool: not a btrfs filesystem", "pool", name, "path", bp)
 			continue
 		}
-		mount, err := mgr.IsMountpoint(bp)
+		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+		mount, err := mgr.IsMountpoint(ctx, bp)
+		cancel()
 		if err != nil {
 			klog.ErrorS(err, "Skipping pool: failed to check if mountpoint", "pool", name, "path", bp)
 			continue
@@ -163,12 +169,17 @@ func reloadPoolConfig(newPools map[string]string, mgr btrfs.Manager, ms state.St
 	validPools := make(map[string]string)
 	validPaths := make([]string, 0, len(newPools))
 	for name, p := range newPools {
-		ok, err := mgr.IsBtrfsFilesystem(p)
+		// Use a background context with timeout for reload checks.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ok, err := mgr.IsBtrfsFilesystem(ctx, p)
+		cancel()
 		if err != nil || !ok {
 			klog.ErrorS(err, "Skipping pool on reload: not a btrfs filesystem", "pool", name, "path", p)
 			continue
 		}
-		mount, err := mgr.IsMountpoint(p)
+		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+		mount, err := mgr.IsMountpoint(ctx, p)
+		cancel()
 		if err != nil || !mount {
 			klog.ErrorS(err, "Skipping pool on reload: not a separate mountpoint", "pool", name, "path", p)
 			continue

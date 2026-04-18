@@ -272,7 +272,7 @@ func (d *Driver) NodeGetCapabilities(_ context.Context,
 	}, nil
 }
 
-func (d *Driver) NodeGetVolumeStats(_ context.Context,
+func (d *Driver) NodeGetVolumeStats(ctx context.Context,
 	req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
 	klog.V(5).InfoS("NodeGetVolumeStats called",
 		"volumeID", req.GetVolumeId(),
@@ -306,7 +306,7 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context,
 		return nil, status.Errorf(codes.NotFound, "volume %s is not mounted at %s", req.GetVolumeId(), req.GetVolumePath())
 	}
 
-	usage, err := d.manager.GetQgroupUsage(vol.Path())
+	usage, err := d.manager.GetQgroupUsage(ctx, vol.Path())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get qgroup usage for %s: %v", vol.Path(), err)
 	}
@@ -319,7 +319,7 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context,
 	} else {
 		// No per-volume quota; fall back to filesystem capacity so the volume
 		// doesn't appear full to monitoring systems.
-		if fsUsage, err := d.manager.GetFilesystemUsage(vol.Path()); err == nil {
+		if fsUsage, err := d.manager.GetFilesystemUsage(ctx, vol.Path()); err == nil {
 			//nolint:gosec // filesystem values always fit in int64
 			total = int64(fsUsage.Total)
 			//nolint:gosec // filesystem values always fit in int64

@@ -239,6 +239,44 @@ func TestCreateVolume_EnsureQuotaCachedPerBasePath(t *testing.T) {
 	}
 }
 
+// TestCreateVolume_QuotaCacheInvalidatedOnSetPools verifies that the
+// quotaEnabled cache is cleared when SetPools is called (C-3 regression test).
+func TestCreateVolume_QuotaCacheInvalidatedOnSetPools(t *testing.T) {
+	d, mock, _ := newTestDriverWithMock()
+
+	// Create first volume - this should call EnsureQuotaEnabled
+	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "pvc-1",
+		CapacityRange:      &csi.CapacityRange{RequiredBytes: 1 << 30},
+		VolumeCapabilities: singleNodeWriterCap(),
+	})
+	if err != nil {
+		t.Fatalf("CreateVolume[1]: %v", err)
+	}
+
+	if got := len(mock.EnsureQuotaEnabledCalls); got != 1 {
+		t.Fatalf("EnsureQuotaEnabled called %d times after first volume, want 1", got)
+	}
+
+	// SetPools should invalidate the cache
+	d.SetPools(map[string]string{"default": testRootPath})
+
+	// Create second volume - this should call EnsureQuotaEnabled again
+	_, err = d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "pvc-2",
+		CapacityRange:      &csi.CapacityRange{RequiredBytes: 1 << 30},
+		VolumeCapabilities: singleNodeWriterCap(),
+	})
+	if err != nil {
+		t.Fatalf("CreateVolume[2]: %v", err)
+	}
+
+	// Should be called twice now because SetPools invalidated the cache
+	if got := len(mock.EnsureQuotaEnabledCalls); got != 2 {
+		t.Errorf("EnsureQuotaEnabled called %d times, want 2 (cache should be invalidated by SetPools)", got)
+	}
+}
+
 func TestResolveBasePath_SinglePoolNoParam(t *testing.T) {
 	d := newTestDriver()
 	d.SetPools(map[string]string{"mypool": testRootPath})

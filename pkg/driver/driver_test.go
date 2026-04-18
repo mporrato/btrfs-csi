@@ -36,7 +36,7 @@ func TestScheduleStartupQgroupCleanups_Staggered(t *testing.T) {
 	var callLog []stampedCall
 
 	mgr := &funcManager{
-		clearStaleQgroups: func(path string) (int, error) {
+		clearStaleQgroups: func(_ context.Context, path string) (int, error) {
 			mu.Lock()
 			callLog = append(callLog, stampedCall{path: path, at: time.Now()})
 			mu.Unlock()
@@ -97,7 +97,7 @@ func TestScheduleQgroupCleanup_OnlyTargetsSpecifiedPath(t *testing.T) {
 	var calls []string
 
 	mgr := &funcManager{
-		clearStaleQgroups: func(path string) (int, error) {
+		clearStaleQgroups: func(_ context.Context, path string) (int, error) {
 			mu.Lock()
 			calls = append(calls, path)
 			mu.Unlock()

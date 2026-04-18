@@ -40,7 +40,7 @@ func (d *Driver) GetPluginCapabilities(_ context.Context,
 	}, nil
 }
 
-func (d *Driver) Probe(_ context.Context, _ *csi.ProbeRequest) (*csi.ProbeResponse, error) {
+func (d *Driver) Probe(ctx context.Context, _ *csi.ProbeRequest) (*csi.ProbeResponse, error) {
 	paths := d.basePaths()
 	klog.V(5).InfoS("Probe called", "paths", paths)
 
@@ -54,7 +54,7 @@ func (d *Driver) Probe(_ context.Context, _ *csi.ProbeRequest) (*csi.ProbeRespon
 			klog.V(2).InfoS("Probe: path check failed", "path", p, "error", err)
 			return &csi.ProbeResponse{Ready: wrapperspb.Bool(false)}, nil
 		}
-		ok, err := d.manager.IsBtrfsFilesystem(p)
+		ok, err := d.manager.IsBtrfsFilesystem(ctx, p)
 		if err != nil {
 			klog.V(2).InfoS("Probe: btrfs check failed", "path", p, "error", err)
 			return &csi.ProbeResponse{Ready: wrapperspb.Bool(false)}, nil

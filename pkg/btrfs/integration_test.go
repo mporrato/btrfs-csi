@@ -3,6 +3,7 @@
 package btrfs
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,11 +61,11 @@ func TestCreateAndDeleteSubvolume(t *testing.T) {
 	m := &RealManager{}
 	subvol := filepath.Join(mnt, "test-subvol")
 
-	if err := m.CreateSubvolume(subvol); err != nil {
+	if err := m.CreateSubvolume(context.Background(), subvol); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
-	exists, err := m.SubvolumeExists(subvol)
+	exists, err := m.SubvolumeExists(context.Background(), subvol)
 	if err != nil {
 		t.Fatalf("SubvolumeExists after create: %v", err)
 	}
@@ -72,11 +73,11 @@ func TestCreateAndDeleteSubvolume(t *testing.T) {
 		t.Fatal("expected subvolume to exist after creation")
 	}
 
-	if err := m.DeleteSubvolume(subvol); err != nil {
+	if err := m.DeleteSubvolume(context.Background(), subvol); err != nil {
 		t.Fatalf("DeleteSubvolume: %v", err)
 	}
 
-	exists, err = m.SubvolumeExists(subvol)
+	exists, err = m.SubvolumeExists(context.Background(), subvol)
 	if err != nil {
 		t.Fatalf("SubvolumeExists after delete: %v", err)
 	}
@@ -91,7 +92,7 @@ func TestSubvolumeExists_NotExists(t *testing.T) {
 	m := &RealManager{}
 	subvol := filepath.Join(mnt, "nonexistent")
 
-	exists, err := m.SubvolumeExists(subvol)
+	exists, err := m.SubvolumeExists(context.Background(), subvol)
 	if err != nil {
 		t.Fatalf("SubvolumeExists: %v", err)
 	}
@@ -107,7 +108,7 @@ func TestCreateSnapshot(t *testing.T) {
 	src := filepath.Join(mnt, "source")
 	dst := filepath.Join(mnt, "snapshot")
 
-	if err := m.CreateSubvolume(src); err != nil {
+	if err := m.CreateSubvolume(context.Background(), src); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
@@ -116,7 +117,7 @@ func TestCreateSnapshot(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	if err := m.CreateSnapshot(src, dst, false); err != nil {
+	if err := m.CreateSnapshot(context.Background(), src, dst, false); err != nil {
 		t.Fatalf("CreateSnapshot: %v", err)
 	}
 
@@ -136,11 +137,11 @@ func TestReadonlySnapshot(t *testing.T) {
 	src := filepath.Join(mnt, "source")
 	dst := filepath.Join(mnt, "ro-snapshot")
 
-	if err := m.CreateSubvolume(src); err != nil {
+	if err := m.CreateSubvolume(context.Background(), src); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
-	if err := m.CreateSnapshot(src, dst, true); err != nil {
+	if err := m.CreateSnapshot(context.Background(), src, dst, true); err != nil {
 		t.Fatalf("CreateSnapshot (readonly): %v", err)
 	}
 
@@ -156,20 +157,20 @@ func TestQuotaEnableAndLimit(t *testing.T) {
 	m := &RealManager{}
 	subvol := filepath.Join(mnt, "quota-test")
 
-	if err := m.CreateSubvolume(subvol); err != nil {
+	if err := m.CreateSubvolume(context.Background(), subvol); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
-	if err := m.EnsureQuotaEnabled(mnt); err != nil {
+	if err := m.EnsureQuotaEnabled(context.Background(), mnt); err != nil {
 		t.Fatalf("EnsureQuotaEnabled: %v", err)
 	}
 
 	limit := uint64(100 * 1024 * 1024) // 100MB
-	if err := m.SetQgroupLimit(subvol, limit); err != nil {
+	if err := m.SetQgroupLimit(context.Background(), subvol, limit); err != nil {
 		t.Fatalf("SetQgroupLimit: %v", err)
 	}
 
-	usage, err := m.GetQgroupUsage(subvol)
+	usage, err := m.GetQgroupUsage(context.Background(), subvol)
 	if err != nil {
 		t.Fatalf("GetQgroupUsage: %v", err)
 	}
@@ -180,7 +181,7 @@ func TestQuotaEnableAndLimit(t *testing.T) {
 
 // hasStaleQgroups checks whether any stale qgroups exist on the given mountpoint.
 func hasStaleQgroups(mnt string) (bool, error) {
-	out, err := runCommand("btrfs", "qgroup", "show", "--raw", mnt)
+	out, err := runCommand(context.Background(), "btrfs", "qgroup", "show", "--raw", mnt)
 	if err != nil {
 		return false, err
 	}
@@ -198,21 +199,21 @@ func TestClearStaleQgroups(t *testing.T) {
 	m := &RealManager{}
 	subvol := filepath.Join(mnt, "stale-qgroup-test")
 
-	if err := m.CreateSubvolume(subvol); err != nil {
+	if err := m.CreateSubvolume(context.Background(), subvol); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
-	if err := m.EnsureQuotaEnabled(mnt); err != nil {
+	if err := m.EnsureQuotaEnabled(context.Background(), mnt); err != nil {
 		t.Fatalf("EnsureQuotaEnabled: %v", err)
 	}
-	if err := m.SetQgroupLimit(subvol, 100*1024*1024); err != nil {
+	if err := m.SetQgroupLimit(context.Background(), subvol, 100*1024*1024); err != nil {
 		t.Fatalf("SetQgroupLimit: %v", err)
 	}
-	if err := m.DeleteSubvolume(subvol); err != nil {
+	if err := m.DeleteSubvolume(context.Background(), subvol); err != nil {
 		t.Fatalf("DeleteSubvolume: %v", err)
 	}
 	// Wait for the kernel to finish background subvolume cleanup;
 	// otherwise the qgroup may still be busy when clear-stale runs.
-	if _, err := runCommand("btrfs", "subvolume", "sync", mnt); err != nil {
+	if _, err := runCommand(context.Background(), "btrfs", "subvolume", "sync", mnt); err != nil {
 		t.Fatalf("subvolume sync: %v", err)
 	}
 
@@ -228,14 +229,14 @@ func TestClearStaleQgroups(t *testing.T) {
 	// ClearStaleQgroups must not return an error even when qgroups are
 	// temporarily busy (the kernel may not release them immediately).
 	// It is safe to call repeatedly — production code retries on a timer.
-	count, err := m.ClearStaleQgroups(mnt)
+	count, err := m.ClearStaleQgroups(context.Background(), mnt)
 	if err != nil {
 		t.Fatalf("ClearStaleQgroups: %v", err)
 	}
 	t.Logf("ClearStaleQgroups removed %d qgroup(s)", count)
 
 	// Calling again must also succeed (idempotent).
-	count2, err := m.ClearStaleQgroups(mnt)
+	count2, err := m.ClearStaleQgroups(context.Background(), mnt)
 	if err != nil {
 		t.Fatalf("ClearStaleQgroups (second call): %v", err)
 	}
@@ -247,7 +248,7 @@ func TestClearStaleQgroups_NoQuotas(t *testing.T) {
 
 	m := &RealManager{}
 	// ClearStaleQgroups should be a no-op when quotas are not enabled.
-	count, err := m.ClearStaleQgroups(mnt)
+	count, err := m.ClearStaleQgroups(context.Background(), mnt)
 	if err != nil {
 		t.Fatalf("ClearStaleQgroups without quotas should be no-op, got: %v", err)
 	}
@@ -262,24 +263,24 @@ func TestRemoveQgroupLimit(t *testing.T) {
 	m := &RealManager{}
 	subvol := filepath.Join(mnt, "remove-limit-test")
 
-	if err := m.CreateSubvolume(subvol); err != nil {
+	if err := m.CreateSubvolume(context.Background(), subvol); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
-	if err := m.EnsureQuotaEnabled(mnt); err != nil {
+	if err := m.EnsureQuotaEnabled(context.Background(), mnt); err != nil {
 		t.Fatalf("EnsureQuotaEnabled: %v", err)
 	}
 
 	limit := uint64(100 * 1024 * 1024)
-	if err := m.SetQgroupLimit(subvol, limit); err != nil {
+	if err := m.SetQgroupLimit(context.Background(), subvol, limit); err != nil {
 		t.Fatalf("SetQgroupLimit: %v", err)
 	}
 
-	if err := m.RemoveQgroupLimit(subvol); err != nil {
+	if err := m.RemoveQgroupLimit(context.Background(), subvol); err != nil {
 		t.Fatalf("RemoveQgroupLimit: %v", err)
 	}
 
-	usage, err := m.GetQgroupUsage(subvol)
+	usage, err := m.GetQgroupUsage(context.Background(), subvol)
 	if err != nil {
 		t.Fatalf("GetQgroupUsage after removing limit: %v", err)
 	}
@@ -299,7 +300,7 @@ func TestCrossFilesystemSnapshot(t *testing.T) {
 	dst := filepath.Join(mnt2, "snapshot")
 
 	// Create source subvolume
-	if err := m.CreateSubvolume(src); err != nil {
+	if err := m.CreateSubvolume(context.Background(), src); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
@@ -310,7 +311,7 @@ func TestCrossFilesystemSnapshot(t *testing.T) {
 	}
 
 	// Create snapshot across filesystems
-	if err := m.CreateSnapshot(src, dst, false); err != nil {
+	if err := m.CreateSnapshot(context.Background(), src, dst, false); err != nil {
 		t.Fatalf("CreateSnapshot across filesystems: %v", err)
 	}
 
@@ -340,12 +341,12 @@ func TestCrossFilesystemReadonlySnapshot(t *testing.T) {
 	dst := filepath.Join(mnt2, "ro-snapshot")
 
 	// Create source subvolume
-	if err := m.CreateSubvolume(src); err != nil {
+	if err := m.CreateSubvolume(context.Background(), src); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
 	// Create readonly snapshot across filesystems
-	if err := m.CreateSnapshot(src, dst, true); err != nil {
+	if err := m.CreateSnapshot(context.Background(), src, dst, true); err != nil {
 		t.Fatalf("CreateSnapshot (readonly) across filesystems: %v", err)
 	}
 

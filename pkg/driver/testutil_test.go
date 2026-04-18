@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"context"
 	"sync"
 
 	"github.com/mporrato/btrfs-csi/pkg/btrfs"
@@ -147,14 +148,14 @@ func (s *memStore) ReloadPaths(paths []string) {
 // with a closure, useful for recording calls with extra context (e.g. timestamps).
 type funcManager struct {
 	btrfs.MockManager
-	clearStaleQgroups func(path string) (int, error)
+	clearStaleQgroups func(ctx context.Context, path string) (int, error)
 }
 
-func (f *funcManager) ClearStaleQgroups(path string) (int, error) {
+func (f *funcManager) ClearStaleQgroups(ctx context.Context, path string) (int, error) {
 	if f.clearStaleQgroups != nil {
-		return f.clearStaleQgroups(path)
+		return f.clearStaleQgroups(ctx, path)
 	}
-	return f.MockManager.ClearStaleQgroups(path)
+	return f.MockManager.ClearStaleQgroups(ctx, path)
 }
 
 // newTestMultiStore wraps a memStore in a MultiStore keyed by the given dir.

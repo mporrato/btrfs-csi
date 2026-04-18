@@ -19,7 +19,7 @@ This review identifies **3 critical issues**, **6 bugs/edge cases**, **3 securit
 
 > **Must fix before production. These represent resource leaks, hangs, or incorrect behavior under failure conditions.**
 
-### [ ] C-1: WatchPools goroutine leak when driver fails to start
+### [x] C-1: WatchPools goroutine leak when driver fails to start
 
 **File**: `cmd/btrfs-csi-driver/main.go:90–114`
 
@@ -50,11 +50,11 @@ defer close(configStop)
 
 A `defer` is simpler and guarantees the channel is closed on every return path (including future error paths).
 
-**Status**: Open
+**Status**: Fixed
 
 ---
 
-### [ ] C-2: No timeout on btrfs CLI commands
+### [x] C-2: No timeout on btrfs CLI commands
 
 **File**: `pkg/btrfs/real.go:27–37` (`runCommand`)
 
@@ -73,11 +73,11 @@ func runCommand(ctx context.Context, name string, args ...string) (string, error
 
 Every `Manager` method (`CreateSubvolume`, `GetQgroupUsage`, etc.) should take a `context.Context` first parameter and pass it through. Update `MockManager` and all call sites. For callers without a natural context (e.g., scheduled qgroup cleanup), create one with a generous bounded timeout (e.g., 2 minutes).
 
-**Status**: Open
+**Status**: Fixed
 
 ---
 
-### [ ] C-3: quotaEnabled cache not invalidated on pool reload
+### [x] C-3: quotaEnabled cache not invalidated on pool reload
 
 **File**: `pkg/driver/driver.go:91–95` (`SetPools`), `pkg/driver/driver.go:244–258` (`ensureQuotaEnabled`)
 
@@ -99,7 +99,7 @@ func (d *Driver) SetPools(pools map[string]string) {
 
 Add a regression test that calls `ensureQuotaEnabled`, then `SetPools`, then verifies the next `ensureQuotaEnabled` call re-invokes the manager.
 
-**Status**: Open
+**Status**: Fixed
 
 ---
 
@@ -173,7 +173,7 @@ This also fixes the "dirty" version reporting so built binaries carry their git 
 
 ---
 
-### [ ] B-3: doSendReceive does not reap killed receive process
+### [x] B-3: doSendReceive does not reap killed receive process
 
 **File**: `pkg/btrfs/real.go:149–151`
 
@@ -193,7 +193,7 @@ if err := sendCmd.Run(); err != nil {
 
 Additionally, close `sendStdout` on the error path to unblock any in-flight writes — `exec` closes it when `sendCmd.Run()` returns, but being explicit documents the intent.
 
-**Status**: Open
+**Status**: Fixed (addressed as part of C-2)
 
 ---
 
@@ -605,15 +605,15 @@ The existing `scripts/` runner already has patterns for loopback btrfs setup tha
 
 ### Critical Issues (Must Fix)
 
-- [ ] **C-1**: Use `defer close(configStop)` after `WatchPools` so the goroutine is stopped on every return path in `runWithContext`
-- [ ] **C-2**: Thread `context.Context` through `btrfs.Manager` and use `exec.CommandContext` in `runCommand`
-- [ ] **C-3**: Invalidate `quotaEnabled` in `SetPools`; add regression test
+- [x] **C-1**: Use `defer close(configStop)` after `WatchPools` so the goroutine is stopped on every return path in `runWithContext`
+- [x] **C-2**: Thread `context.Context` through `btrfs.Manager` and use `exec.CommandContext` in `runCommand`
+- [x] **C-3**: Invalidate `quotaEnabled` in `SetPools`; add regression test
 
 ### Bugs & Edge Cases
 
 - [ ] **B-1**: Extract a shared `isConfirmableCapability` helper; call from both `ValidateVolumeCapabilities` and `validateCreateVolumeCapabilities`
 - [ ] **B-2**: Move version to a single exported `driver.Version` variable; inject via `-ldflags` at build time; use `git describe` for version string
-- [ ] **B-3**: Call `receiveCmd.Wait()` after `receiveCmd.Process.Kill()` in `doSendReceive` to reap the child
+- [x] **B-3**: Call `receiveCmd.Wait()` after `receiveCmd.Process.Kill()` in `doSendReceive` to reap the child
 - [ ] **B-4**: Introduce a shared reconfiguration lock so `ReloadPaths` and `SetPools` are atomic from the RPC handler's perspective (simply swapping order is not sufficient)
 - [ ] **B-5**: Add `validatePathInKubeletDir(req.GetVolumePath())` to `NodeExpandVolume` for consistency with other node RPCs
 - [ ] **B-6**: Replace `all[:0:0]` with `make([]*state.Snapshot, 0, len(all))` in `ListSnapshots`
