@@ -33,7 +33,8 @@ ${EXEC} "sudo bash -c '
 '"
 
 echo "==> Building driver image..."
-${RUNTIME} build -t "${IMAGE}" .
+_VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
+${RUNTIME} build --build-arg "VERSION=${_VERSION}" -t "${IMAGE}" .
 
 echo "==> Deploying driver..."
 bash "${SCRIPT_DIR}/../deploy.sh"

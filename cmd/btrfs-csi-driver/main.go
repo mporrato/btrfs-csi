@@ -52,7 +52,7 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 	}
 
 	if *version {
-		fmt.Println("btrfs-csi-driver version 0.1.0")
+		fmt.Println("btrfs-csi-driver version " + driver.Version)
 		return nil
 	}
 

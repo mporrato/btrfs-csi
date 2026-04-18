@@ -3,6 +3,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=dev
 
 WORKDIR /src
 
@@ -10,7 +11,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-w -s" -o /bin/btrfs-csi-driver ./cmd/btrfs-csi-driver/
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
+    -ldflags "-w -s -X github.com/mporrato/btrfs-csi/pkg/driver.Version=${VERSION}" \
+    -o /bin/btrfs-csi-driver ./cmd/btrfs-csi-driver/
 
 # Stage 2: Runtime — uses QEMU only for apk on non-native platforms
 FROM alpine:3.23

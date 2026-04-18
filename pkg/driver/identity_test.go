@@ -158,6 +158,21 @@ func TestNewDriverSetsFields(t *testing.T) {
 	}
 }
 
+func TestGetPluginInfoUsesPackageVersion(t *testing.T) {
+	old := Version
+	Version = "test-1.2.3"
+	t.Cleanup(func() { Version = old })
+
+	d := newTestDriver()
+	resp, err := d.GetPluginInfo(context.Background(), &csi.GetPluginInfoRequest{})
+	if err != nil {
+		t.Fatalf("GetPluginInfo: %v", err)
+	}
+	if resp.GetVendorVersion() != "test-1.2.3" {
+		t.Errorf("VendorVersion = %q, want %q", resp.GetVendorVersion(), "test-1.2.3")
+	}
+}
+
 func TestGetPluginInfoWithNodeID(t *testing.T) {
 	d := newTestDriver()
 	resp, err := d.GetPluginInfo(context.Background(), &csi.GetPluginInfoRequest{})

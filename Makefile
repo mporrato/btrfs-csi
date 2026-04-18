@@ -5,6 +5,9 @@ PRECOMMIT  ?= $(shell command -v prek 2>/dev/null || command -v pre-commit 2>/de
 
 GO         := GOTOOLCHAIN=auto go
 
+VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+LDFLAGS    := -X github.com/mporrato/btrfs-csi/pkg/driver.Version=$(VERSION)
+
 FUZZTIME ?= 30s
 
 .PHONY: build test test-fuzz test-integration lint mod image deploy \
@@ -17,7 +20,7 @@ mod:
 	$(GO) mod tidy
 
 build:
-	$(GO) build -trimpath -o bin/btrfs-csi-driver ./cmd/btrfs-csi-driver/
+	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/btrfs-csi-driver ./cmd/btrfs-csi-driver/
 
 test:
 	$(GO) test ./...

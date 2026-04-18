@@ -20,9 +20,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// Version is the reported driver version. Overridden at build time via -ldflags.
+var Version = "0.1.0"
+
 const (
 	driverName           = "btrfs.csi.local"
-	version              = "0.1.0"
 	qgroupCleanupDelay   = 10 * time.Minute
 	startupQgroupCleanup = 1 * time.Minute
 	startupQgroupStagger = 5 * time.Second
@@ -72,13 +74,13 @@ func NewDriver(mgr btrfs.Manager, store state.Store, nodeID string) (*Driver, er
 
 	klog.V(2).InfoS("Creating new driver",
 		"driverName", driverName,
-		"version", version,
+		"version", Version,
 		"nodeID", nodeID,
 	)
 
 	d := &Driver{
 		name:    driverName,
-		version: version,
+		version: Version,
 		nodeID:  nodeID,
 		mounter: newRealMounter(),
 		manager: mgr,

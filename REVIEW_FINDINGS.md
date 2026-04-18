@@ -144,7 +144,7 @@ for _, c := range req.VolumeCapabilities {
 
 ---
 
-### [ ] B-2: Version string hardcoded in two places
+### [x] B-2: Version string hardcoded in two places
 
 **Files**:
 - `pkg/driver/driver.go:24` — `version = "0.1.0"`
@@ -169,7 +169,7 @@ go build -ldflags "$(LDFLAGS)" ...
 
 This also fixes the "dirty" version reporting so built binaries carry their git provenance.
 
-**Status**: Open
+**Status**: Fixed
 
 ---
 
@@ -612,7 +612,7 @@ The existing `scripts/` runner already has patterns for loopback btrfs setup tha
 ### Bugs & Edge Cases
 
 - [x] **B-1**: Extract a shared `isConfirmableCapability` helper; call from both `ValidateVolumeCapabilities` and `validateCreateVolumeCapabilities`
-- [ ] **B-2**: Move version to a single exported `driver.Version` variable; inject via `-ldflags` at build time; use `git describe` for version string
+- [x] **B-2**: Move version to a single exported `driver.Version` variable; inject via `-ldflags` at build time; use `git describe` for version string
 - [x] **B-3**: Call `receiveCmd.Wait()` after `receiveCmd.Process.Kill()` in `doSendReceive` to reap the child
 - [x] **B-4**: Introduce a shared reconfiguration lock so `ReloadPaths` and `SetPools` are atomic from the RPC handler's perspective (simply swapping order is not sufficient)
 - [x] **B-5**: Add `validatePathInKubeletDir(req.GetVolumePath())` to `NodeExpandVolume` for consistency with other node RPCs
