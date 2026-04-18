@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/mporrato/btrfs-csi/pkg/btrfs"
 	"github.com/mporrato/btrfs-csi/pkg/driver"
 	"github.com/mporrato/btrfs-csi/pkg/state"
+	"google.golang.org/grpc"
 	"k8s.io/klog/v2"
 )
 
@@ -104,8 +106,9 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 	case <-ctx.Done():
 		klog.InfoS("Context canceled, shutting down")
 		drv.Stop()
-		// Wait for Run() to return after Stop()
-		if err := <-errCh; err != nil {
+		// Wait for Run() to return after Stop().
+		// ErrServerStopped means GracefulStop() raced ahead of Serve() — still clean.
+		if err := <-errCh; err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			return fmt.Errorf("driver stopped with error: %w", err)
 		}
 	case err := <-errCh:
