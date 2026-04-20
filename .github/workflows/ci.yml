@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ['v*', 'stable']
 
 env:
   IMAGE_NAME: ghcr.io/mporrato/btrfs-csi-driver
@@ -76,6 +76,7 @@ jobs:
 
   build:
     name: Build Image
+    if: github.ref != 'refs/tags/stable'
     needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
     steps:
@@ -108,8 +109,33 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  retag-stable:
+    name: Retag as Stable
+    if: github.ref == 'refs/tags/stable'
+    needs: [unit-test, integration-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Find versioned tag at HEAD
+        id: ver
+        run: |
+          tag=$(git tag --points-at HEAD | grep '^v' | sort -V | tail -1)
+          [ -n "$tag" ] || { echo "No v* tag found at HEAD"; exit 1; }
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+      - uses: imjasonh/setup-crane@v0.4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Retag as stable
+        run: crane tag ${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.tag }} stable
+
   push:
     name: Push Image
+    if: github.ref != 'refs/tags/stable'
     needs: build
     runs-on: ubuntu-latest
     steps:
