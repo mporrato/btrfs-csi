@@ -124,7 +124,7 @@ jobs:
           tag=$(git tag --points-at HEAD | grep '^v' | sort -V | tail -1)
           [ -n "$tag" ] || { echo "No v* tag found at HEAD"; exit 1; }
           echo "tag=$tag" >> $GITHUB_OUTPUT
-      - uses: imjasonh/setup-crane@v0.4
+      - uses: imjasonh/setup-crane@v0.5
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
