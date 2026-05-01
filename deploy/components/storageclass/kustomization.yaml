@@ -1,0 +1,7 @@
+---
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# Adds the default btrfs StorageClass.
+# Include this component in any overlay that needs the StorageClass.
+resources:
+  - storageclass.yaml

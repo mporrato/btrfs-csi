@@ -1,0 +1,7 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Minimal driver deployment — no StorageClass, no VolumeSnapshot support.
+# Use this if you want to manage your own StorageClass or skip snapshots entirely.
+resources:
+  - ../../base

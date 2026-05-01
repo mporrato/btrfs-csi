@@ -168,29 +168,6 @@ spec:
             - name: socket-dir
               mountPath: /csi
 
-        - name: external-snapshotter
-          image: registry.k8s.io/sig-storage/csi-snapshotter:v8.0.0
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-            seccompProfile:
-              type: RuntimeDefault
-          args:
-            - --csi-address=/csi/csi.sock
-            - --leader-election
-            - --timeout=300s
-          resources:
-            requests:
-              cpu: 5m
-              memory: 32Mi
-            limits:
-              cpu: 20m
-              memory: 128Mi
-          volumeMounts:
-            - name: socket-dir
-              mountPath: /csi
-
         - name: external-resizer
           image: registry.k8s.io/sig-storage/csi-resizer:v1.14.0
           securityContext:

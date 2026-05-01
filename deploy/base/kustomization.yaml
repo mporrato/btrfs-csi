@@ -8,8 +8,6 @@ resources:
   - csi-driver.yaml
   - rbac.yaml
   - plugin.yaml
-  - storageclass.yaml
-  - snapshotclass.yaml
 images:
   - name: ghcr.io/mporrato/btrfs-csi-driver
     newTag: stable

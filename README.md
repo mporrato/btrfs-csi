@@ -86,13 +86,16 @@ make image
 
 ### Deploy to Kubernetes
 
-Deployment uses kustomize overlays. Three overlays are provided:
+Deployment uses kustomize overlays:
 
 | Overlay | Description |
 |---------|-------------|
+| `minimal` | Driver only: no StorageClass, no VolumeSnapshot support — volumes only |
+| `default` | Driver + VolumeSnapshot support: no StorageClass, no VolumeSnapshotClass — bring your own classes or apply them separately |
+| `storageclass` | Standalone default `btrfs` StorageClass (apply alongside any driver overlay) |
+| `volumesnapshotclass` | Standalone default `btrfs` VolumeSnapshotClass (apply alongside `default` + `snapshot` overlays) |
 | `snapshot` | VolumeSnapshot CRDs + snapshot-controller (no driver); apply first |
-| `default` | Driver + StorageClass + VolumeSnapshotClass (requires `snapshot` overlay) |
-| `dev` | Like `default`, but uses a locally built image, verbose logging, and adds secondary StorageClass/VolumeSnapshotClass for multi-pool e2e testing |
+| `dev` | Like `default` + all classes + secondary classes for multi-pool e2e testing |
 
 **1. Prepare the node.** Mount the btrfs pool(s) and ensure the root filesystem has shared mount propagation (required for CSI bind mounts).
 
@@ -123,16 +126,19 @@ mount /dev/sdX /var/lib/btrfs-csi/default
 btrfs quota enable /var/lib/btrfs-csi/default
 ```
 
-**2. Install VolumeSnapshot CRDs and controller:**
+Full deployment (with VolumeSnapshot support):
 
 ```bash
-make deploy OVERLAY=snapshot
+make deploy OVERLAY=snapshot         # Step 1: CRDs + controller
+make deploy                          # Step 2: driver + VolumeSnapshot support
+make deploy OVERLAY=storageclass     # Step 3a: StorageClass (optional)
+make deploy OVERLAY=volumesnapshotclass  # Step 3b: VolumeSnapshotClass (optional)
 ```
 
-**3. Deploy the driver** (requires the snapshot CRDs from step 2):
+Minimal deployment (no StorageClass, no snapshots):
 
 ```bash
-make deploy
+make deploy OVERLAY=minimal
 ```
 
 #### Custom kubelet path
@@ -155,7 +161,10 @@ If this prints nothing, the default `/var/lib/kubelet` is used. Otherwise, pass 
 
 ```bash
 make deploy OVERLAY=snapshot KUBELET_DIR=/var/lib/k0s/kubelet
-make deploy KUBELET_DIR=/var/lib/k0s/kubelet
+make deploy KUBELET_DIR=/var/lib/k0s/kubelet                  # default (snapshot support)
+make deploy OVERLAY=minimal KUBELET_DIR=/var/lib/k0s/kubelet  # minimal (no snapshot)
+make deploy OVERLAY=storageclass KUBELET_DIR=/var/lib/k0s/kubelet
+make deploy OVERLAY=volumesnapshotclass KUBELET_DIR=/var/lib/k0s/kubelet
 ```
 
 This automatically replaces all kubelet paths in the rendered manifests (hostPath volumes, container mountPaths, registration path, and the driver's `--kubelet-dir` flag).
@@ -269,11 +278,19 @@ btrfs-csi/
 │   └── state/                   # JSON-backed metadata (MultiStore/FileStore)
 ├── deploy/
 │   ├── base/                    # Core manifests (DaemonSet, RBAC, StorageClass, etc.)
-│   ├── components/snapshotter/  # Upstream VolumeSnapshot CRDs + controller
+│   ├── components/
+│   │   ├── snapshotter/        # Upstream VolumeSnapshot CRDs + controller
+│   │   ├── snapshot-driver/    # Snapshot sidecar + RBAC patches (no VolumeSnapshotClass)
+│   │   ├── storageclass/       # Default StorageClass (composable)
+│   │   ├── volumesnapshotclass/ # Default VolumeSnapshotClass (composable)
+│   │   └── labels/             # Standard Kubernetes labels
 │   └── overlays/
-│       ├── default/             # Driver only (production)
-│       ├── snapshot/            # VolumeSnapshot CRDs + controller (no driver)
-│       └── dev/                 # Driver + local image + verbose logging + e2e classes
+│       ├── minimal/            # Driver only: no classes, no snapshot
+│       ├── default/            # Driver + snapshot support, no classes
+│       ├── storageclass/       # Standalone StorageClass overlay
+│       ├── volumesnapshotclass/ # Standalone VolumeSnapshotClass overlay
+│       ├── snapshot/           # VolumeSnapshot CRDs + controller (no driver)
+│       └── dev/                # default + all classes + secondary e2e classes
 └── scripts/                     # Cluster setup and test runner scripts
 ```
 

@@ -65,13 +65,19 @@ scripts/                         # Cluster setup and test runner scripts
 Use kustomize overlays to deploy to different environments:
 
 ```bash
-# Production deployment (standard kubelet path)
-make deploy OVERLAY=snapshot     # VolumeSnapshot CRDs + controller (apply first)
-make deploy                      # Driver + StorageClass + VolumeSnapshotClass
+# Minimal deployment (no StorageClass, no snapshots)
+make deploy OVERLAY=minimal              # Driver only
+
+# Full deployment with VolumeSnapshot support
+make deploy OVERLAY=snapshot             # VolumeSnapshot CRDs + controller (apply first)
+make deploy                              # Driver + VolumeSnapshot support
+make deploy OVERLAY=storageclass         # StorageClass (optional)
+make deploy OVERLAY=volumesnapshotclass  # VolumeSnapshotClass (optional)
 
 # Custom kubelet path (e.g., k0s)
 make deploy OVERLAY=snapshot KUBELET_DIR=/var/lib/k0s/kubelet
 make deploy KUBELET_DIR=/var/lib/k0s/kubelet
+make deploy OVERLAY=minimal KUBELET_DIR=/var/lib/k0s/kubelet
 
 # Development (minikube with verbose logging and secondary pool)
 make minikube-up        # Automatically uses deploy/overlays/dev/
@@ -81,7 +87,7 @@ make minikube-e2e       # Run end-to-end tests
 make minikube-down
 ```
 
-Three overlays: `snapshot` (CRDs + controller, no driver; apply first), `default` (driver + StorageClass + VolumeSnapshotClass), `dev` (like default + local image + verbose logging + secondary classes for e2e).
+Six overlays: `snapshot` (CRDs + controller, no driver; apply first), `minimal` (driver only, no classes, no snapshot), `default` (driver + snapshot support, no classes), `storageclass` (standalone StorageClass), `volumesnapshotclass` (standalone VolumeSnapshotClass), and `dev` (like default + all classes + secondary e2e classes).
 
 Manifests default to `/var/lib/kubelet`. Set `KUBELET_DIR` to override this for distributions that use a different path (e.g., k0s uses `/var/lib/k0s/kubelet`). This replaces all kubelet paths in the rendered manifests — hostPath volumes, container mountPaths, registration path, and the driver's `--kubelet-dir` flag — in one step.
 

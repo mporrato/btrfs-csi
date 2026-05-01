@@ -1,0 +1,17 @@
+---
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# Patches the driver DaemonSet and RBAC to add VolumeSnapshot support.
+# Requires the VolumeSnapshot CRDs to be installed on the cluster first
+# (see deploy/overlays/snapshot/).
+patches:
+  - path: patch-daemonset.yaml
+    target:
+      kind: DaemonSet
+      name: btrfs-csi-driver
+  - path: patch-rbac.yaml
+    target:
+      group: rbac.authorization.k8s.io
+      version: v1
+      kind: ClusterRole
+      name: btrfs-csi-driver

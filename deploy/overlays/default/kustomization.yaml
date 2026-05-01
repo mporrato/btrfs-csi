@@ -1,7 +1,13 @@
 ---
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# NOTE: Apply deploy/overlays/snapshot/ first to install VolumeSnapshot CRDs
-# and the snapshot-controller if snapshot support is needed.
+# Full driver with VolumeSnapshot support (no StorageClass).
+# Apply deploy/overlays/snapshot/ first to install the VolumeSnapshot CRDs
+# and the snapshot-controller.
+# To add a StorageClass and/or VolumeSnapshotClass, also apply:
+#   kubectl apply -k deploy/overlays/storageclass/
+#   kubectl apply -k deploy/overlays/volumesnapshotclass/
 resources:
   - ../../base
+components:
+  - ../../components/snapshot-driver

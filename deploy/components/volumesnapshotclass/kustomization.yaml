@@ -1,0 +1,7 @@
+---
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# Adds the default btrfs VolumeSnapshotClass.
+# Include this component in any overlay that needs the VolumeSnapshotClass.
+resources:
+  - volumesnapshotclass.yaml
