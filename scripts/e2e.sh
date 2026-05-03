@@ -331,6 +331,117 @@ else
     pass "Resources cleaned up"
 fi
 
+# ─── Nodatacow volumes ───────────────────────────────────────────────────────
+
+section "Nodatacow — default CoW behavior"
+
+apply_pvc e2e-cow-default-pvc "$PRIMARY_STORAGECLASS" 256Mi
+bind_pvc e2e-cow-default-pvc "Default PVC bound"
+
+_pv=$(${K} get pvc e2e-cow-default-pvc -n "${NAMESPACE}" -o jsonpath='{.spec.volumeName}')
+_vol_id=$(${K} get pv "${_pv}" -o jsonpath='{.spec.csi.volumeHandle}')
+
+if [ -z "${_vol_id}" ]; then
+    fail "PV ${_pv} has empty volumeHandle"
+else
+    _attrs=$(${EXEC} "sudo lsattr -d /var/lib/btrfs-csi/default/volumes/${_vol_id}" 2>/dev/null | awk '{print $1}')
+
+    if [ -z "${_attrs}" ]; then
+        fail "Cannot read attributes for default volume ${_vol_id}"
+    elif echo "${_attrs}" | grep -q "C"; then
+        fail "Default PVC has nodatacow flag set (expected CoW)"
+    else
+        pass "Default PVC does not have nodatacow flag"
+    fi
+fi
+
+delete_resources pvc/e2e-cow-default-pvc
+pass "Resources cleaned up"
+
+section "Nodatacow — cow=false volumes"
+
+if ! ${K} get storageclass "btrfs-nodatacow" &>/dev/null; then
+    skip "StorageClass btrfs-nodatacow not found"
+else
+    # Fresh volume with cow=false → verify C flag is set
+    apply_pvc e2e-cow-nodatacow-pvc "btrfs-nodatacow" 256Mi
+    bind_pvc e2e-cow-nodatacow-pvc "Nodatacow PVC bound"
+
+    _pv=$(${K} get pvc e2e-cow-nodatacow-pvc -n "${NAMESPACE}" -o jsonpath='{.spec.volumeName}')
+    _vol_id=$(${K} get pv "${_pv}" -o jsonpath='{.spec.csi.volumeHandle}')
+
+    if [ -z "${_vol_id}" ]; then
+        fail "PV ${_pv} has empty volumeHandle"
+    else
+        _attrs=$(${EXEC} "sudo lsattr -d /var/lib/btrfs-csi/default/volumes/${_vol_id}" 2>/dev/null | awk '{print $1}')
+
+        if [ -z "${_attrs}" ]; then
+            fail "Cannot read attributes for nodatacow volume ${_vol_id}"
+        elif echo "${_attrs}" | grep -q "C"; then
+            pass "Nodatacow PVC has C flag set"
+        else
+            fail "Nodatacow PVC is missing C flag"
+        fi
+    fi
+
+    delete_resources pvc/e2e-cow-nodatacow-pvc
+    pass "Resources cleaned up"
+
+    # Clone from a nodatacow volume → verify C flag is inherited
+    apply_pvc e2e-cow-clone-source-pvc "btrfs-nodatacow" 256Mi
+    bind_pvc e2e-cow-clone-source-pvc "Nodatacow clone source bound"
+
+    apply_pvc e2e-cow-clone-pvc "$PRIMARY_STORAGECLASS" 256Mi "$(ds_pvc e2e-cow-clone-source-pvc)"
+    bind_pvc e2e-cow-clone-pvc "Clone from nodatacow source bound"
+
+    _pv=$(${K} get pvc e2e-cow-clone-pvc -n "${NAMESPACE}" -o jsonpath='{.spec.volumeName}')
+    _vol_id=$(${K} get pv "${_pv}" -o jsonpath='{.spec.csi.volumeHandle}')
+
+    if [ -z "${_vol_id}" ]; then
+        fail "PV ${_pv} has empty volumeHandle"
+    else
+        _attrs=$(${EXEC} "sudo lsattr -d /var/lib/btrfs-csi/default/volumes/${_vol_id}" 2>/dev/null | awk '{print $1}')
+
+        if [ -z "${_attrs}" ]; then
+            fail "Cannot read attributes for clone volume ${_vol_id}"
+        elif echo "${_attrs}" | grep -q "C"; then
+            pass "Clone from nodatacow source inherits C flag"
+        else
+            fail "Clone from nodatacow source is missing C flag"
+        fi
+    fi
+
+    delete_resources pvc/e2e-cow-clone-pvc pvc/e2e-cow-clone-source-pvc
+    pass "Resources cleaned up"
+
+    # Clone from a normal volume → verify C flag is NOT set
+    apply_pvc e2e-cow-reverse-source-pvc "$PRIMARY_STORAGECLASS" 256Mi
+    bind_pvc e2e-cow-reverse-source-pvc "Default CoW clone source bound"
+
+    apply_pvc e2e-cow-reverse-clone-pvc "btrfs-nodatacow" 256Mi "$(ds_pvc e2e-cow-reverse-source-pvc)"
+    bind_pvc e2e-cow-reverse-clone-pvc "Clone from default source bound"
+
+    _pv=$(${K} get pvc e2e-cow-reverse-clone-pvc -n "${NAMESPACE}" -o jsonpath='{.spec.volumeName}')
+    _vol_id=$(${K} get pv "${_pv}" -o jsonpath='{.spec.csi.volumeHandle}')
+
+    if [ -z "${_vol_id}" ]; then
+        fail "PV ${_pv} has empty volumeHandle"
+    else
+        _attrs=$(${EXEC} "sudo lsattr -d /var/lib/btrfs-csi/default/volumes/${_vol_id}" 2>/dev/null | awk '{print $1}')
+
+        if [ -z "${_attrs}" ]; then
+            fail "Cannot read attributes for reverse clone volume ${_vol_id}"
+        elif echo "${_attrs}" | grep -q "C"; then
+            fail "Clone from default source has unexpected C flag"
+        else
+            pass "Clone from default source correctly does not have C flag"
+        fi
+    fi
+
+    delete_resources pvc/e2e-cow-reverse-clone-pvc pvc/e2e-cow-reverse-source-pvc
+    pass "Resources cleaned up"
+fi
+
 # ─── Summary ─────────────────────────────────────────────────────────────────
 
 echo ""
