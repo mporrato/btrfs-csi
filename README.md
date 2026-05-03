@@ -3,191 +3,78 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/mporrato/btrfs-csi)](https://github.com/mporrato/btrfs-csi)
 [![License: Unlicense](https://img.shields.io/badge/License-Unlicense-green.svg)](LICENSE)
 
-A Kubernetes CSI (Container Storage Interface) storage driver for single-node clusters (e.g., k0s, minikube, kind) that leverages btrfs features: subvolumes, snapshots, qgroups, and copy-on-write.
+A Kubernetes CSI storage driver for single-node clusters that exposes btrfs features—instant volumes, snapshots, clones, and true quota enforcement—directly to Kubernetes workloads.
 
-Written in Go. Single binary serving Identity, Controller, and Node gRPC services over a Unix socket.
+## Why btrfs?
 
-## Features
+Btrfs is a copy-on-write filesystem with built-in volume management. This driver exposes those capabilities to Kubernetes, giving you features that traditional storage drivers can't match:
 
-- **Subvolume-based volumes**: Each PVC creates a btrfs subvolume
-- **Snapshots**: Create VolumeSnapshots from existing PVCs
-- **Cloning**: Clone existing PVCs via `dataSource` (same or cross-filesystem via btrfs send/receive)
-- **Volume expansion**: Online capacity expansion via qgroup limits
-- **Multi-pool support**: Configure multiple btrfs filesystems as named storage pools
-- **Topology-aware**: Supports `WaitForFirstConsumer` binding mode
-- **Idempotent operations**: All CSI operations follow the idempotency spec
+### 1. Instant Volumes
+**What btrfs does:** Creates subvolumes instantly—no formatting, no zeroing, no allocation delay.
+**Kubernetes mapping:** Every PVC becomes a btrfs subvolume.
+**Why it matters:** A 100 GiB volume provisions in milliseconds, not minutes. No waiting for disk allocation or filesystem initialization.
 
-## Architecture
+### 2. Copy-on-Write Control
+**What btrfs does:** CoW tracks changes by copying data blocks before modification. You can disable it per-subvolume with `chattr +C` (nodatacow).
+**Kubernetes mapping:** The `cow` StorageClass parameter controls this behavior.
+**Why it matters:** Databases (PostgreSQL, MySQL) and VMs perform better with CoW disabled—they do their own caching and suffer write amplification from CoW. General workloads benefit from CoW's efficiency.
 
-This is a **single-node** CSI driver designed for local storage. It does not implement `ControllerPublish/Unpublish` or `NodeStage/Unstage` since subvolumes are already part of the mounted btrfs filesystem.
+### 3. Instant Snapshots
+**What btrfs does:** Creates read-only snapshots in zero time—no data copy, just metadata.
+**Kubernetes mapping:** `VolumeSnapshot` objects create crash-consistent, read-only btrfs snapshots.
+**Why it matters:** Back up a 500 GiB database instantly. No performance impact, no staging period.
 
-### Pool-Based Storage
+### 4. Instant Clones
+**What btrfs does:** Writable snapshots (clones) share data with the source until modified (CoW efficiency).
+**Kubernetes mapping:** PVC-to-PVC cloning via `dataSource`.
+**Why it matters:** Clone a database for testing in seconds. Multiple clones share the same underlying data until writes diverge.
 
-The driver manages one or more btrfs filesystems as **storage pools**. Pools are discovered automatically by scanning a base directory (default `/var/lib/btrfs-csi`):
+### 5. True Quota Enforcement
+**What btrfs does:** Qgroups enforce hard capacity limits at the subvolume level.
+**Kubernetes mapping:** PVC capacity requests become qgroup limits.
+**Why it matters:** A 10 GiB PVC cannot exceed 10 GiB—period. Not advisory, not best-effort. Hard enforcement prevents runaway workloads from consuming all storage.
 
-```
-/var/lib/btrfs-csi/
-├── default/   # btrfs filesystem mounted here → pool named "default"
-└── fast/      # btrfs filesystem mounted here → pool named "fast"
-```
+### 6. Online Expansion
+**What btrfs does:** Resize qgroup limits instantly; the filesystem expands online.
+**Kubernetes mapping:** Patch a PVC's capacity; the volume grows without downtime.
+**Why it matters:** No unmount, no resize operations, no service interruption. Just update the PVC and use the extra space immediately.
 
-Each immediate subdirectory that is a separate btrfs mountpoint becomes a pool. The driver watches for new or removed subdirectories every 30 seconds and hot-reloads without restart. No ConfigMap is required.
+### 7. Cross-Filesystem Clones
+**What btrfs does:** Send/receive streams enable cloning across different btrfs filesystems.
+**Kubernetes mapping:** Clone PVCs across different storage pools.
+**Why it matters:** Copy data between physical disks or backup locations efficiently—only changed blocks transfer.
 
-### CSI Services
-
-| Service | Purpose |
-|---------|---------|
-| Identity | Plugin info, capabilities, health probe |
-| Controller | Create/Delete volumes, snapshots, expansion |
-| Node | Bind mount, volume stats, node info |
-
-### Btrfs Concept Mapping
-
-| CSI Concept | Btrfs Feature |
-|-------------|---------------|
-| Volume | Subvolume (`<poolPath>/volumes/<id>`) |
-| Capacity | Qgroup limit |
-| Snapshot | Readonly snapshot (`<poolPath>/snapshots/<id>`) |
-| Clone | Writable snapshot |
-| Mount | Bind mount |
-| Pool | btrfs filesystem mount point |
-
-### Driver Details
-
-- **Driver name**: `btrfs.csi.local`
-- **Topology key**: `topology.btrfs.csi.local/node`
-- **Default pools dir**: `/var/lib/btrfs-csi` (override with `--pools-dir`)
-- **State file**: `<poolPath>/state.json` (one per pool)
+### 8. Auto-Discovered Storage Pools
+**What btrfs does:** Each btrfs mount becomes a named storage pool.
+**Kubernetes mapping:** Mount a btrfs filesystem under `/var/lib/btrfs-csi/<pool-name>`; the driver finds it automatically.
+**Why it matters:** No ConfigMap, no manual pool registration. Add a disk, mount it, and it's ready to use.
 
 ## Prerequisites
 
-- Go 1.26+
-- btrfs-progs utilities
-- Kubernetes cluster (single-node like k0s recommended)
-- Root access (required for btrfs operations and mount)
+Before deploying the driver, ensure the following:
 
-## Installation
+- **btrfs-progs installed** on the node (`btrfs --version` should work)
+- **A btrfs filesystem mounted** under `/var/lib/btrfs-csi/<pool-name>`
+- **Root/privileged access** (the driver runs as privileged)
+- **Shared mount propagation** enabled: `mount --make-rshared /` (if not already default)
 
-### Build from Source
+## Quick Start
 
-```bash
-git clone https://github.com/mporrato/btrfs-csi.git
-cd btrfs-csi
-make build
-```
-
-Go 1.26+ is required. If your local toolchain is older, `make` uses `GOTOOLCHAIN=auto` to download the right version automatically.
-
-### Build Container Image
+Get a PVC running in a few commands:
 
 ```bash
-make image
-```
-
-### Deploy to Kubernetes
-
-Deployment uses kustomize overlays:
-
-| Overlay | Description |
-|---------|-------------|
-| `minimal` | Driver only: no StorageClass, no VolumeSnapshot support — volumes only |
-| `default` | Driver + VolumeSnapshot support: no StorageClass, no VolumeSnapshotClass — bring your own classes or apply them separately |
-| `storageclass` | Standalone default `btrfs` StorageClass (apply alongside any driver overlay) |
-| `volumesnapshotclass` | Standalone default `btrfs` VolumeSnapshotClass (apply alongside `default` + `snapshot` overlays) |
-| `snapshot` | VolumeSnapshot CRDs + snapshot-controller (no driver); apply first |
-| `dev` | Like `default` + all classes + secondary classes for multi-pool e2e testing |
-
-**1. Prepare the node.** Mount the btrfs pool(s) and ensure the root filesystem has shared mount propagation (required for CSI bind mounts).
-
-Check the current propagation mode:
-
-```bash
-findmnt -o TARGET,PROPAGATION /
-```
-
-If the output shows `private` instead of `shared`, enable it:
-
-```bash
-mount --make-rshared /
-```
-
-Most distributions (Fedora, Ubuntu, Debian) default to `shared`. Alpine Linux defaults to `private` and needs this step. To persist across reboots on Alpine:
-
-```bash
-echo "mount --make-rshared /" > /etc/local.d/shared-mounts.start
-chmod +x /etc/local.d/shared-mounts.start
-```
-
-Mount a btrfs partition as a storage pool:
-
-```bash
+# 1. Mount a btrfs filesystem and enable quotas
 mkdir -p /var/lib/btrfs-csi/default
 mount /dev/sdX /var/lib/btrfs-csi/default
 btrfs quota enable /var/lib/btrfs-csi/default
-```
 
-Full deployment (with VolumeSnapshot support):
+# 2. Deploy the driver (with VolumeSnapshot support)
+make deploy OVERLAY=snapshot    # CRDs + controller
+make deploy                     # Driver + snapshot support
+make deploy OVERLAY=storageclass  # Default StorageClass
 
-```bash
-make deploy OVERLAY=snapshot         # Step 1: CRDs + controller
-make deploy                          # Step 2: driver + VolumeSnapshot support
-make deploy OVERLAY=storageclass     # Step 3a: StorageClass (optional)
-make deploy OVERLAY=volumesnapshotclass  # Step 3b: VolumeSnapshotClass (optional)
-```
-
-Minimal deployment (no StorageClass, no snapshots):
-
-```bash
-make deploy OVERLAY=minimal
-```
-
-#### Custom kubelet path
-
-The manifests default to `/var/lib/kubelet`, which is correct for standard Kubernetes, minikube, and kind clusters. Some distributions use a different kubelet root directory:
-
-| Distribution | Kubelet path |
-|---|---|
-| Standard / minikube / kind | `/var/lib/kubelet` (default) |
-| k0s | `/var/lib/k0s/kubelet` |
-| k3s | `/var/lib/rancher/k3s/agent/kubelet` |
-
-To check your kubelet root:
-
-```bash
-ps aux | grep kubelet | grep -o '\--root-dir=[^ ]*'
-```
-
-If this prints nothing, the default `/var/lib/kubelet` is used. Otherwise, pass `KUBELET_DIR` when deploying:
-
-```bash
-make deploy OVERLAY=snapshot KUBELET_DIR=/var/lib/k0s/kubelet
-make deploy KUBELET_DIR=/var/lib/k0s/kubelet                  # default (snapshot support)
-make deploy OVERLAY=minimal KUBELET_DIR=/var/lib/k0s/kubelet  # minimal (no snapshot)
-make deploy OVERLAY=storageclass KUBELET_DIR=/var/lib/k0s/kubelet
-make deploy OVERLAY=volumesnapshotclass KUBELET_DIR=/var/lib/k0s/kubelet
-```
-
-This automatically replaces all kubelet paths in the rendered manifests (hostPath volumes, container mountPaths, registration path, and the driver's `--kubelet-dir` flag).
-
-## Usage
-
-### StorageClass Example
-
-```yaml
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: btrfs
-provisioner: btrfs.csi.local
-volumeBindingMode: WaitForFirstConsumer
-allowVolumeExpansion: true
-parameters:
-  pool: "default"  # references pool name (subdirectory of --pools-dir)
-```
-
-### PVC Example
-
-```yaml
+# 3. Create a PVC
+kubectl apply -f - <<EOF
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -199,39 +86,317 @@ spec:
   resources:
     requests:
       storage: 1Gi
+EOF
+
+# 4. Use it in a pod
+kubectl run test --image=alpine --rm -it --restart=Never \
+  --overrides='{"spec":{"volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"my-data"}}],"containers":[{"name":"test","image":"alpine","volumeMounts":[{"name":"data","mountPath":"/data"}]}]}}'
 ```
 
-### Snapshot Example
+## Features with Examples
 
-```yaml
-apiVersion: snapshot.storage.k8s.io/v1
-kind: VolumeSnapshot
-metadata:
-  name: my-snapshot
-spec:
-  volumeSnapshotClassName: btrfs-snapshot
-  source:
-    persistentVolumeClaimName: my-data
-```
+### Instant Volumes
 
-### Clone Example
+Create a PVC and it's ready immediately—no provisioning delay:
 
 ```yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: my-clone
+  name: fast-volume
 spec:
   storageClassName: btrfs
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
-  dataSource:
-    kind: PersistentVolumeClaim
-    name: my-data
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: use-volume
+spec:
+  containers:
+  - name: app
+    image: alpine
+    command: ["sleep", "3600"]
+    volumeMounts:
+    - name: data
+      mountPath: /data
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: fast-volume
 ```
+
+### Copy-on-Write Control
+
+Use `cow: "false"` for databases or workloads with heavy random writes:
+
+```yaml
+# Default: CoW enabled (good for general workloads)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: btrfs-cow
+provisioner: btrfs.csi.local
+volumeBindingMode: WaitForFirstConsumer  # ensures pod is scheduled before binding
+allowVolumeExpansion: true
+parameters:
+  cow: "true"  # default, can omit
+---
+# No CoW: Best for databases, VMs, random-write workloads
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: btrfs-nocow
+provisioner: btrfs.csi.local
+volumeBindingMode: WaitForFirstConsumer  # ensures pod is scheduled before binding
+allowVolumeExpansion: true
+parameters:
+  cow: "false"  # disables CoW with chattr +C
+```
+
+**Topology:** The driver uses the topology key `topology.btrfs.csi.local/node`. `WaitForFirstConsumer` ensures the PVC binds to a PV on the same node where the consuming pod is scheduled, which is required for single-node storage.
+
+**When to use each:**
+- `cow: "true"` (default): Web servers, log aggregation, general applications—benefits from CoW efficiency
+- `cow: "false"`: PostgreSQL, MySQL, Elasticsearch, VMs—workloads that do their own caching and suffer from CoW write amplification
+
+### Snapshots
+
+Create instant, crash-consistent backups and restore them:
+
+```yaml
+# Create a snapshot
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: db-backup
+spec:
+  volumeSnapshotClassName: btrfs
+  source:
+    persistentVolumeClaimName: database-pvc
+---
+# Restore from snapshot to a new PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-restored
+spec:
+  storageClassName: btrfs
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  dataSource:
+    name: db-backup
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io
+```
+
+### Cloning
+
+Clone a PVC for testing, staging, or data migration:
+
+```yaml
+# Clone an existing PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: production-db-clone
+spec:
+  storageClassName: btrfs
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi  # can be same or larger than source
+  dataSource:
+    name: production-db
+    kind: PersistentVolumeClaim
+```
+
+The clone shares data with the source until you modify it—extremely space-efficient.
+
+### Volume Expansion
+
+Grow a volume online without downtime:
+
+```yaml
+# Original PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: expandable-volume
+spec:
+  storageClassName: btrfs
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+```
+
+```bash
+# Expand to 20 GiB
+kubectl patch pvc expandable-volume --patch '{"spec":{"resources":{"requests":{"storage":"20Gi"}}}}'
+
+# Verify (no unmount or restart needed)
+kubectl get pvc expandable-volume
+```
+
+The pod continues running and can immediately use the extra space.
+
+### Multi-Pool Storage
+
+Use multiple btrfs filesystems for different storage tiers:
+
+```bash
+# On the node: mount multiple btrfs filesystems
+mkdir -p /var/lib/btrfs-csi/default
+mkdir -p /var/lib/btrfs-csi/fast-ssd
+mount /dev/sda1 /var/lib/btrfs-csi/default
+mount /dev/nvme0n1 /var/lib/btrfs-csi/fast-ssd
+btrfs quota enable /var/lib/btrfs-csi/default
+btrfs quota enable /var/lib/btrfs-csi/fast-ssd
+```
+
+```yaml
+# StorageClasses for each pool
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: btrfs-default
+provisioner: btrfs.csi.local
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  pool: default
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: btrfs-fast
+provisioner: btrfs.csi.local
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  pool: fast-ssd
+  cow: "false"  # disable CoW for maximum SSD performance
+```
+
+```yaml
+# Use the fast pool for databases
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fast-db
+spec:
+  storageClassName: btrfs-fast
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+```
+
+## StorageClass Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `pool` | (auto) | Pool name. Auto-selects the sole pool, or the pool named `default`. If multiple pools exist and none is named `default`, volume creation fails — explicitly specify the pool. |
+| `cow` | `"true"` | Set to `"false"` to disable copy-on-write (nodatacow). Use for databases and VMs. |
+
+## Deployment
+
+The driver deploys with `--enable-capacity` by default, which publishes `CSIStorageCapacity` objects to the API server. This allows the Kubernetes scheduler to track available storage capacity per node and prevent over-provisioning.
+
+### Kustomize Overlays
+
+| Overlay | Description |
+|---------|-------------|
+| `snapshot` | VolumeSnapshot CRDs + controller (apply first) |
+| `minimal` | Driver only: no StorageClass, no VolumeSnapshot support |
+| `default` | Driver + VolumeSnapshot support (no classes) |
+| `storageclass` | Standalone default `btrfs` StorageClass |
+| `volumesnapshotclass` | Standalone default `btrfs` VolumeSnapshotClass |
+| `dev` | Full dev setup with secondary pool for e2e testing |
+
+### Deploy Commands
+
+Standard deployment flow:
+
+```bash
+# 1. Install VolumeSnapshot CRDs and controller
+make deploy OVERLAY=snapshot
+
+# 2. Deploy the driver with snapshot support
+make deploy
+
+# 3. Apply default classes (optional, or bring your own)
+make deploy OVERLAY=storageclass
+make deploy OVERLAY=volumesnapshotclass
+```
+
+Minimal deployment (volumes only, no snapshots):
+
+```bash
+make deploy OVERLAY=minimal
+```
+
+### Custom kubelet path
+
+The manifests default to `/var/lib/kubelet`. Set `KUBELET_DIR` for distributions with different paths:
+
+| Distribution | Kubelet path |
+|---|---|
+| Standard / minikube / kind | `/var/lib/kubelet` (default) |
+| k0s | `/var/lib/k0s/kubelet` |
+| k3s | `/var/lib/rancher/k3s/agent/kubelet` |
+
+Check your kubelet root:
+
+```bash
+ps aux | grep kubelet | grep -o '\--root-dir=[^ ]*'
+```
+
+Deploy with custom path:
+
+```bash
+make deploy OVERLAY=snapshot KUBELET_DIR=/var/lib/k0s/kubelet
+make deploy KUBELET_DIR=/var/lib/k0s/kubelet
+make deploy OVERLAY=minimal KUBELET_DIR=/var/lib/k0s/kubelet
+```
+
+### Node preparation
+
+**Mount propagation:** The driver requires shared mount propagation for bind mounts to work correctly.
+
+Check current mode:
+```bash
+findmnt -o TARGET,PROPAGATION /
+```
+
+If it shows `private`, enable shared propagation:
+```bash
+mount --make-rshared /
+```
+
+To persist on Alpine Linux (which defaults to `private`):
+```bash
+echo "mount --make-rshared /" > /etc/local.d/shared-mounts.start
+chmod +x /etc/local.d/shared-mounts.start
+```
+
+**Pool setup:** Each pool is a btrfs mountpoint:
+```bash
+mkdir -p /var/lib/btrfs-csi/default
+mount /dev/sdX /var/lib/btrfs-csi/default
+btrfs quota enable /var/lib/btrfs-csi/default
+```
+
+The driver auto-discovers pools every 30 seconds—no restart needed.
 
 ## Configuration
 
@@ -241,121 +406,141 @@ spec:
 |------|---------|-------------|
 | `--endpoint` | `unix:///csi/csi.sock` | CSI endpoint (Unix socket) |
 | `--nodeid` | (auto-generated UUID) | Node ID for topology |
-| `--pools-dir` | `/var/lib/btrfs-csi` | Base directory containing pool subdirectories |
-| `--kubelet-dir` | `/var/lib/kubelet` | Kubelet base directory for target path validation |
-| `--version` | (print and exit) | Print version |
+| `--pools-dir` | `/var/lib/btrfs-csi` | Base directory for pool discovery |
+| `--kubelet-dir` | `/var/lib/kubelet` | Kubelet root directory for path validation |
+| `--enable-capacity` | `true` | Publish `CSIStorageCapacity` objects to prevent over-provisioning |
+| `--version` | | Print version and exit |
 
-Each immediate subdirectory of `--pools-dir` that is a separate btrfs mountpoint becomes a pool. The subdirectory name is the pool name.
+## Troubleshooting
 
-### StorageClass Parameters
+### Driver not starting
 
-| Parameter | Description |
-|-----------|-------------|
-| `pool` | Pool name to use (must match a subdirectory of `--pools-dir`) |
+**Symptom:** Driver pod crashes or fails to become ready.
+
+**Check:**
+```bash
+# Verify btrfs-progs is installed
+btrfs --version
+
+# Check pools-dir exists and has btrfs mounts
+ls -la /var/lib/btrfs-csi/
+mount | grep btrfs
+
+# Verify quota is enabled
+btrfs quota show /var/lib/btrfs-csi/default
+
+# Check driver logs
+kubectl logs -n btrfs-csi -l app=btrfs-csi-driver
+```
+
+**Fix:**
+- Ensure at least one btrfs filesystem is mounted under `--pools-dir`
+- Enable quotas: `btrfs quota enable <pool-path>`
+- Verify the CSI socket directory is writable
+
+### Volume creation fails
+
+**Symptom:** PVC stays in `Pending` state with provisioning errors.
+
+**Check:**
+```bash
+# Verify pool exists and is mounted
+btrfs filesystem df /var/lib/btrfs-csi/default
+
+# Check available space
+btrfs filesystem usage /var/lib/btrfs-csi/default
+
+# Verify StorageClass references correct pool
+kubectl get storageclass btrfs -o yaml
+```
+
+**Fix:**
+- Ensure the pool name in StorageClass matches a subdirectory under `--pools-dir`
+- Check available space on the btrfs filesystem
+- Verify quota is enabled on the pool
+
+### Mount errors
+
+**Symptom:** Pod fails to start with mount errors.
+
+**Check:**
+```bash
+# Verify mount propagation
+findmnt -o TARGET,PROPAGATION /
+
+# Check kubelet logs
+journalctl -u kubelet | grep -i mount
+
+# Verify driver has privileged access
+kubectl get daemonset -n btrfs-csi -o yaml | grep -A5 securityContext
+```
+
+**Fix:**
+- Enable shared mount propagation: `mount --make-rshared /`
+- Ensure the driver runs with privileged security context (default in manifests)
+
+### Capacity/quota issues
+
+**Symptom:** Volume creation fails with capacity errors, or writes fail despite available space.
+
+**Check:**
+```bash
+# Show qgroup limits
+btrfs qgroup show /var/lib/btrfs-csi/default
+
+# Check actual usage vs limit
+btrfs filesystem usage /var/lib/btrfs-csi/default
+```
+
+**Fix:**
+- Qgroups enforce hard limits—a 10 GiB PVC cannot exceed 10 GiB even if the filesystem has space
+- Delete unused volumes/snapshots to free quota
+- Expand the PVC if more space is needed
 
 ## Development
 
-### Running Tests
+### Building from Source
 
 ```bash
-# Unit tests
-make test
-
-# Integration tests (requires root + btrfs)
-make test-integration
+make build   # Build the binary
+make image   # Build the container image
 ```
 
-Both targets use `GOTOOLCHAIN=auto`, so no container or pre-installed Go 1.26 is needed.
+### Testing
+
+```bash
+# Run unit tests
+make test
+
+# Run integration tests (requires root + btrfs)
+make test-integration
+
+# Create a local minikube cluster for e2e testing
+make minikube-up
+
+# Run end-to-end tests
+make minikube-e2e
+
+# Tear down the test cluster
+make minikube-down
+```
 
 ### Project Structure
 
 ```
 btrfs-csi/
-├── cmd/btrfs-csi-driver/        # Entry point
+├── cmd/btrfs-csi-driver/    # Entry point
 ├── pkg/
-│   ├── driver/                  # CSI gRPC services
-│   ├── btrfs/                   # btrfs CLI wrapper
-│   └── state/                   # JSON-backed metadata (MultiStore/FileStore)
+│   ├── driver/              # CSI gRPC services
+│   ├── btrfs/               # btrfs CLI wrapper
+│   └── state/               # JSON-backed metadata store
 ├── deploy/
-│   ├── base/                    # Core manifests (DaemonSet, RBAC, StorageClass, etc.)
-│   ├── components/
-│   │   ├── snapshotter/        # Upstream VolumeSnapshot CRDs + controller
-│   │   ├── snapshot-driver/    # Snapshot sidecar + RBAC patches (no VolumeSnapshotClass)
-│   │   ├── storageclass/       # Default StorageClass (composable)
-│   │   ├── volumesnapshotclass/ # Default VolumeSnapshotClass (composable)
-│   │   └── labels/             # Standard Kubernetes labels
-│   └── overlays/
-│       ├── minimal/            # Driver only: no classes, no snapshot
-│       ├── default/            # Driver + snapshot support, no classes
-│       ├── storageclass/       # Standalone StorageClass overlay
-│       ├── volumesnapshotclass/ # Standalone VolumeSnapshotClass overlay
-│       ├── snapshot/           # VolumeSnapshot CRDs + controller (no driver)
-│       └── dev/                # default + all classes + secondary e2e classes
-└── scripts/                     # Cluster setup and test runner scripts
+│   ├── base/                # Core manifests
+│   ├── components/          # Composable kustomize components
+│   └── overlays/            # Environment-specific configurations
+└── scripts/                 # Cluster setup and test scripts
 ```
-
-### Key Interfaces
-
-- `btrfs.Manager` — abstracts btrfs CLI operations
-- `state.Store` — volume/snapshot metadata CRUD
-- `Mounter` — abstracts bind mount/unmount
-
-### Coding Conventions
-
-- **TDD**: Strict Red-Green-Gray methodology
-- **Error handling**: Wrap with `fmt.Errorf("operation: %w", err)`
-- **gRPC errors**: Use `status.Errorf(codes.X, ...)`
-- **Logging**: Use `klog.V(level).InfoS()` / `klog.ErrorS()`
-- **Tests**: Hand-written mocks, no mocking frameworks
-
-## Troubleshooting
-
-### Driver Not Starting
-
-- Ensure `--pools-dir` exists and contains at least one btrfs mountpoint subdirectory
-- Verify the socket directory exists and is writable
-- Check that `--nodeid` is provided (or accept auto-generated UUID)
-- Verify btrfs-progs is installed: `btrfs --version`
-
-### Pool Configuration Issues
-
-- Each pool must be a **separate btrfs mount** at `<pools-dir>/<pool-name>` (a full filesystem or a subvolume mounted with `-o subvol=`)
-- Verify the mount: `mount | grep btrfs`
-- Ensure quota is enabled on each btrfs filesystem: `btrfs quota enable <path>`
-- Check the pool path is a btrfs filesystem: `btrfs filesystem df <path>`
-- Pool changes are detected automatically (30s polling interval)
-
-### Volume Creation Fails
-
-- Verify the pool's btrfs filesystem is mounted
-- Check that the pool path exists and has correct permissions
-- Ensure quota is enabled: `btrfs quota enable <path>`
-- Check the pool is defined in StorageClass: `parameters.pool: "default"`
-
-### Mount Errors
-
-- The driver requires privileged access for mount operations
-- Ensure bidirectional mount propagation is enabled (if using kind)
-- Check kubelet logs: `kubectl logs -n btrfs-csi -l app=btrfs-csi-driver`
-
-### Capacity Issues
-
-- Capacity is enforced via qgroup limits, not filesystem-level sizing
-- Verify qgroup is set: `btrfs qgroup show <path>`
-- Check available space: `btrfs filesystem usage <path>`
 
 ## License
 
-This is free and unencumbered software released into the public domain. See [LICENSE](LICENSE) for details.
-
-## Contributing
-
-Contributions are welcome. Please ensure:
-- All tests pass (`make test`)
-- Code follows Go style conventions (`gofmt`, `go vet`)
-- New features include corresponding tests
-
-## References
-
-- [CSI Specification](https://github.com/container-storage-interface/spec)
-- [Reference: kubernetes-csi/csi-driver-host-path](https://github.com/kubernetes-csi/csi-driver-host-path)
+Public domain (Unlicense). See [LICENSE](LICENSE) for details.
