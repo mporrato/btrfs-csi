@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # common.sh — shared configuration variables for btrfs-csi scripts.
 # This file is sourced by other scripts; do not execute directly.
 #

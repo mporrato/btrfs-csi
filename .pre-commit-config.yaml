@@ -48,3 +48,10 @@ repos:
         types: [go]
         require_serial: true
         pass_filenames: false
+
+      - id: shellcheck
+        name: shellcheck
+        entry: shellcheck
+        language: system
+        types: [shell]
+        args: ["--external-sources", "--source-path=SCRIPTDIR"]
