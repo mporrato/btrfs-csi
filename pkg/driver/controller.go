@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/google/uuid"
+	"github.com/mporrato/btrfs-csi/pkg/btrfs"
 	"github.com/mporrato/btrfs-csi/pkg/state"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -264,6 +266,89 @@ func validateCreateVolumeCapabilities(caps []*csi.VolumeCapability) error {
 	return nil
 }
 
+// parseCowParameter extracts and validates the "cow" parameter from the volume
+// creation parameters. Defaults to CoW enabled (nodatacow=false) when not specified.
+// Only "true" and "false" (case-insensitive) are accepted.
+func parseCowParameter(params map[string]string) (bool, error) {
+	cowParam, hasCow := params["cow"]
+	if !hasCow {
+		return false, nil
+	}
+	switch strings.ToLower(cowParam) {
+	case "true":
+		return false, nil
+	case "false":
+		return true, nil
+	default:
+		return false, status.Errorf(codes.InvalidArgument,
+			"invalid cow parameter %q, expected \"true\" or \"false\"", cowParam)
+	}
+}
+
+// checkExistingVolume returns an idempotent response if a volume with the same
+// name already exists and is compatible. Returns (nil, nil) when no existing
+// volume is found, allowing the caller to proceed with creation.
+func (d *Driver) checkExistingVolume(req *csi.CreateVolumeRequest, nodatacow bool) (*csi.CreateVolumeResponse, error) {
+	existing, ok := d.store.GetVolumeByName(req.Name)
+	if !ok {
+		return nil, nil
+	}
+	if err := validateContentSourceMatch(existing, req.VolumeContentSource); err != nil {
+		return nil, err
+	}
+	if !isCapacityCompatible(existing.CapacityBytes, req.CapacityRange) {
+		return nil, status.Errorf(codes.AlreadyExists,
+			"volume %q already exists with capacity %d, incompatible with requested range",
+			req.Name, existing.CapacityBytes)
+	}
+	if existing.Nodatacow != nodatacow {
+		return nil, status.Errorf(codes.AlreadyExists,
+			"volume %q already exists with cow=%v, incompatible with requested cow=%v",
+			req.Name, !existing.Nodatacow, !nodatacow)
+	}
+	klog.V(4).InfoS("CreateVolume idempotent", "name", req.Name, "volumeID", existing.ID)
+	return &csi.CreateVolumeResponse{Volume: toCSIVolume(existing, d.nodeID)}, nil
+}
+
+// effectiveNodatacow computes the effective nodatacow value for idempotency
+// comparisons. For clones (from volume or snapshot), the effective nodatacow
+// is inherited from the source volume — btrfs snapshots always inherit the
+// source's nodatacow property. For fresh volumes, the request parameter is used.
+func (d *Driver) effectiveNodatacow(nodatacow bool, src *csi.VolumeContentSource) bool {
+	reqSnapID, reqVolID := contentSourceIDs(src)
+	effective := nodatacow
+	if reqVolID != "" {
+		if srcVol, ok := d.store.GetVolume(reqVolID); ok {
+			effective = srcVol.Nodatacow
+		}
+	} else if reqSnapID != "" {
+		if snap, ok := d.store.GetSnapshot(reqSnapID); ok {
+			if srcVol, ok := d.store.GetVolume(snap.SourceVolID); ok {
+				effective = srcVol.Nodatacow
+			}
+		}
+	}
+	return effective
+}
+
+// inheritNodatacowFromSource overrides the volume's Nodatacow field to match
+// the source volume when cloning from a volume or snapshot. btrfs snapshots
+// always inherit the source's nodatacow property, so the on-disk reality must
+// match the stored state.
+func (d *Driver) inheritNodatacowFromSource(vol *state.Volume, sourceVolID, sourceSnapID string) {
+	if sourceVolID != "" {
+		if srcVol, ok := d.store.GetVolume(sourceVolID); ok {
+			vol.Nodatacow = srcVol.Nodatacow
+		}
+	} else if sourceSnapID != "" {
+		if snap, ok := d.store.GetSnapshot(sourceSnapID); ok {
+			if srcVol, ok := d.store.GetVolume(snap.SourceVolID); ok {
+				vol.Nodatacow = srcVol.Nodatacow
+			}
+		}
+	}
+}
+
 func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, status.FromContextError(err).Err()
@@ -278,18 +363,17 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 	d.controllerMu.Lock()
 	defer d.controllerMu.Unlock()
 
+	nodatacow, err := parseCowParameter(req.Parameters)
+	if err != nil {
+		return nil, err
+	}
+
+	// Compute effective nodatacow for idempotency: clones inherit from source.
+	effectiveNodatacow := d.effectiveNodatacow(nodatacow, req.VolumeContentSource)
+
 	// Idempotency: return existing volume if one with the same name exists.
-	if existing, ok := d.store.GetVolumeByName(req.Name); ok {
-		if err := validateContentSourceMatch(existing, req.VolumeContentSource); err != nil {
-			return nil, err
-		}
-		if !isCapacityCompatible(existing.CapacityBytes, req.CapacityRange) {
-			return nil, status.Errorf(codes.AlreadyExists,
-				"volume %q already exists with capacity %d, incompatible with requested range",
-				req.Name, existing.CapacityBytes)
-		}
-		klog.V(4).InfoS("CreateVolume idempotent", "name", req.Name, "volumeID", existing.ID)
-		return &csi.CreateVolumeResponse{Volume: toCSIVolume(existing, d.nodeID)}, nil
+	if resp, err := d.checkExistingVolume(req, effectiveNodatacow); resp != nil || err != nil {
+		return resp, err
 	}
 
 	capacityBytes, err := capacityFromRange(req.CapacityRange)
@@ -302,23 +386,31 @@ func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest)
 		return nil, err
 	}
 
+	opts := btrfs.CreateSubvolumeOptions{Nodatacow: nodatacow}
+
 	vol := &state.Volume{
 		ID:            uuid.New().String(),
 		Name:          req.Name,
 		CapacityBytes: capacityBytes,
 		BasePath:      basePath,
+		Nodatacow:     nodatacow,
 	}
 
 	if err := os.MkdirAll(filepath.Dir(vol.Path()), 0o750); err != nil {
 		return nil, status.Errorf(codes.Internal, "create volumes directory: %v", err)
 	}
 
-	sourceSnapID, sourceVolID, err := d.provisionVolume(ctx, vol.Path(), req.VolumeContentSource)
+	sourceSnapID, sourceVolID, err := d.provisionVolume(ctx, vol.Path(), req.VolumeContentSource, opts)
 	if err != nil {
 		return nil, err
 	}
 	vol.SourceSnapID = sourceSnapID
 	vol.SourceVolID = sourceVolID
+
+	// For cloned volumes, inherit Nodatacow from the source, overriding the
+	// request parameter. btrfs snapshots always inherit the source's nodatacow
+	// property, so the on-disk reality must match the stored state.
+	d.inheritNodatacowFromSource(vol, sourceVolID, sourceSnapID)
 
 	// Clean up the subvolume on disk if any subsequent step fails, to prevent orphaned subvolumes.
 	cleanupNeeded := true
@@ -434,11 +526,12 @@ func (d *Driver) ControllerExpandVolume(ctx context.Context,
 
 // provisionVolume creates the subvolume at subvolPath, handling content sources for cloning.
 // On success the subvolume exists on disk. Returns the source snapshot and volume IDs when cloning.
+// opts controls optional subvolume creation behavior (e.g., nodatacow).
 func (d *Driver) provisionVolume(ctx context.Context, subvolPath string,
-	src *csi.VolumeContentSource) (string, string, error) {
+	src *csi.VolumeContentSource, opts btrfs.CreateSubvolumeOptions) (string, string, error) {
 	if src == nil {
 		// Fresh empty subvolume.
-		if err := d.manager.CreateSubvolume(ctx, subvolPath); err != nil {
+		if err := d.manager.CreateSubvolume(ctx, subvolPath, opts); err != nil {
 			return "", "", status.Errorf(codes.Internal, "create subvolume: %v", err)
 		}
 		return "", "", nil

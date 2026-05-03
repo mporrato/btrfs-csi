@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -236,6 +237,151 @@ func TestVolumeOverwrite(t *testing.T) {
 	}
 	if got.CapacityBytes != 200 {
 		t.Errorf("CapacityBytes = %d, want %d", got.CapacityBytes, 200)
+	}
+}
+
+func TestVolume_NodatacowField_JSON(t *testing.T) {
+	// Verify that the Nodatacow field is properly serialized and deserialized
+	// when a Volume is marshaled to JSON and back.
+	vol := &Volume{
+		ID:            "vol-1",
+		Name:          "pvc-abc",
+		CapacityBytes: 1024,
+		Nodatacow:     true,
+	}
+
+	data, err := json.Marshal(vol)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	// Verify Nodatacow appears in the JSON output
+	if !strings.Contains(string(data), `"Nodatacow":true`) {
+		t.Errorf("JSON output should contain Nodatacow:true, got: %s", string(data))
+	}
+
+	var decoded Volume
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded.Nodatacow != true {
+		t.Errorf("Nodatacow after round-trip = %v, want true", decoded.Nodatacow)
+	}
+
+	// Also verify Nodatacow=false works
+	vol2 := &Volume{ID: "vol-2", Nodatacow: false}
+	data2, err := json.Marshal(vol2)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if !strings.Contains(string(data2), `"Nodatacow":false`) {
+		t.Errorf("JSON output should contain Nodatacow:false, got: %s", string(data2))
+	}
+	var decoded2 Volume
+	if err := json.Unmarshal(data2, &decoded2); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded2.Nodatacow != false {
+		t.Errorf("Nodatacow after round-trip = %v, want false", decoded2.Nodatacow)
+	}
+}
+
+func TestSaveAndGetVolume_Nodatacow(t *testing.T) {
+	store := newTestStore(t)
+	dir := store.Dir()
+
+	// Test with Nodatacow=true
+	vol := &Volume{
+		ID:            "vol-nodatacow",
+		Name:          "pvc-nodatacow",
+		CapacityBytes: 1024,
+		BasePath:      dir,
+		Nodatacow:     true,
+	}
+
+	if err := store.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	got, ok := store.GetVolume("vol-nodatacow")
+	if !ok {
+		t.Fatal("GetVolume returned false, want true")
+	}
+	if got.Nodatacow != true {
+		t.Errorf("Nodatacow = %v, want true", got.Nodatacow)
+	}
+
+	// Test with Nodatacow=false
+	vol2 := &Volume{
+		ID:            "vol-cow",
+		Name:          "pvc-cow",
+		CapacityBytes: 2048,
+		BasePath:      dir,
+		Nodatacow:     false,
+	}
+
+	if err := store.SaveVolume(vol2); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	got2, ok := store.GetVolume("vol-cow")
+	if !ok {
+		t.Fatal("GetVolume returned false, want true")
+	}
+	if got2.Nodatacow != false {
+		t.Errorf("Nodatacow = %v, want false", got2.Nodatacow)
+	}
+
+	// Verify both volumes coexist and have correct Nodatacow
+	vols := store.ListVolumes()
+	nodaCount := 0
+	for _, v := range vols {
+		if v.Nodatacow {
+			nodaCount++
+		}
+	}
+	if nodaCount != 1 {
+		t.Errorf("ListVolumes: expected 1 volume with Nodatacow=true, got %d", nodaCount)
+	}
+}
+
+func TestPersistence_Nodatacow(t *testing.T) {
+	// Verify that Nodatacow field survives a reload from disk.
+	path := filepath.Join(t.TempDir(), "state.json")
+
+	store1, err := NewFileStore(path)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	vol := &Volume{
+		ID:            "vol-1",
+		Name:          "pvc-abc",
+		CapacityBytes: 4096,
+		Nodatacow:     true,
+	}
+	if err := store1.SaveVolume(vol); err != nil {
+		t.Fatalf("SaveVolume: %v", err)
+	}
+
+	// Reopen from disk
+	store2, err := NewFileStore(path)
+	if err != nil {
+		t.Fatalf("NewFileStore (reopen): %v", err)
+	}
+
+	got, ok := store2.GetVolume("vol-1")
+	if !ok {
+		t.Fatal("GetVolume after reopen returned false, want true")
+	}
+	if got.Nodatacow != true {
+		t.Errorf("Nodatacow after reopen = %v, want true", got.Nodatacow)
+	}
+	if got.Name != "pvc-abc" {
+		t.Errorf("Name after reopen = %q, want %q", got.Name, "pvc-abc")
+	}
+	if got.CapacityBytes != 4096 {
+		t.Errorf("CapacityBytes after reopen = %d, want %d", got.CapacityBytes, 4096)
 	}
 }
 

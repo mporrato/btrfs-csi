@@ -12,7 +12,7 @@ var _ Manager = (*MockManager)(nil)
 
 func TestMockManagerCreateSubvolume(t *testing.T) {
 	m := &MockManager{}
-	if err := m.CreateSubvolume(context.Background(), "/volumes/vol1"); err != nil {
+	if err := m.CreateSubvolume(context.Background(), "/volumes/vol1", CreateSubvolumeOptions{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(m.CreateSubvolumeCalls) != 1 {
@@ -27,8 +27,35 @@ func TestMockManagerCreateSubvolumeError(t *testing.T) {
 	m := &MockManager{
 		CreateSubvolumeErr: errTest,
 	}
-	if err := m.CreateSubvolume(context.Background(), "/volumes/vol1"); !errors.Is(err, errTest) {
+	if err := m.CreateSubvolume(context.Background(), "/volumes/vol1", CreateSubvolumeOptions{}); !errors.Is(err, errTest) {
 		t.Fatalf("expected errTest, got %v", err)
+	}
+}
+
+func TestMockManagerCreateSubvolume_RecordsOpts(t *testing.T) {
+	m := &MockManager{}
+	opts := CreateSubvolumeOptions{Nodatacow: true}
+	if err := m.CreateSubvolume(context.Background(), "/volumes/vol1", opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(m.CreateSubvolumeOptsCalls) != 1 {
+		t.Fatalf("expected 1 opts call, got %d", len(m.CreateSubvolumeOptsCalls))
+	}
+	if m.CreateSubvolumeOptsCalls[0].Nodatacow != true {
+		t.Errorf("expected Nodatacow=true, got %v", m.CreateSubvolumeOptsCalls[0].Nodatacow)
+	}
+}
+
+func TestMockManagerCreateSubvolume_RecordsOptsDefault(t *testing.T) {
+	m := &MockManager{}
+	if err := m.CreateSubvolume(context.Background(), "/volumes/vol1", CreateSubvolumeOptions{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(m.CreateSubvolumeOptsCalls) != 1 {
+		t.Fatalf("expected 1 opts call, got %d", len(m.CreateSubvolumeOptsCalls))
+	}
+	if m.CreateSubvolumeOptsCalls[0].Nodatacow != false {
+		t.Errorf("expected Nodatacow=false, got %v", m.CreateSubvolumeOptsCalls[0].Nodatacow)
 	}
 }
 

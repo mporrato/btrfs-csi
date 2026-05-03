@@ -2,6 +2,12 @@ package btrfs
 
 import "context"
 
+// CreateSubvolumeOptions contains optional parameters for creating a btrfs subvolume.
+type CreateSubvolumeOptions struct {
+	// Nodatacow disables copy-on-write for files created in the subvolume.
+	Nodatacow bool
+}
+
 // QgroupUsage represents quota group usage information for a btrfs subvolume.
 type QgroupUsage struct {
 	// Referenced is the total amount of data referenced by the subvolume.
@@ -26,7 +32,8 @@ type FsUsage struct {
 // Implementations must be safe for concurrent use.
 type Manager interface {
 	// CreateSubvolume creates a new btrfs subvolume at the specified path.
-	CreateSubvolume(ctx context.Context, path string) error
+	// opts controls optional behavior such as nodatacow.
+	CreateSubvolume(ctx context.Context, path string, opts CreateSubvolumeOptions) error
 
 	// DeleteSubvolume deletes the btrfs subvolume at the specified path.
 	DeleteSubvolume(ctx context.Context, path string) error

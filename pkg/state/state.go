@@ -25,6 +25,8 @@ type Volume struct {
 	SourceSnapID string
 	// SourceVolID is the volume ID if this volume was cloned from another volume.
 	SourceVolID string
+	// Nodatacow indicates whether copy-on-write is disabled for this volume.
+	Nodatacow bool
 }
 
 // Path returns the absolute path to the btrfs subvolume for this volume.

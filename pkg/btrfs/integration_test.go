@@ -61,7 +61,7 @@ func TestCreateAndDeleteSubvolume(t *testing.T) {
 	m := &RealManager{}
 	subvol := filepath.Join(mnt, "test-subvol")
 
-	if err := m.CreateSubvolume(context.Background(), subvol); err != nil {
+	if err := m.CreateSubvolume(context.Background(), subvol, CreateSubvolumeOptions{}); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestCreateSnapshot(t *testing.T) {
 	src := filepath.Join(mnt, "source")
 	dst := filepath.Join(mnt, "snapshot")
 
-	if err := m.CreateSubvolume(context.Background(), src); err != nil {
+	if err := m.CreateSubvolume(context.Background(), src, CreateSubvolumeOptions{}); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
@@ -137,7 +137,7 @@ func TestReadonlySnapshot(t *testing.T) {
 	src := filepath.Join(mnt, "source")
 	dst := filepath.Join(mnt, "ro-snapshot")
 
-	if err := m.CreateSubvolume(context.Background(), src); err != nil {
+	if err := m.CreateSubvolume(context.Background(), src, CreateSubvolumeOptions{}); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
@@ -157,7 +157,7 @@ func TestQuotaEnableAndLimit(t *testing.T) {
 	m := &RealManager{}
 	subvol := filepath.Join(mnt, "quota-test")
 
-	if err := m.CreateSubvolume(context.Background(), subvol); err != nil {
+	if err := m.CreateSubvolume(context.Background(), subvol, CreateSubvolumeOptions{}); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
@@ -199,7 +199,7 @@ func TestClearStaleQgroups(t *testing.T) {
 	m := &RealManager{}
 	subvol := filepath.Join(mnt, "stale-qgroup-test")
 
-	if err := m.CreateSubvolume(context.Background(), subvol); err != nil {
+	if err := m.CreateSubvolume(context.Background(), subvol, CreateSubvolumeOptions{}); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 	if err := m.EnsureQuotaEnabled(context.Background(), mnt); err != nil {
@@ -263,7 +263,7 @@ func TestRemoveQgroupLimit(t *testing.T) {
 	m := &RealManager{}
 	subvol := filepath.Join(mnt, "remove-limit-test")
 
-	if err := m.CreateSubvolume(context.Background(), subvol); err != nil {
+	if err := m.CreateSubvolume(context.Background(), subvol, CreateSubvolumeOptions{}); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
@@ -300,7 +300,7 @@ func TestCrossFilesystemSnapshot(t *testing.T) {
 	dst := filepath.Join(mnt2, "snapshot")
 
 	// Create source subvolume
-	if err := m.CreateSubvolume(context.Background(), src); err != nil {
+	if err := m.CreateSubvolume(context.Background(), src, CreateSubvolumeOptions{}); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 
@@ -341,7 +341,7 @@ func TestCrossFilesystemReadonlySnapshot(t *testing.T) {
 	dst := filepath.Join(mnt2, "ro-snapshot")
 
 	// Create source subvolume
-	if err := m.CreateSubvolume(context.Background(), src); err != nil {
+	if err := m.CreateSubvolume(context.Background(), src, CreateSubvolumeOptions{}); err != nil {
 		t.Fatalf("CreateSubvolume: %v", err)
 	}
 

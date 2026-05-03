@@ -878,6 +878,134 @@ func TestCreateSnapshot_ConcurrentSameNameIdempotent(t *testing.T) {
 	}
 }
 
+func TestCreateVolume_CowDefault(t *testing.T) {
+	d, mock, store := newTestDriverWithMock(t)
+
+	resp, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "test-pvc",
+		CapacityRange:      &csi.CapacityRange{RequiredBytes: 1 << 30},
+		VolumeCapabilities: singleNodeWriterCap(),
+	})
+	if err != nil {
+		t.Fatalf("CreateVolume: %v", err)
+	}
+
+	if len(mock.CreateSubvolumeOptsCalls) != 1 {
+		t.Fatalf("expected 1 CreateSubvolume opts call, got %d", len(mock.CreateSubvolumeOptsCalls))
+	}
+	if mock.CreateSubvolumeOptsCalls[0].Nodatacow {
+		t.Error("expected Nodatacow=false by default when cow param is unset")
+	}
+
+	vol, ok := store.GetVolume(resp.Volume.VolumeId)
+	if !ok {
+		t.Fatal("volume not found in state")
+	}
+	if vol.Nodatacow {
+		t.Error("expected vol.Nodatacow=false by default")
+	}
+}
+
+func TestCreateVolume_CowTrue(t *testing.T) {
+	d, mock, store := newTestDriverWithMock(t)
+
+	resp, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "test-pvc",
+		CapacityRange:      &csi.CapacityRange{RequiredBytes: 1 << 30},
+		VolumeCapabilities: singleNodeWriterCap(),
+		Parameters:         map[string]string{"cow": "true"},
+	})
+	if err != nil {
+		t.Fatalf("CreateVolume: %v", err)
+	}
+
+	if len(mock.CreateSubvolumeOptsCalls) != 1 {
+		t.Fatalf("expected 1 CreateSubvolume opts call, got %d", len(mock.CreateSubvolumeOptsCalls))
+	}
+	if mock.CreateSubvolumeOptsCalls[0].Nodatacow {
+		t.Error("expected Nodatacow=false when cow=true")
+	}
+
+	vol, ok := store.GetVolume(resp.Volume.VolumeId)
+	if !ok {
+		t.Fatal("volume not found in state")
+	}
+	if vol.Nodatacow {
+		t.Error("expected vol.Nodatacow=false when cow=true")
+	}
+}
+
+func TestCreateVolume_CowFalse(t *testing.T) {
+	d, mock, store := newTestDriverWithMock(t)
+
+	resp, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "test-pvc",
+		CapacityRange:      &csi.CapacityRange{RequiredBytes: 1 << 30},
+		VolumeCapabilities: singleNodeWriterCap(),
+		Parameters:         map[string]string{"cow": "false"},
+	})
+	if err != nil {
+		t.Fatalf("CreateVolume: %v", err)
+	}
+
+	if len(mock.CreateSubvolumeOptsCalls) != 1 {
+		t.Fatalf("expected 1 CreateSubvolume opts call, got %d", len(mock.CreateSubvolumeOptsCalls))
+	}
+	if !mock.CreateSubvolumeOptsCalls[0].Nodatacow {
+		t.Error("expected Nodatacow=true when cow=false")
+	}
+
+	vol, ok := store.GetVolume(resp.Volume.VolumeId)
+	if !ok {
+		t.Fatal("volume not found in state")
+	}
+	if !vol.Nodatacow {
+		t.Error("expected vol.Nodatacow=true when cow=false")
+	}
+}
+
+func TestCreateVolume_CowCaseInsensitive(t *testing.T) {
+	tests := []struct {
+		name string
+		cow  string
+	}{
+		{"lowercase false", "false"},
+		{"capitalized False", "False"},
+		{"uppercase FALSE", "FALSE"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d, mock, store := newTestDriverWithMock(t)
+
+			resp, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+				Name:               "test-pvc-" + tc.cow,
+				CapacityRange:      &csi.CapacityRange{RequiredBytes: 1 << 30},
+				VolumeCapabilities: singleNodeWriterCap(),
+				Parameters:         map[string]string{"cow": tc.cow},
+			})
+			if err != nil {
+				t.Fatalf("CreateVolume: %v", err)
+			}
+
+			if len(mock.CreateSubvolumeOptsCalls) != 1 {
+				t.Fatalf("expected 1 CreateSubvolume opts call, got %d", len(mock.CreateSubvolumeOptsCalls))
+			}
+			if !mock.CreateSubvolumeOptsCalls[0].Nodatacow {
+				t.Errorf("expected Nodatacow=true when cow=%q", tc.cow)
+			}
+
+			vol, ok := store.GetVolume(resp.Volume.VolumeId)
+			if !ok {
+				t.Fatal("volume not found in state")
+			}
+			if !vol.Nodatacow {
+				t.Errorf("expected vol.Nodatacow=true when cow=%q", tc.cow)
+			}
+		})
+	}
+}
+
 func TestCreateVolume_CleansUpSubvolumeOnSetQgroupLimitFailure(t *testing.T) {
 	d, mock, _ := newTestDriverWithMock(t)
 
@@ -975,6 +1103,213 @@ func TestDeleteVolumeAndCreateFromSnapshot_ConcurrentSafe(t *testing.T) {
 
 	if _, ok := store.GetVolume("vol-del"); ok {
 		t.Error("vol-del should have been deleted")
+	}
+}
+
+func TestCreateVolume_CowInvalidParameter(t *testing.T) {
+	d, _, _ := newTestDriverWithMock(t)
+
+	tests := []struct {
+		name string
+		cow  string
+	}{
+		{"garbage value", "maybe"},
+		{"empty string", ""},
+		{"typo falsee", "falsee"},
+		{"typo ture", "ture"},
+		{"number", "0"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+				Name:               "test-pvc-" + tc.name,
+				VolumeCapabilities: singleNodeWriterCap(),
+				Parameters:         map[string]string{"cow": tc.cow},
+			})
+			if code := status.Code(err); code != codes.InvalidArgument {
+				t.Errorf("expected InvalidArgument for cow=%q, got %v", tc.cow, code)
+			}
+		})
+	}
+}
+
+func TestCreateVolume_CowIdempotencyMismatch(t *testing.T) {
+	d, _, _ := newTestDriverWithMock(t)
+
+	// First create with cow=false (nodatacow=true)
+	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "test-pvc",
+		CapacityRange:      &csi.CapacityRange{RequiredBytes: 1 << 30},
+		VolumeCapabilities: singleNodeWriterCap(),
+		Parameters:         map[string]string{"cow": "false"},
+	})
+	if err != nil {
+		t.Fatalf("first CreateVolume: %v", err)
+	}
+
+	// Second create with same name but cow=true - should fail with AlreadyExists
+	_, err = d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "test-pvc",
+		CapacityRange:      &csi.CapacityRange{RequiredBytes: 1 << 30},
+		VolumeCapabilities: singleNodeWriterCap(),
+		Parameters:         map[string]string{"cow": "true"},
+	})
+	if code := status.Code(err); code != codes.AlreadyExists {
+		t.Errorf("expected AlreadyExists for cow mismatch, got %v", code)
+	}
+}
+
+func TestCreateVolume_CloneFromSnapshot_InheritsNodatacow(t *testing.T) {
+	d, _, store := newTestDriverWithMock(t)
+
+	// Create source volume with cow=false (nodatacow=true)
+	srcResp, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "src-pvc",
+		VolumeCapabilities: singleNodeWriterCap(),
+		Parameters:         map[string]string{"cow": "false"},
+	})
+	if err != nil {
+		t.Fatalf("CreateVolume source: %v", err)
+	}
+
+	// Snapshot the source volume
+	snapResp, err := d.CreateSnapshot(context.Background(), &csi.CreateSnapshotRequest{
+		SourceVolumeId: srcResp.Volume.VolumeId,
+		Name:           "snap-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateSnapshot: %v", err)
+	}
+
+	// Clone from snapshot with cow=true - should inherit Nodatacow from source
+	cloneResp, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "clone-pvc",
+		VolumeCapabilities: singleNodeWriterCap(),
+		Parameters:         map[string]string{"cow": "true"},
+		VolumeContentSource: &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Snapshot{
+				Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: snapResp.Snapshot.SnapshotId},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateVolume clone from snapshot: %v", err)
+	}
+
+	cloneVol, ok := store.GetVolume(cloneResp.Volume.VolumeId)
+	if !ok {
+		t.Fatal("clone volume not found in store")
+	}
+	if !cloneVol.Nodatacow {
+		t.Error("expected clone from snapshot to inherit Nodatacow=true from source")
+	}
+}
+
+func TestCreateVolume_CloneFromSnapshot_InheritsNodatacow_IdempotentRetry(t *testing.T) {
+	d, mock, store := newTestDriverWithMock(t)
+
+	// Step 1: Create source volume with cow=false (nodatacow=true)
+	srcResp, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "src-pvc",
+		VolumeCapabilities: singleNodeWriterCap(),
+		Parameters:         map[string]string{"cow": "false"},
+	})
+	if err != nil {
+		t.Fatalf("CreateVolume source: %v", err)
+	}
+
+	// Step 2: Create a snapshot of it
+	snapResp, err := d.CreateSnapshot(context.Background(), &csi.CreateSnapshotRequest{
+		SourceVolumeId: srcResp.Volume.VolumeId,
+		Name:           "snap-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateSnapshot: %v", err)
+	}
+
+	// Reset mock call counters so we only count the clone calls.
+	mock.CreateSnapshotCalls = nil
+
+	// Step 3: First call — clone from snapshot with cow=true.
+	// The effective nodatacow should be inherited from the source (true).
+	req := &csi.CreateVolumeRequest{
+		Name:               "clone-pvc",
+		VolumeCapabilities: singleNodeWriterCap(),
+		Parameters:         map[string]string{"cow": "true"},
+		VolumeContentSource: &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Snapshot{
+				Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: snapResp.Snapshot.SnapshotId},
+			},
+		},
+	}
+
+	firstResp, err := d.CreateVolume(context.Background(), req)
+	if err != nil {
+		t.Fatalf("first clone CreateVolume: %v", err)
+	}
+
+	// Verify the clone inherited Nodatacow=true from source
+	cloneVol, ok := store.GetVolume(firstResp.Volume.VolumeId)
+	if !ok {
+		t.Fatal("clone volume not found in state after first call")
+	}
+	if !cloneVol.Nodatacow {
+		t.Error("expected clone to inherit Nodatacow=true from source")
+	}
+
+	// Step 4: Retry with identical request — must succeed idempotently,
+	// NOT return AlreadyExists due to cow parameter mismatch.
+	secondResp, err := d.CreateVolume(context.Background(), req)
+	if err != nil {
+		t.Fatalf("retry clone CreateVolume should succeed idempotently, got error: %v", err)
+	}
+
+	// Verify idempotent: same volume ID returned
+	if firstResp.Volume.VolumeId != secondResp.Volume.VolumeId {
+		t.Errorf("volume ID changed on retry: %q → %q", firstResp.Volume.VolumeId, secondResp.Volume.VolumeId)
+	}
+
+	// Verify no additional CreateSnapshot calls were made on retry.
+	if len(mock.CreateSnapshotCalls) != 1 {
+		t.Errorf("expected 1 CreateSnapshot calls (from first clone only), got %d on retry", len(mock.CreateSnapshotCalls))
+	}
+}
+
+func TestCreateVolume_CloneVolume_InheritsNodatacow(t *testing.T) {
+	d, _, store := newTestDriverWithMock(t)
+
+	// Create source volume with cow=false (nodatacow=true)
+	srcResp, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "src-pvc",
+		VolumeCapabilities: singleNodeWriterCap(),
+		Parameters:         map[string]string{"cow": "false"},
+	})
+	if err != nil {
+		t.Fatalf("CreateVolume source: %v", err)
+	}
+
+	// Clone volume with cow=true - should inherit Nodatacow from source
+	cloneResp, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "clone-pvc",
+		VolumeCapabilities: singleNodeWriterCap(),
+		Parameters:         map[string]string{"cow": "true"},
+		VolumeContentSource: &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Volume{
+				Volume: &csi.VolumeContentSource_VolumeSource{VolumeId: srcResp.Volume.VolumeId},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateVolume clone: %v", err)
+	}
+
+	cloneVol, ok := store.GetVolume(cloneResp.Volume.VolumeId)
+	if !ok {
+		t.Fatal("clone volume not found in store")
+	}
+	if !cloneVol.Nodatacow {
+		t.Error("expected clone volume to inherit Nodatacow=true from source")
 	}
 }
 

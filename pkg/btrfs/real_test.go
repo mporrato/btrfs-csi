@@ -1,9 +1,11 @@
 package btrfs
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -309,5 +311,115 @@ func TestParseQgroupShow_MalformedMaxRfer(t *testing.T) {
 	_, err := parseQgroupShow(output, "0/123")
 	if err == nil {
 		t.Fatal("parseQgroupShow should return error for malformed max_rfer")
+	}
+}
+
+// TestRealManagerCreateSubvolume_WithNodatacow verifies that
+// CreateSubvolume with Nodatacow: true calls btrfs subvolume create then chattr +C.
+func TestRealManagerCreateSubvolume_WithNodatacow(t *testing.T) {
+	// Save and restore the original runCommand.
+	savedRunCmd := runCommand
+	t.Cleanup(func() { runCommand = savedRunCmd })
+
+	type cmdCall struct {
+		name string
+		args []string
+	}
+	var calls []cmdCall
+	runCommand = func(_ context.Context, name string, args ...string) (string, error) {
+		calls = append(calls, cmdCall{name: name, args: args})
+		return "", nil
+	}
+
+	m := &RealManager{}
+	ctx := context.Background()
+	if err := m.CreateSubvolume(ctx, "/test/path", CreateSubvolumeOptions{Nodatacow: true}); err != nil {
+		t.Fatalf("CreateSubvolume: %v", err)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 commands, got %d: %v", len(calls), calls)
+	}
+
+	// First command: btrfs subvolume create <path> (without --nodatacow)
+	if calls[0].name != "btrfs" {
+		t.Errorf("expected first command 'btrfs', got %q", calls[0].name)
+	}
+	if len(calls[0].args) < 3 || calls[0].args[0] != "subvolume" || calls[0].args[1] != "create" {
+		t.Errorf("expected first command args [subvolume create ...], got %v", calls[0].args)
+	}
+	if slices.Contains(calls[0].args, "--nodatacow") {
+		t.Errorf("unexpected --nodatacow in first command args: %v", calls[0].args)
+	}
+
+	// Second command: chattr +C <path>
+	if calls[1].name != "chattr" {
+		t.Errorf("expected second command 'chattr', got %q", calls[1].name)
+	}
+	if len(calls[1].args) != 2 || calls[1].args[0] != "+C" || calls[1].args[1] != "/test/path" {
+		t.Errorf("expected second command args [+C /test/path], got %v", calls[1].args)
+	}
+}
+
+// TestRealManagerCreateSubvolume_WithoutNodatacow verifies that
+// CreateSubvolume with default (or false) opts does NOT call chattr +C.
+func TestRealManagerCreateSubvolume_WithoutNodatacow(t *testing.T) {
+	// Save and restore the original runCommand.
+	savedRunCmd := runCommand
+	t.Cleanup(func() { runCommand = savedRunCmd })
+
+	type cmdCall struct {
+		name string
+		args []string
+	}
+	var calls []cmdCall
+	runCommand = func(_ context.Context, name string, args ...string) (string, error) {
+		calls = append(calls, cmdCall{name: name, args: args})
+		return "", nil
+	}
+
+	m := &RealManager{}
+	ctx := context.Background()
+	if err := m.CreateSubvolume(ctx, "/test/path", CreateSubvolumeOptions{}); err != nil {
+		t.Fatalf("CreateSubvolume: %v", err)
+	}
+
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 command, got %d: %v", len(calls), calls)
+	}
+
+	// First command: btrfs subvolume create <path> (without --nodatacow)
+	if calls[0].name != "btrfs" {
+		t.Errorf("expected 'btrfs', got %q", calls[0].name)
+	}
+	if slices.Contains(calls[0].args, "--nodatacow") {
+		t.Errorf("unexpected --nodatacow in command args when Nodatacow is false: %v", calls[0].args)
+	}
+}
+
+// TestRealManagerCreateSubvolume_WithNodatacow_ChattrFails verifies that
+// CreateSubvolume returns an error when chattr +C fails.
+func TestRealManagerCreateSubvolume_WithNodatacow_ChattrFails(t *testing.T) {
+	// Save and restore the original runCommand.
+	savedRunCmd := runCommand
+	t.Cleanup(func() { runCommand = savedRunCmd })
+
+	callCount := 0
+	runCommand = func(_ context.Context, name string, args ...string) (string, error) {
+		callCount++
+		if callCount == 2 {
+			return "", fmt.Errorf("operation not permitted")
+		}
+		return "", nil
+	}
+
+	m := &RealManager{}
+	ctx := context.Background()
+	err := m.CreateSubvolume(ctx, "/test/path", CreateSubvolumeOptions{Nodatacow: true})
+	if err == nil {
+		t.Fatal("expected error when chattr fails")
+	}
+	if !strings.Contains(err.Error(), "disable cow") {
+		t.Errorf("error should mention 'disable cow', got: %v", err)
 	}
 }

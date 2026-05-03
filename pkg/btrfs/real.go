@@ -23,9 +23,7 @@ var _ Manager = (*RealManager)(nil)
 
 // runCommand executes a command with context and returns its stdout. On failure,
 // stderr is included in the returned error for debuggability.
-//
-//nolint:unparam // name parameter allows for testing flexibility and future generalization
-func runCommand(ctx context.Context, name string, args ...string) (string, error) {
+var runCommand = func(ctx context.Context, name string, args ...string) (string, error) {
 	//nolint:gosec // btrfs command with internal args, not user input
 	cmd := exec.CommandContext(ctx, name, args...)
 	var stdout, stderr bytes.Buffer
@@ -37,9 +35,14 @@ func runCommand(ctx context.Context, name string, args ...string) (string, error
 	return stdout.String(), nil
 }
 
-func (m *RealManager) CreateSubvolume(ctx context.Context, path string) error {
+func (m *RealManager) CreateSubvolume(ctx context.Context, path string, opts CreateSubvolumeOptions) error {
 	if _, err := runCommand(ctx, "btrfs", "subvolume", "create", path); err != nil {
 		return fmt.Errorf("create subvolume %s: %w", path, err)
+	}
+	if opts.Nodatacow {
+		if _, err := runCommand(ctx, "chattr", "+C", path); err != nil {
+			return fmt.Errorf("disable cow on subvolume %s: %w", path, err)
+		}
 	}
 	return nil
 }

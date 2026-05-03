@@ -19,9 +19,10 @@ type QgroupLimitCall struct {
 // It records all method calls and returns pre-configured results.
 type MockManager struct {
 	// CreateSubvolume
-	CreateSubvolumeCalls []string
-	CreateSubvolumeErr   error
-	CreateSubvolumeFunc  func(ctx context.Context, path string) error
+	CreateSubvolumeCalls     []string
+	CreateSubvolumeOptsCalls []CreateSubvolumeOptions
+	CreateSubvolumeErr       error
+	CreateSubvolumeFunc      func(ctx context.Context, path string, opts CreateSubvolumeOptions) error
 
 	// DeleteSubvolume
 	DeleteSubvolumeCalls []string
@@ -76,10 +77,11 @@ type MockManager struct {
 	IsMountpointFunc   func(path string) (bool, error)
 }
 
-func (m *MockManager) CreateSubvolume(ctx context.Context, path string) error {
+func (m *MockManager) CreateSubvolume(ctx context.Context, path string, opts CreateSubvolumeOptions) error {
 	m.CreateSubvolumeCalls = append(m.CreateSubvolumeCalls, path)
+	m.CreateSubvolumeOptsCalls = append(m.CreateSubvolumeOptsCalls, opts)
 	if m.CreateSubvolumeFunc != nil {
-		return m.CreateSubvolumeFunc(ctx, path)
+		return m.CreateSubvolumeFunc(ctx, path, opts)
 	}
 	return m.CreateSubvolumeErr
 }
