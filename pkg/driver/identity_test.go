@@ -100,6 +100,33 @@ func TestProbeNotBtrfsFilesystem(t *testing.T) {
 	}
 }
 
+func TestProbeNotMountpoint(t *testing.T) {
+	// Path is on a btrfs filesystem but is not a separate mountpoint
+	// (e.g. the pool's filesystem was unmounted at runtime).
+	tmpDir := t.TempDir()
+	mock := &btrfs.MockManager{IsBtrfsFilesystemResult: true, IsMountpointResult: false}
+	ms, _ := newTestMultiStore(tmpDir)
+	d, err := NewDriver(mock, ms, "test-node")
+	if err != nil {
+		t.Fatalf("NewDriver: %v", err)
+	}
+	d.SetPools(map[string]string{"default": tmpDir})
+
+	resp, err := d.Probe(context.Background(), &csi.ProbeRequest{})
+	if err != nil {
+		t.Fatalf("Probe returned error: %v", err)
+	}
+
+	ready := resp.GetReady()
+	if ready == nil {
+		t.Fatal("Probe response ready is nil, want non-nil BoolValue")
+	}
+
+	if ready.GetValue() {
+		t.Error("Probe ready = true, want false when path is not a separate mountpoint")
+	}
+}
+
 func TestProbeUnhealthy(t *testing.T) {
 	// Use a non-existent path
 	nonExistent := filepath.Join(t.TempDir(), "does-not-exist")

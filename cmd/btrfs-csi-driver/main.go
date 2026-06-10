@@ -89,10 +89,18 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 		return fmt.Errorf("set kubelet path: %w", err)
 	}
 
-	// Watch for pool subdirectory changes — 30 s poll interval.
-	configStop := driver.WatchPools(*poolsDir, 30000, func(newPools map[string]string) {
-		reloadPoolConfig(newPools, mgr, drv)
-	})
+	// Watch for pool subdirectory changes — 30 s poll interval. Every tick
+	// re-validates discovered pools (btrfs filesystem + separate mountpoint
+	// checks) so pools that become valid or invalid after startup are
+	// picked up or dropped without requiring a restart.
+	configStop := driver.WatchPools(*poolsDir, 30000,
+		func(pools map[string]string) map[string]string {
+			return validatePoolPaths(pools, mgr)
+		},
+		func(validPools map[string]string) {
+			reloadPoolConfig(validPools, drv)
+		},
+	)
 	defer close(configStop)
 
 	// Start driver in a goroutine
@@ -121,45 +129,53 @@ func runWithContext(ctx context.Context, args []string, mgr btrfs.Manager) error
 	return nil
 }
 
-// initializeStores discovers pool subdirectories and initializes the MultiStore.
-// Pools that are not btrfs filesystems are skipped with a warning.
-// Returns an error only if no valid pools are found.
+// validatePoolPaths checks each candidate pool path and returns only those
+// that are btrfs filesystems mounted as separate mountpoints. Invalid pools
+// are dropped with a log message explaining why.
+func validatePoolPaths(pools map[string]string, mgr btrfs.Manager) map[string]string {
+	valid := make(map[string]string, len(pools))
+	for name, p := range pools {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ok, err := mgr.IsBtrfsFilesystem(ctx, p)
+		cancel()
+		if err != nil {
+			klog.ErrorS(err, "Skipping pool: failed to check if btrfs filesystem", "pool", name, "path", p)
+			continue
+		}
+		if !ok {
+			klog.InfoS("Skipping pool: not a btrfs filesystem", "pool", name, "path", p)
+			continue
+		}
+		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+		mount, err := mgr.IsMountpoint(ctx, p)
+		cancel()
+		if err != nil {
+			klog.ErrorS(err, "Skipping pool: failed to check if mountpoint", "pool", name, "path", p)
+			continue
+		}
+		if !mount {
+			klog.InfoS("Skipping pool: not a separate mountpoint", "pool", name, "path", p)
+			continue
+		}
+		valid[name] = p
+	}
+	return valid
+}
+
+// initializeStores discovers pool subdirectories, validates them, and
+// initializes the MultiStore. Returns an error only if no valid pools are found.
 func initializeStores(poolsDir string, mgr btrfs.Manager) (map[string]string, state.Store, error) {
 	ms := state.NewMultiStore()
 	pools, err := driver.DiscoverPools(poolsDir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("discover pools: %w", err)
 	}
-	validPools := make(map[string]string)
-	for name, bp := range pools {
-		// Use a background context with timeout for initialization checks.
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		ok, err := mgr.IsBtrfsFilesystem(ctx, bp)
-		cancel()
-		if err != nil {
-			klog.ErrorS(err, "Skipping pool: failed to check if btrfs filesystem", "pool", name, "path", bp)
-			continue
-		}
-		if !ok {
-			klog.InfoS("Skipping pool: not a btrfs filesystem", "pool", name, "path", bp)
-			continue
-		}
-		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
-		mount, err := mgr.IsMountpoint(ctx, bp)
-		cancel()
-		if err != nil {
-			klog.ErrorS(err, "Skipping pool: failed to check if mountpoint", "pool", name, "path", bp)
-			continue
-		}
-		if !mount {
-			klog.InfoS("Skipping pool: not a separate mountpoint", "pool", name, "path", bp)
-			continue
-		}
+	validPools := validatePoolPaths(pools, mgr)
+	for name, bp := range validPools {
 		if err := ms.AddPath(bp); err != nil {
 			klog.ErrorS(err, "Skipping pool: failed to open store", "pool", name, "path", bp)
-			continue
+			delete(validPools, name)
 		}
-		validPools[name] = bp
 	}
 	if len(validPools) == 0 {
 		return nil, nil, fmt.Errorf("no valid btrfs pools found in config")
@@ -167,27 +183,10 @@ func initializeStores(poolsDir string, mgr btrfs.Manager) (map[string]string, st
 	return validPools, ms, nil
 }
 
-// reloadPoolConfig handles configuration changes during runtime.
-func reloadPoolConfig(newPools map[string]string, mgr btrfs.Manager, drv *driver.Driver) {
-	validPools := make(map[string]string)
-	validPaths := make([]string, 0, len(newPools))
-	for name, p := range newPools {
-		// Use a background context with timeout for reload checks.
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		ok, err := mgr.IsBtrfsFilesystem(ctx, p)
-		cancel()
-		if err != nil || !ok {
-			klog.ErrorS(err, "Skipping pool on reload: not a btrfs filesystem", "pool", name, "path", p)
-			continue
-		}
-		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
-		mount, err := mgr.IsMountpoint(ctx, p)
-		cancel()
-		if err != nil || !mount {
-			klog.ErrorS(err, "Skipping pool on reload: not a separate mountpoint", "pool", name, "path", p)
-			continue
-		}
-		validPools[name] = p
+// reloadPoolConfig applies a validated pool map to the driver and store.
+func reloadPoolConfig(validPools map[string]string, drv *driver.Driver) {
+	validPaths := make([]string, 0, len(validPools))
+	for _, p := range validPools {
 		validPaths = append(validPaths, p)
 	}
 	drv.ApplyPoolConfig(validPools, validPaths)

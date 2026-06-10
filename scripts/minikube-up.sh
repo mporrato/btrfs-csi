@@ -26,6 +26,9 @@ echo "==> Formatting ${EXTRA_DISK_2_DEV} as btrfs and mounting to ${BTRFS_MOUNT_
 ${EXEC} "sudo mkfs.btrfs -f ${EXTRA_DISK_2_DEV}"
 ${EXEC} "sudo mkdir -p ${BTRFS_MOUNT_2} && grep -q '# btrfs-csi:${BTRFS_MOUNT_2}' /etc/fstab || echo '${EXTRA_DISK_2_DEV} ${BTRFS_MOUNT_2} btrfs defaults 0 0 # btrfs-csi:${BTRFS_MOUNT_2}' | sudo tee -a /etc/fstab && sudo mount ${BTRFS_MOUNT_2}"
 
+echo "==> Pre-creating empty ${RUNTIME_POOL_DIR} (mounted later by e2e tests to exercise runtime pool addition)..."
+${EXEC} "sudo mkdir -p ${RUNTIME_POOL_DIR}"
+
 bash "${SCRIPT_DIR}/deploy.sh"
 
 echo ""

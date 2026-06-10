@@ -103,7 +103,7 @@ Add a regression test that calls `ensureQuotaEnabled`, then `SetPools`, then ver
 
 ---
 
-### [ ] C-4: Pool watcher compares raw directory listing, never re-validates pools
+### [x] C-4: Pool watcher compares raw directory listing, never re-validates pools
 
 **Files**: `pkg/driver/config.go:38–61` (`WatchPools`), `cmd/btrfs-csi-driver/main.go:171–194` (`reloadPoolConfig`)
 
@@ -115,11 +115,11 @@ Add a regression test that calls `ensureQuotaEnabled`, then `SetPools`, then ver
 
 **Remediation**: Have the watcher compare the *validated* pool map: re-run the btrfs/mountpoint checks on every tick (they are cheap `statfs`/`stat` calls) and call `reload` whenever the validated map differs from the last applied one. Additionally, add `IsMountpoint` to the `Probe` checks so an unmounted pool marks the driver unready.
 
-**Status**: Open
+**Status**: Fixed — `WatchPools` now takes a `validate` function and re-runs `IsBtrfsFilesystem`/`IsMountpoint` on every tick, comparing the validated map (not the raw directory listing) to detect pools that become valid or invalid at runtime. `validatePoolPaths` is shared between `initializeStores` and the watcher. `Probe` now also checks `IsMountpoint` for each pool path.
 
 ---
 
-### [ ] C-5: pools-base-dir volume mount lacks HostToContainer mount propagation
+### [x] C-5: pools-base-dir volume mount lacks HostToContainer mount propagation
 
 **File**: `deploy/base/plugin.yaml:87–88`
 
@@ -133,7 +133,7 @@ Add a regression test that calls `ensureQuotaEnabled`, then `SetPools`, then ver
   mountPropagation: HostToContainer
 ```
 
-**Status**: Open
+**Status**: Fixed — added `mountPropagation: HostToContainer` to the `pools-base-dir` volumeMount in `deploy/base/plugin.yaml`.
 
 ---
 
@@ -788,8 +788,8 @@ The existing `scripts/` runner already has patterns for loopback btrfs setup tha
 - [x] **C-1**: Use `defer close(configStop)` after `WatchPools` so the goroutine is stopped on every return path in `runWithContext`
 - [x] **C-2**: Thread `context.Context` through `btrfs.Manager` and use `exec.CommandContext` in `runCommand`
 - [x] **C-3**: Invalidate `quotaEnabled` in `SetPools`; add regression test
-- [ ] **C-4**: Make the pool watcher compare the *validated* pool map (re-run btrfs/mountpoint checks each tick); add `IsMountpoint` to `Probe`
-- [ ] **C-5**: Add `mountPropagation: HostToContainer` to the `pools-base-dir` volumeMount in `plugin.yaml`
+- [x] **C-4**: Make the pool watcher compare the *validated* pool map (re-run btrfs/mountpoint checks each tick); add `IsMountpoint` to `Probe`
+- [x] **C-5**: Add `mountPropagation: HostToContainer` to the `pools-base-dir` volumeMount in `plugin.yaml`
 
 ### Bugs & Edge Cases
 

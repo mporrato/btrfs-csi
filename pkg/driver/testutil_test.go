@@ -186,7 +186,7 @@ func newTestDriver(t *testing.T) *Driver {
 // newTestDriverWithPath creates a Driver with a specific base path for testing.
 func newTestDriverWithPath(path string) *Driver {
 	ms, _ := newTestMultiStore(path)
-	d, err := NewDriver(&btrfs.MockManager{IsBtrfsFilesystemResult: true}, ms, "test-node")
+	d, err := NewDriver(&btrfs.MockManager{IsBtrfsFilesystemResult: true, IsMountpointResult: true}, ms, "test-node")
 	if err != nil {
 		panic(err)
 	}

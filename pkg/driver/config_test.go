@@ -3,6 +3,7 @@ package driver
 import (
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -92,6 +93,12 @@ func TestDiscoverPools_MissingDir(t *testing.T) {
 	}
 }
 
+// identityValidate returns its input unchanged; used by tests that don't
+// care about pool validation.
+func identityValidate(pools map[string]string) map[string]string {
+	return pools
+}
+
 func TestWatchPools_CallsReloadOnChange(t *testing.T) {
 	base := t.TempDir()
 	if err := os.Mkdir(filepath.Join(base, "default"), 0o755); err != nil {
@@ -99,7 +106,7 @@ func TestWatchPools_CallsReloadOnChange(t *testing.T) {
 	}
 
 	called := make(chan map[string]string, 2)
-	stop := WatchPools(base, 20, func(pools map[string]string) {
+	stop := WatchPools(base, 20, identityValidate, func(pools map[string]string) {
 		called <- pools
 	})
 	defer close(stop)
@@ -127,5 +134,80 @@ func TestWatchPools_CallsReloadOnChange(t *testing.T) {
 		}
 	case <-after(2000):
 		t.Fatal("timed out waiting for reload after pool addition")
+	}
+}
+
+// TestWatchPools_PicksUpPoolThatBecomesValidLater covers C-4: a pool
+// directory that exists at startup but fails validation (e.g. its
+// filesystem is not yet mounted) must be picked up once it becomes valid,
+// even though the raw directory listing never changes.
+func TestWatchPools_PicksUpPoolThatBecomesValidLater(t *testing.T) {
+	base := t.TempDir()
+	poolPath := filepath.Join(base, "default")
+	if err := os.Mkdir(poolPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// The first validate call is the synchronous seed at startup — it must
+	// see the pool as invalid (not yet mounted). Every later call (from
+	// ticks) sees it as valid, simulating a filesystem mounted after startup.
+	var calls atomic.Int32
+	validate := func(pools map[string]string) map[string]string {
+		if calls.Add(1) == 1 {
+			return map[string]string{}
+		}
+		return pools
+	}
+
+	called := make(chan map[string]string, 2)
+	stop := WatchPools(base, 20, validate, func(pools map[string]string) {
+		called <- pools
+	})
+	defer close(stop)
+
+	select {
+	case pools := <-called:
+		if len(pools) != 1 || pools["default"] != poolPath {
+			t.Errorf("after pool became valid, got %v, want {default: %q}", pools, poolPath)
+		}
+	case <-after(2000):
+		t.Fatal("timed out waiting for reload after pool became valid")
+	}
+}
+
+// TestWatchPools_DropsPoolThatBecomesInvalid covers C-4: a pool that was
+// valid at startup but becomes invalid at runtime (e.g. unmounted) must be
+// dropped, even though the raw directory listing never changes.
+func TestWatchPools_DropsPoolThatBecomesInvalid(t *testing.T) {
+	base := t.TempDir()
+	poolPath := filepath.Join(base, "default")
+	if err := os.Mkdir(poolPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// The first validate call is the synchronous seed at startup — it must
+	// see the pool as valid. Every later call (from ticks) sees it as
+	// invalid, simulating the filesystem being unmounted at runtime.
+	var calls atomic.Int32
+	validate := func(pools map[string]string) map[string]string {
+		if calls.Add(1) == 1 {
+			return pools
+		}
+		return map[string]string{}
+	}
+
+	called := make(chan map[string]string, 2)
+	stop := WatchPools(base, 20, validate, func(pools map[string]string) {
+		called <- pools
+	})
+	defer close(stop)
+
+	select {
+	case pools := <-called:
+		if len(pools) != 0 {
+			t.Errorf("after pool became invalid, got %v, want empty", pools)
+		}
+	case <-after(2000):
+		t.Fatal("timed out waiting for reload after pool became invalid")
 	}
 }

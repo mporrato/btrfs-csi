@@ -63,6 +63,15 @@ func (d *Driver) Probe(ctx context.Context, _ *csi.ProbeRequest) (*csi.ProbeResp
 			klog.V(2).InfoS("Probe: path is not on a btrfs filesystem", "path", p)
 			return &csi.ProbeResponse{Ready: wrapperspb.Bool(false)}, nil
 		}
+		mount, err := d.manager.IsMountpoint(ctx, p)
+		if err != nil {
+			klog.V(2).InfoS("Probe: mountpoint check failed", "path", p, "error", err)
+			return &csi.ProbeResponse{Ready: wrapperspb.Bool(false)}, nil
+		}
+		if !mount {
+			klog.V(2).InfoS("Probe: path is not a separate mountpoint", "path", p)
+			return &csi.ProbeResponse{Ready: wrapperspb.Bool(false)}, nil
+		}
 	}
 
 	klog.V(5).InfoS("Probe: healthy", "paths", paths)

@@ -33,14 +33,30 @@ func DiscoverPools(baseDir string) (map[string]string, error) {
 }
 
 // WatchPools polls baseDir every intervalMs milliseconds. On each poll it
-// discovers pools and compares the result to the last-seen pool map; if it
-// changed, it calls reload with the new map.
-func WatchPools(baseDir string, intervalMs int, reload func(map[string]string)) chan<- struct{} {
+// discovers pool subdirectories and passes the result through validate
+// (e.g. checking that each path is a btrfs filesystem mounted as a separate
+// mountpoint). If the validated pool map differs from the last-applied one,
+// it calls reload with the new map.
+//
+// Re-validating on every tick — rather than comparing the raw directory
+// listing — ensures pools that become valid after startup (e.g. a
+// filesystem that is mounted after the driver starts) are picked up, and
+// pools that become invalid at runtime (e.g. unmounted) are dropped before
+// further volume operations can target the wrong filesystem.
+func WatchPools(
+	baseDir string,
+	intervalMs int,
+	validate func(map[string]string) map[string]string,
+	reload func(map[string]string),
+) chan<- struct{} {
 	stop := make(chan struct{})
 	go func() {
 		// Seed lastPools so the first tick doesn't redundantly fire reload
 		// for config that initializeStores already processed at startup.
-		lastPools, _ := DiscoverPools(baseDir)
+		var lastPools map[string]string
+		if discovered, err := DiscoverPools(baseDir); err == nil {
+			lastPools = validate(discovered)
+		}
 		tick := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
 		defer tick.Stop()
 		for {
@@ -49,11 +65,14 @@ func WatchPools(baseDir string, intervalMs int, reload func(map[string]string)) 
 				return
 			case <-tick.C:
 			}
-			if pools, err := DiscoverPools(baseDir); err == nil {
-				if !maps.Equal(pools, lastPools) {
-					lastPools = pools
-					reload(pools)
-				}
+			discovered, err := DiscoverPools(baseDir)
+			if err != nil {
+				continue
+			}
+			valid := validate(discovered)
+			if !maps.Equal(valid, lastPools) {
+				lastPools = valid
+				reload(valid)
 			}
 		}
 	}()

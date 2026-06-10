@@ -331,6 +331,38 @@ else
     pass "Resources cleaned up"
 fi
 
+# ─── Runtime pool addition (C-4 / C-5 regression) ────────────────────────────
+#
+# RUNTIME_POOL_DIR (/var/lib/btrfs-csi/runtime by default) is created empty
+# *before* the driver starts (see minikube-up.sh / ci/setup.sh), so its
+# directory listing never changes. Here we bind-mount a fresh subvolume onto
+# it at runtime — the driver must re-validate and pick up the new pool on its
+# next poll without a restart, and the mount must be visible inside the
+# driver container (mountPropagation: HostToContainer).
+
+section "Runtime pool addition"
+
+if ! ${K} get storageclass "${RUNTIME_STORAGECLASS}" &>/dev/null; then
+    skip "StorageClass ${RUNTIME_STORAGECLASS} not found"
+else
+    RUNTIME_SUBVOL="${BTRFS_MOUNT_1}/.e2e-runtime-pool"
+
+    log "Creating subvolume ${RUNTIME_SUBVOL} and bind-mounting it onto ${RUNTIME_POOL_DIR}..."
+    ${EXEC} "sudo umount ${RUNTIME_POOL_DIR} 2>/dev/null || true; sudo btrfs subvolume delete ${RUNTIME_SUBVOL} 2>/dev/null || true; sudo btrfs subvolume create ${RUNTIME_SUBVOL} && sudo mount --bind ${RUNTIME_SUBVOL} ${RUNTIME_POOL_DIR}"
+
+    apply_pvc e2e-runtime-pvc "${RUNTIME_STORAGECLASS}" 64Mi
+
+    assert_pod_succeeds e2e-runtime-writer e2e-runtime-pvc \
+        "echo runtime-pool-data > /data/runtime.txt && cat /data/runtime.txt" \
+        "PVC on newly-mounted pool binds and writer pod succeeds"
+
+    delete_resources pvc/e2e-runtime-pvc
+
+    log "Unmounting and removing the runtime pool subvolume..."
+    ${EXEC} "sudo umount ${RUNTIME_POOL_DIR} && sudo btrfs subvolume delete ${RUNTIME_SUBVOL}"
+    pass "Resources cleaned up"
+fi
+
 # ─── Nodatacow volumes ───────────────────────────────────────────────────────
 
 section "Nodatacow — default CoW behavior"

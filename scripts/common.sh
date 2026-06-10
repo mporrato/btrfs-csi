@@ -39,6 +39,13 @@ fi
 # Secondary btrfs mount point (pool named "secondary", for multi-pool testing)
 : "${BTRFS_MOUNT_2:=${POOLS_DIR}/secondary}"
 
+# Runtime pool directory: created empty at cluster setup time (before the
+# driver starts) and later bind-mounted with a fresh subvolume by the e2e
+# suite, to exercise runtime pool addition (a pool directory that exists at
+# startup but only becomes a valid btrfs mountpoint later).
+: "${RUNTIME_POOL_NAME:=runtime}"
+: "${RUNTIME_POOL_DIR:=${POOLS_DIR}/${RUNTIME_POOL_NAME}}"
+
 # ─── Kubernetes and CSI Configuration ────────────────────────────────────────
 
 # Namespace for e2e tests
@@ -49,6 +56,9 @@ fi
 
 # Secondary storage class name (for multi-pool tests)
 : "${SECONDARY_STORAGECLASS:=btrfs-secondary}"
+
+# StorageClass backed by the runtime pool (see deploy/overlays/dev/storageclass-runtime.yaml)
+: "${RUNTIME_STORAGECLASS:=btrfs-runtime}"
 
 # ─── Shorthand Commands ──────────────────────────────────────────────────────
 

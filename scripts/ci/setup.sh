@@ -27,7 +27,7 @@ ${EXEC} "sudo bash -c '
   losetup \"\$LOOP2\" /tmp/btrfs2.img
   mkfs.btrfs -f \"\$LOOP1\"
   mkfs.btrfs -f \"\$LOOP2\"
-  mkdir -p ${BTRFS_MOUNT_1} ${BTRFS_MOUNT_2}
+  mkdir -p ${BTRFS_MOUNT_1} ${BTRFS_MOUNT_2} ${RUNTIME_POOL_DIR}
   mount \"\$LOOP1\" ${BTRFS_MOUNT_1}
   mount \"\$LOOP2\" ${BTRFS_MOUNT_2}
 '"

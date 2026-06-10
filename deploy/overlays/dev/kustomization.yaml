@@ -8,6 +8,7 @@ resources:
   - ../../base
   - storageclass-secondary.yaml
   - storageclass-nodatacow.yaml
+  - storageclass-runtime.yaml
   - snapshotclass-secondary.yaml
 components:
   - ../../components/snapshot-driver

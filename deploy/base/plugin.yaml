@@ -86,6 +86,7 @@ spec:
               mountPropagation: Bidirectional
             - name: pools-base-dir
               mountPath: /var/lib/btrfs-csi
+              mountPropagation: HostToContainer
 
         - name: liveness-probe
           image: registry.k8s.io/sig-storage/livenessprobe:v2.14.0
