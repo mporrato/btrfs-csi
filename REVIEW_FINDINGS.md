@@ -1,6 +1,6 @@
 # btrfs-csi Code Review Findings
 
-**Date**: 2026-04-16
+**Date**: 2026-04-16 (updated 2026-06-10 with findings C-4, C-5, B-7..B-11, Q-6, Q-7, G-5, G-6)
 **Reviewer**: Code Review
 **Scope**: Full codebase review — pkg/, cmd/, deploy/, scripts/, Makefile, go.mod
 **Go Version**: 1.26
@@ -11,7 +11,7 @@
 
 The implementation correctly addresses the stated goal — a single-node Kubernetes CSI driver for btrfs with subvolume management, snapshots, qgroup-based quota enforcement, and copy-on-write. The architecture is sound, the test coverage is comprehensive, and the code follows Go best practices in most areas.
 
-This review identifies **3 critical issues**, **6 bugs/edge cases**, **3 security concerns** (2 acknowledged as inherent to the model), **5 quality/maintainability gaps**, and **4 missing capabilities** that should be addressed before or after production use.
+This review identifies **5 critical issues**, **11 bugs/edge cases**, **3 security concerns** (2 acknowledged as inherent to the model), **7 quality/maintainability gaps**, and **6 missing capabilities** that should be addressed before or after production use. The 2026-04-16 findings C-1..C-3, B-1..B-6, S-1, Q-1, and Q-5 have been fixed; the 2026-06-10 follow-up review added C-4, C-5, B-7..B-11, Q-6, Q-7, G-5, and G-6.
 
 ---
 
@@ -100,6 +100,40 @@ func (d *Driver) SetPools(pools map[string]string) {
 Add a regression test that calls `ensureQuotaEnabled`, then `SetPools`, then verifies the next `ensureQuotaEnabled` call re-invokes the manager.
 
 **Status**: Fixed
+
+---
+
+### [ ] C-4: Pool watcher compares raw directory listing, never re-validates pools
+
+**Files**: `pkg/driver/config.go:38–61` (`WatchPools`), `cmd/btrfs-csi-driver/main.go:171–194` (`reloadPoolConfig`)
+
+**Description**: `WatchPools` fires `reload` only when the *raw* result of `DiscoverPools` (subdirectory name → path) changes. The validity checks — is the path a btrfs filesystem, is it a separate mountpoint — happen later, in `reloadPoolConfig` and `initializeStores`. Two failure modes follow:
+
+1. **A pool that becomes valid later is never picked up.** If a pool directory exists at startup but its btrfs filesystem is not yet mounted (driver pod starts before the mount unit), the pool is skipped. The directory listing never changes afterward, so no reload ever fires and the pool stays unusable until the driver restarts. This contradicts the documented behavior ("discovers pools by scanning subdirectories at startup and every 30 s").
+
+2. **A pool that becomes invalid is never dropped — silent data misplacement.** If a pool's filesystem is *unmounted* at runtime, the directory listing is again unchanged, so the driver keeps the pool. The next `CreateVolume` runs `btrfs subvolume create` against the directory on the **parent** filesystem, which silently succeeds when the host root is btrfs (the default on Fedora). Volumes land on the wrong filesystem with no error. `Probe` does not catch this either: it checks `IsBtrfsFilesystem` but not `IsMountpoint`.
+
+**Remediation**: Have the watcher compare the *validated* pool map: re-run the btrfs/mountpoint checks on every tick (they are cheap `statfs`/`stat` calls) and call `reload` whenever the validated map differs from the last applied one. Additionally, add `IsMountpoint` to the `Probe` checks so an unmounted pool marks the driver unready.
+
+**Status**: Open
+
+---
+
+### [ ] C-5: pools-base-dir volume mount lacks HostToContainer mount propagation
+
+**File**: `deploy/base/plugin.yaml:87–88`
+
+**Description**: The `pools-base-dir` volumeMount uses the default `mountPropagation: None`, so any btrfs filesystem mounted on the host under `/var/lib/btrfs-csi` *after* the driver pod starts is invisible inside the container. Even with C-4 fixed, runtime pool addition cannot work: the driver would see the directory but never the mounted filesystem, and would classify the pool as "not a separate mountpoint" forever (or worse, write to the parent filesystem).
+
+**Remediation**:
+
+```yaml
+- name: pools-base-dir
+  mountPath: /var/lib/btrfs-csi
+  mountPropagation: HostToContainer
+```
+
+**Status**: Open
 
 ---
 
@@ -272,6 +306,96 @@ filtered := make([]*state.Snapshot, 0, len(all))
 ```
 
 This is clearer to readers, preserves the original reason for the trick (avoid aliasing), and lets the compiler infer the same allocation behavior.
+
+**Status**: Fixed — `ListSnapshots` now uses `make([]*state.Snapshot, 0, len(all))`
+
+---
+
+### [ ] B-7: CapacityRange with only limit_bytes produces an unquoted volume
+
+**File**: `pkg/driver/controller.go:720–729` (`capacityFromRange`)
+
+**Description**: `capacityFromRange` returns `RequiredBytes`. When a CO sends `CapacityRange{LimitBytes: N}` with no `RequiredBytes` (which the CSI spec permits), the volume is created with `CapacityBytes: 0` and **no qgroup limit** — it can grow past N, violating the spec requirement that the volume "MUST NOT be larger than limit_bytes". The same flaw affects `ControllerExpandVolume`: a limit-only expand request is treated as "nothing to do".
+
+**Remediation**: Fall back to `LimitBytes` when `RequiredBytes` is zero:
+
+```go
+func capacityFromRange(cr *csi.CapacityRange) (int64, error) {
+    if cr == nil {
+        return 0, nil
+    }
+    if cr.LimitBytes > 0 && cr.RequiredBytes > cr.LimitBytes {
+        return 0, status.Errorf(codes.InvalidArgument,
+            "required bytes %d exceeds limit bytes %d", cr.RequiredBytes, cr.LimitBytes)
+    }
+    if cr.RequiredBytes == 0 {
+        return cr.LimitBytes, nil // limit-only range: provision at the limit
+    }
+    return cr.RequiredBytes, nil
+}
+```
+
+**Status**: Open
+
+---
+
+### [ ] B-8: CreateVolume idempotency check ignores the pool
+
+**File**: `pkg/driver/controller.go:291–311` (`checkExistingVolume`)
+
+**Description**: `checkExistingVolume` compares content source, capacity range, and cow setting — but not `BasePath`. A `CreateVolume` for an existing name with a *different* `pool` parameter returns the existing volume in the old pool as success, silently ignoring the requested pool. The snapshot path already gets this right: `findExistingSnapshot` returns `AlreadyExists` when `existing.BasePath != basePath`.
+
+**Remediation**: Resolve `basePath` before the idempotency check and compare it, mirroring `findExistingSnapshot`:
+
+```go
+if existing.BasePath != basePath {
+    return nil, status.Errorf(codes.AlreadyExists,
+        "volume %q already exists in a different pool", req.Name)
+}
+```
+
+**Status**: Open
+
+---
+
+### [ ] B-9: Unsynchronized access to d.grpcServer; shutdown can hang if SIGTERM races startup
+
+**Files**: `pkg/driver/driver.go:251` (`Run`), `pkg/driver/driver.go:318–345` (`Stop`)
+
+**Description**: `Run()` writes `d.grpcServer = srv` on the server goroutine while `Stop()` reads it from the signal-handling goroutine with no synchronization — a data race. Worse, if SIGTERM lands in the window before the assignment, `Stop()` sees nil and returns immediately, `Serve` keeps running, and `runWithContext` blocks forever on `<-errCh` (the pod then needs SIGKILL after the termination grace period).
+
+**Remediation**: Construct the gRPC server before the serving goroutine starts (e.g. split `Run` into a synchronous setup phase and a blocking `Serve` phase, or guard the field with a mutex and have `Stop` wait for the server to appear once `Run` has been entered).
+
+**Status**: Open
+
+---
+
+### [ ] B-10: parseQgroupShow requires ≥5 columns — fragile across btrfs-progs versions
+
+**File**: `pkg/btrfs/real.go:364–393` (`parseQgroupShow`)
+
+**Description**: The parser skips any line with fewer than 5 whitespace-separated fields, but `btrfs qgroup show -r --raw` prints only 4 data columns (qgroupid, rfer, excl, max_rfer) on btrfs-progs versions that do not append the `path` column. On such versions every line is skipped and `GetQgroupUsage` always fails with "qgroup not found", breaking snapshot sizing and `NodeGetVolumeStats`.
+
+**Remediation**: Relax the check to `len(fields) < 4` (only indexes 0–3 are used), and add unit-test fixtures for both the 4-column and 5-column (with `path`) output formats.
+
+**Status**: Open
+
+---
+
+### [ ] B-11: doSendReceive leaks pipe FDs when receive fails to start
+
+**File**: `pkg/btrfs/real.go:142–152` (`doSendReceive`)
+
+**Description**: `sendCmd.StdoutPipe()` is created before `receiveCmd.Start()`. If `Start` fails, `sendCmd` is never started or waited on, so both ends of the pipe linger until garbage collection. Same class of leak as the fixed B-3, on a different error path.
+
+**Remediation**: Close the pipe explicitly on that error path:
+
+```go
+if err := receiveCmd.Start(); err != nil {
+    _ = sendStdout.Close()
+    return fmt.Errorf("start receive: %w", err)
+}
+```
 
 **Status**: Open
 
@@ -493,6 +617,38 @@ This ripples to every caller of `newTestDriver()`, `newTestDriverWithMock()`, an
 
 ---
 
+### [ ] Q-6: Misleading comment — MultiStore.ReloadPaths drops AddPath errors silently
+
+**File**: `pkg/state/state.go:493`
+
+**Description**: `_ = ms.AddPath(p) // idempotent; logs errors internally` — `AddPath` does **not** log. A pool whose `state.json` fails to open (corruption, oversized file, permissions) is silently absent from the registry; the operator gets no signal until volume operations on that pool fail with "no store registered".
+
+**Remediation**: Log the error at the call site:
+
+```go
+if err := ms.AddPath(p); err != nil {
+    klog.ErrorS(err, "ReloadPaths: failed to open store", "path", p)
+}
+```
+
+(`pkg/state` currently has no klog dependency; alternatively return the errors and log them from `reloadPoolConfig`.)
+
+**Status**: Open
+
+---
+
+### [ ] Q-7: Driver image pinned to mutable "stable" tag with IfNotPresent
+
+**Files**: `deploy/base/kustomization.yaml` (`newTag: stable`), `deploy/base/plugin.yaml:38` (`imagePullPolicy: IfNotPresent`)
+
+**Description**: A mutable tag combined with `IfNotPresent` means a node that already has *any* image tagged `stable` will keep running it indefinitely, and there is no way to tell from the manifest which build is actually deployed. Releases that re-push `stable` silently do not roll out.
+
+**Remediation**: Pin releases by version tag (set via `kustomize edit set image` during release) or by digest. Keep `stable` only for the dev overlay if convenient.
+
+**Status**: Open
+
+---
+
 ## Gaps
 
 > **Missing capabilities or documentation. These are not bugs but represent areas where the driver could be improved.**
@@ -601,6 +757,30 @@ The existing `scripts/` runner already has patterns for loopback btrfs setup tha
 
 ---
 
+### [ ] G-5: GetCapacity does not account for committed qgroup limits
+
+**File**: `pkg/driver/controller.go:57–71` (`GetCapacity`)
+
+**Description**: `GetCapacity` reports the raw filesystem `Available` figure. With `--enable-capacity`, the external-provisioner uses this to gate provisioning — but the sum of existing qgroup limits is not subtracted, so the driver happily over-commits: 10 volumes of 100 GiB each fit on a 200 GiB pool as long as they are mostly empty. That may be intended (thin provisioning), but it contradicts the stated goal of "preventing over-provisioning".
+
+**Remediation**: Since every volume's `CapacityBytes` is tracked in the store, subtract total provisioned-but-unused capacity per pool from `Available` (floor at 0). Alternatively, document explicitly that capacity is thin-provisioned and the `CSIStorageCapacity` objects only reflect physical free space.
+
+**Status**: Open
+
+---
+
+### [ ] G-6: Node EXPAND_VOLUME capability is advertised but inert
+
+**Files**: `pkg/driver/node.go:264–270` (`NodeGetCapabilities`), `pkg/driver/controller.go:521–524` (`ControllerExpandVolume`)
+
+**Description**: `ControllerExpandVolume` always returns `NodeExpansionRequired: false`, so kubelet never calls `NodeExpandVolume`. Advertising the node `EXPAND_VOLUME` capability keeps a code path alive that exists only to satisfy it.
+
+**Remediation**: Drop the node capability and the `NodeExpandVolume` implementation (the embedded `UnimplementedNodeServer` then returns the correct `Unimplemented` code), or keep it deliberately and document why.
+
+**Status**: Open
+
+---
+
 ## Remediation checklist
 
 ### Critical Issues (Must Fix)
@@ -608,6 +788,8 @@ The existing `scripts/` runner already has patterns for loopback btrfs setup tha
 - [x] **C-1**: Use `defer close(configStop)` after `WatchPools` so the goroutine is stopped on every return path in `runWithContext`
 - [x] **C-2**: Thread `context.Context` through `btrfs.Manager` and use `exec.CommandContext` in `runCommand`
 - [x] **C-3**: Invalidate `quotaEnabled` in `SetPools`; add regression test
+- [ ] **C-4**: Make the pool watcher compare the *validated* pool map (re-run btrfs/mountpoint checks each tick); add `IsMountpoint` to `Probe`
+- [ ] **C-5**: Add `mountPropagation: HostToContainer` to the `pools-base-dir` volumeMount in `plugin.yaml`
 
 ### Bugs & Edge Cases
 
@@ -617,6 +799,11 @@ The existing `scripts/` runner already has patterns for loopback btrfs setup tha
 - [x] **B-4**: Introduce a shared reconfiguration lock so `ReloadPaths` and `SetPools` are atomic from the RPC handler's perspective (simply swapping order is not sufficient)
 - [x] **B-5**: Add `validatePathInKubeletDir(req.GetVolumePath())` to `NodeExpandVolume` for consistency with other node RPCs
 - [x] **B-6**: Replace `all[:0:0]` with `make([]*state.Snapshot, 0, len(all))` in `ListSnapshots`
+- [ ] **B-7**: Fall back to `LimitBytes` in `capacityFromRange` when `RequiredBytes` is zero so limit-only ranges get a qgroup limit
+- [ ] **B-8**: Compare `existing.BasePath` against the resolved pool in `checkExistingVolume`, mirroring `findExistingSnapshot`
+- [ ] **B-9**: Synchronize access to `d.grpcServer` (construct the server before the serving goroutine starts)
+- [ ] **B-10**: Relax `parseQgroupShow` to accept 4-column output; add fixtures for both btrfs-progs output formats
+- [ ] **B-11**: Close `sendStdout` when `receiveCmd.Start()` fails in `doSendReceive`
 
 ### Security Concerns
 
@@ -631,6 +818,8 @@ The existing `scripts/` runner already has patterns for loopback btrfs setup tha
 - [ ] **Q-3**: Add opt-in periodic reconciliation of state against on-disk subvolumes; default to log-only, not auto-delete
 - [ ] **Q-4**: Replace `sed` in Makefile `deploy` target with kustomize `replacements` targeting specific field paths
 - [x] **Q-5**: Refactor `newTestDriver*` helpers to accept `*testing.T` and use `t.TempDir()`; update all callers
+- [ ] **Q-6**: Log (or surface) `AddPath` errors in `MultiStore.ReloadPaths`; fix the misleading comment
+- [ ] **Q-7**: Pin the driver image by version tag or digest instead of the mutable `stable` tag
 
 ### Gaps
 
@@ -638,3 +827,5 @@ The existing `scripts/` runner already has patterns for loopback btrfs setup tha
 - [ ] **G-2**: Document fallback behavior in the README; add optional `--default-volume-capacity` flag
 - [ ] **G-3**: Document qgroup accounting delay; optionally retry `GetQgroupUsage` once after 500 ms when result is 0
 - [ ] **G-4**: Add `//go:build integration` tests exercising the full `sendReceive` path on real btrfs loop devices; add `make test-integration`
+- [ ] **G-5**: Subtract committed-but-unused qgroup capacity in `GetCapacity`, or document thin-provisioning semantics
+- [ ] **G-6**: Drop the inert node `EXPAND_VOLUME` capability and `NodeExpandVolume`, or document why they are kept
