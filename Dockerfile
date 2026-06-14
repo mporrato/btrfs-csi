@@ -16,7 +16,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
     -o /bin/btrfs-csi-driver ./cmd/btrfs-csi-driver/
 
 # Stage 2: Runtime — uses QEMU only for apk on non-native platforms
-FROM alpine:3.23
+FROM alpine:3.24
 
 RUN apk add --no-cache \
     btrfs-progs \
