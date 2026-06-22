@@ -6,8 +6,8 @@ require (
 	github.com/container-storage-interface/spec v1.12.0
 	github.com/google/uuid v1.6.0
 	github.com/kubernetes-csi/csi-test/v5 v5.4.0
-	github.com/onsi/ginkgo/v2 v2.30.0
-	github.com/onsi/gomega v1.41.0
+	github.com/onsi/ginkgo/v2 v2.31.0
+	github.com/onsi/gomega v1.42.0
 	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.11
 	k8s.io/klog/v2 v2.140.0
