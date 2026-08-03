@@ -10,18 +10,17 @@ env:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   code-checks:
     name: Code Checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.26'
-      - uses: golangci/golangci-lint-action@v9
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.11.3
       - name: go fmt
@@ -40,14 +39,19 @@ jobs:
             git diff go.mod go.sum
             exit 1
           fi
+      - name: govulncheck
+        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1
+        with:
+          go-version-file: go.mod
+          repo-checkout: false
 
   unit-test:
     name: Unit Tests
     needs: code-checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.26'
       - name: Run unit tests
@@ -58,8 +62,8 @@ jobs:
     needs: code-checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.26'
       - name: Set up btrfs loop device
@@ -80,15 +84,15 @@ jobs:
     needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - name: Compute version
         id: ver
         run: echo "value=$(git describe --tags --always --dirty)" >> $GITHUB_OUTPUT
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/metadata-action@v6
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         id: meta
         with:
           images: ${{ env.IMAGE_NAME }}
@@ -98,7 +102,7 @@ jobs:
             type=semver,pattern=v{{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
       - name: Build image (no push)
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -114,8 +118,11 @@ jobs:
     if: github.ref == 'refs/tags/stable'
     needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - name: Find versioned tag at HEAD
@@ -124,8 +131,8 @@ jobs:
           tag=$(git tag --points-at HEAD | grep '^v' | sort -V | tail -1)
           [ -n "$tag" ] || { echo "No v* tag found at HEAD"; exit 1; }
           echo "tag=$tag" >> $GITHUB_OUTPUT
-      - uses: imjasonh/setup-crane@v0.7
-      - uses: docker/login-action@v4
+      - uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -138,21 +145,24 @@ jobs:
     if: github.ref != 'refs/tags/stable'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - name: Compute version
         id: ver
         run: echo "value=$(git describe --tags --always --dirty)" >> $GITHUB_OUTPUT
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v6
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         id: meta
         with:
           images: ${{ env.IMAGE_NAME }}
@@ -162,7 +172,7 @@ jobs:
             type=semver,pattern=v{{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
       - name: Build and push image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64

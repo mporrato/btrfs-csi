@@ -4,6 +4,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 10
     groups:
       actions:
         patterns:
@@ -21,6 +23,8 @@ updates:
       - dependency-name: "github.com/container-storage-interface/spec"
         versions:
           - ">= 1.13.0"
+    cooldown:
+      default-days: 10
     groups:
       dependencies:
         patterns:
@@ -30,6 +34,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 10
     groups:
       images:
         patterns:

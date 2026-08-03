@@ -49,6 +49,14 @@ repos:
         require_serial: true
         pass_filenames: false
 
+      - id: govulncheck
+        name: govulncheck
+        entry: env GOTOOLCHAIN=auto govulncheck ./...
+        language: system
+        types: [go]
+        require_serial: true
+        pass_filenames: false
+
       - id: shellcheck
         name: shellcheck
         entry: shellcheck
