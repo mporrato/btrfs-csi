@@ -13,6 +13,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # CSI spec v1.13.0 removed the alpha VolumeCondition API, but csi-test/v5
+      # (latest v5.5.0) still hard-references it and fails to compile under the
+      # integration build tag. Drop this ignore once csi-test/v5 ships a release
+      # built against spec v1.13.0+.
+      - dependency-name: "github.com/container-storage-interface/spec"
+        versions:
+          - ">= 1.13.0"
     groups:
       dependencies:
         patterns:
