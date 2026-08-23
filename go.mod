@@ -6,12 +6,12 @@ require (
 	github.com/container-storage-interface/spec v1.12.0
 	github.com/google/uuid v1.6.0
 	github.com/kubernetes-csi/csi-test/v5 v5.5.0
-	github.com/onsi/ginkgo/v2 v2.32.0
+	github.com/onsi/ginkgo/v2 v2.32.1
 	github.com/onsi/gomega v1.42.1
 	google.golang.org/grpc v1.83.0
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 	k8s.io/klog/v2 v2.140.0
-	k8s.io/mount-utils v0.36.3
+	k8s.io/mount-utils v0.36.4
 )
 
 require (
