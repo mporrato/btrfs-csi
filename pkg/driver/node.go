@@ -254,13 +254,7 @@ func (d *Driver) NodeGetCapabilities(_ context.Context,
 					},
 				},
 			},
-			{
-				Type: &csi.NodeServiceCapability_Rpc{
-					Rpc: &csi.NodeServiceCapability_RPC{
-						Type: csi.NodeServiceCapability_RPC_VOLUME_CONDITION,
-					},
-				},
-			},
+
 			{
 				Type: &csi.NodeServiceCapability_Rpc{
 					Rpc: &csi.NodeServiceCapability_RPC{
@@ -327,12 +321,6 @@ func (d *Driver) NodeGetVolumeStats(ctx context.Context,
 		}
 	}
 
-	condition := &csi.VolumeCondition{Message: "volume is healthy"}
-	if _, err := os.Stat(vol.Path()); err != nil {
-		condition.Abnormal = true
-		condition.Message = "subvolume path does not exist on disk"
-	}
-
 	return &csi.NodeGetVolumeStatsResponse{
 		Usage: []*csi.VolumeUsage{
 			{
@@ -343,7 +331,6 @@ func (d *Driver) NodeGetVolumeStats(ctx context.Context,
 				Unit:      csi.VolumeUsage_BYTES,
 			},
 		},
-		VolumeCondition: condition,
 	}, nil
 }
 

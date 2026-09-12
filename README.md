@@ -497,6 +497,14 @@ btrfs filesystem usage /var/lib/btrfs-csi/default
 - Delete unused volumes/snapshots to free quota
 - Expand the PVC if more space is needed
 
+### Volume health
+
+The driver does not report an explicit health condition (the CSI `VolumeCondition` API was removed from the spec in v1.13.0). Volume health is implied by standard channels:
+
+- `NodeGetVolumeStats` returns `NotFound` for a deleted/unmounted volume or `Internal` on qgroup errors; kubelet surfaces these as pod events.
+- A qgroup-limited volume that is full reports `Available: 0` in stats; writes fail with `ENOSPC` inside the pod.
+- Check recent events with `kubectl describe pod <name>` and `kubectl get events`.
+
 ## Development
 
 ### Building from Source
