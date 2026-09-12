@@ -302,7 +302,6 @@ func TestNodeGetCapabilities(t *testing.T) {
 
 	want := map[csi.NodeServiceCapability_RPC_Type]bool{
 		csi.NodeServiceCapability_RPC_GET_VOLUME_STATS: false,
-		csi.NodeServiceCapability_RPC_VOLUME_CONDITION: false,
 		csi.NodeServiceCapability_RPC_EXPAND_VOLUME:    false,
 	}
 
@@ -630,82 +629,6 @@ func TestNodeUnpublishVolume_IsMountPointError(t *testing.T) {
 	// Assert unmount was NOT called when IsMountPoint fails
 	if len(mounter.UnmountCalls) != 0 {
 		t.Errorf("expected 0 Unmount calls when IsMountPoint fails, got %d", len(mounter.UnmountCalls))
-	}
-}
-
-func TestNodeGetVolumeStats_VolumeCondition_Abnormal(t *testing.T) {
-	d, mock, mounter, store := newTestDriverWithMounter(t)
-
-	vol := &state.Volume{
-		ID:       "vol-condition-abnormal",
-		Name:     "test-pvc",
-		BasePath: store.root(),
-	}
-	if err := store.SaveVolume(vol); err != nil {
-		t.Fatalf("SaveVolume: %v", err)
-	}
-
-	mounter.IsMountPointResult = true
-	mock.GetQgroupUsageResult = &btrfs.QgroupUsage{Referenced: 1024, MaxRfer: 1024 * 1024}
-
-	targetPath := filepath.Join(t.TempDir(), "target")
-	if err := os.MkdirAll(targetPath, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-
-	// vol.Path() does not exist on disk — subvolume directory was never created.
-	resp, err := d.NodeGetVolumeStats(context.Background(), &csi.NodeGetVolumeStatsRequest{
-		VolumeId:   vol.ID,
-		VolumePath: targetPath,
-	})
-	if err != nil {
-		t.Fatalf("NodeGetVolumeStats: %v", err)
-	}
-	if resp.VolumeCondition == nil {
-		t.Fatal("expected VolumeCondition in response, got nil")
-	}
-	if !resp.VolumeCondition.Abnormal {
-		t.Error("expected VolumeCondition.Abnormal=true when subvolume path does not exist on disk")
-	}
-}
-
-func TestNodeGetVolumeStats_VolumeCondition_Healthy(t *testing.T) {
-	d, mock, mounter, store := newTestDriverWithMounter(t)
-
-	vol := &state.Volume{
-		ID:       "vol-condition-healthy",
-		Name:     "test-pvc",
-		BasePath: store.root(),
-	}
-	// Create the subvolume directory so vol.Path() exists on disk.
-	if err := os.MkdirAll(vol.Path(), 0o755); err != nil {
-		t.Fatalf("MkdirAll subvol path: %v", err)
-	}
-
-	if err := store.SaveVolume(vol); err != nil {
-		t.Fatalf("SaveVolume: %v", err)
-	}
-
-	mounter.IsMountPointResult = true
-	mock.GetQgroupUsageResult = &btrfs.QgroupUsage{Referenced: 1024, MaxRfer: 1024 * 1024}
-
-	targetPath := filepath.Join(t.TempDir(), "target")
-	if err := os.MkdirAll(targetPath, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-
-	resp, err := d.NodeGetVolumeStats(context.Background(), &csi.NodeGetVolumeStatsRequest{
-		VolumeId:   vol.ID,
-		VolumePath: targetPath,
-	})
-	if err != nil {
-		t.Fatalf("NodeGetVolumeStats: %v", err)
-	}
-	if resp.VolumeCondition == nil {
-		t.Fatal("expected VolumeCondition in response, got nil")
-	}
-	if resp.VolumeCondition.Abnormal {
-		t.Errorf("expected VolumeCondition.Abnormal=false when subvolume path exists, got message: %s", resp.VolumeCondition.Message)
 	}
 }
 

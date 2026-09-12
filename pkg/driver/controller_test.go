@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -713,9 +712,6 @@ func TestControllerGetVolume_Success(t *testing.T) {
 	if resp.Volume.VolumeId != "vol-abc" {
 		t.Errorf("VolumeId = %q, want vol-abc", resp.Volume.VolumeId)
 	}
-	if resp.Status == nil {
-		t.Fatal("expected Status to be set")
-	}
 }
 
 func TestControllerGetVolume_NotFound(t *testing.T) {
@@ -733,51 +729,6 @@ func TestControllerGetVolume_MissingID(t *testing.T) {
 	_, err := d.ControllerGetVolume(context.Background(), &csi.ControllerGetVolumeRequest{})
 	if code := status.Code(err); code != codes.InvalidArgument {
 		t.Errorf("expected InvalidArgument, got %v", code)
-	}
-}
-
-func TestControllerGetVolume_AbnormalWhenPathMissing(t *testing.T) {
-	d, _, store := newTestDriverWithMock(t)
-	vol := &state.Volume{
-		ID:       "vol-missing",
-		Name:     "test-pvc",
-		BasePath: "/nonexistent/base",
-	}
-	if err := store.SaveVolume(vol); err != nil {
-		t.Fatalf("SaveVolume: %v", err)
-	}
-
-	resp, err := d.ControllerGetVolume(context.Background(), &csi.ControllerGetVolumeRequest{VolumeId: "vol-missing"})
-	if err != nil {
-		t.Fatalf("ControllerGetVolume: %v", err)
-	}
-	if !resp.Status.VolumeCondition.Abnormal {
-		t.Error("expected Abnormal=true when subvolume path does not exist")
-	}
-}
-
-func TestControllerGetVolume_NormalWhenPathExists(t *testing.T) {
-	d, _, store := newTestDriverWithMock(t)
-	vol := &state.Volume{
-		ID:       "vol-exists",
-		Name:     "test-pvc",
-		BasePath: store.root(),
-	}
-	// Create the subvolume directory so os.Stat succeeds.
-	if err := os.MkdirAll(vol.Path(), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(vol.Path()) })
-	if err := store.SaveVolume(vol); err != nil {
-		t.Fatalf("SaveVolume: %v", err)
-	}
-
-	resp, err := d.ControllerGetVolume(context.Background(), &csi.ControllerGetVolumeRequest{VolumeId: "vol-exists"})
-	if err != nil {
-		t.Fatalf("ControllerGetVolume: %v", err)
-	}
-	if resp.Status.VolumeCondition.Abnormal {
-		t.Errorf("expected Abnormal=false when subvolume path exists, got message: %s", resp.Status.VolumeCondition.Message)
 	}
 }
 

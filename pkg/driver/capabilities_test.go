@@ -29,7 +29,6 @@ func TestControllerGetCapabilities(t *testing.T) {
 		csi.ControllerServiceCapability_RPC_LIST_VOLUMES:           false,
 		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS:         false,
 		csi.ControllerServiceCapability_RPC_GET_VOLUME:             false,
-		csi.ControllerServiceCapability_RPC_VOLUME_CONDITION:       false,
 	}
 
 	for _, cap := range resp.Capabilities {

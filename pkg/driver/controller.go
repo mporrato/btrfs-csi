@@ -41,7 +41,6 @@ func (d *Driver) ControllerGetCapabilities(_ context.Context,
 		csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
 		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
 		csi.ControllerServiceCapability_RPC_GET_VOLUME,
-		csi.ControllerServiceCapability_RPC_VOLUME_CONDITION,
 	}
 	out := make([]*csi.ControllerServiceCapability, 0, len(caps))
 	for _, c := range caps {
@@ -175,16 +174,8 @@ func (d *Driver) ControllerGetVolume(_ context.Context,
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "volume %s not found", req.VolumeId)
 	}
-	condition := &csi.VolumeCondition{Message: "volume is healthy"}
-	if _, err := os.Stat(vol.Path()); err != nil {
-		condition.Abnormal = true
-		condition.Message = "subvolume path does not exist on disk"
-	}
 	return &csi.ControllerGetVolumeResponse{
 		Volume: toCSIVolume(vol, d.nodeID),
-		Status: &csi.ControllerGetVolumeResponse_VolumeStatus{
-			VolumeCondition: condition,
-		},
 	}, nil
 }
 
